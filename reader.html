@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Reader</title>
+  <link rel="stylesheet" href="assets/reader.css">
+</head>
+<body>
+  <div class="reader-shell">
+    <header class="reader-toolbar">
+      <a class="toolbar-button" href="index.html">Back</a>
+      <div class="reader-title">
+        <span id="readerKicker">Paper</span>
+        <strong id="readerTitle">Loading...</strong>
+      </div>
+    </header>
+
+    <main class="reader-layout" id="readerLayout">
+      <section class="pdf-pane" aria-label="PDF viewer">
+        <iframe id="pdfFrame" title="PDF"></iframe>
+      </section>
+
+      <div class="reader-resizer" id="readerResizer" role="separator" aria-label="Resize PDF and note panes" aria-orientation="vertical" tabindex="0"></div>
+
+      <aside class="note-pane" aria-label="Paper note">
+        <article class="note-page" id="notePage"></article>
+      </aside>
+    </main>
+
+    <main class="reader-error" id="readerError" hidden>
+      <p class="error-kicker">Paper not found</p>
+      <h1>Could not open this paper.</h1>
+      <a class="toolbar-button" href="index.html">Back to library</a>
+    </main>
+  </div>
+
+  <script src="assets/note.js"></script>
+  <script src="assets/reader.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "categories": [
+    {
+      "id": "all",
+      "name": "All Notes",
+      "parentId": null,
+      "order": 0,
+      "system": true
+    },
+    {
+      "id": "uncategorized",
+      "name": "Uncategorized",
+      "parentId": null,
+      "order": 1,
+      "system": true
+    }
+  ],
+  "notes": [
+    {
+      "id": "pdf-dive-into-claude-code-mocz5j2h",
+      "title": "Dive into Claude Code",
+      "href": "Papers/Dive%20into%20Claude%20Code.pdf",
+      "htmlHref": "Paper-html/Dive%20into%20Claude%20Code.html",
+      "pdfStorageKey": "",
+      "date": "2026-04-24",
+      "categoryId": "uncategorized",
+      "venue": "",
+      "summary": "",
+      "tags": []
+    }
+  ]
+}
