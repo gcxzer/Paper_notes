@@ -4,9 +4,13 @@ Paper Notes is a local HTML-first paper reading workspace. It keeps PDFs and not
 
 ## Preview
 
-The HTML note area supports regular images and diagrams. For example, this architecture image is embedded from the local `assets/` folder:
+Paper Notes opens a PDF and its matching HTML note side by side:
 
-![Claude Code architecture overview](assets/claude_code_architecture.png)
+![Paper Notes split reader preview](assets/paper-notes-reader-preview.png)
+
+The library view keeps imported papers, collections, and paper actions in one place:
+
+![Paper Notes library preview](assets/paper-notes-library-preview.png)
 
 ## Quick Start
 
@@ -90,7 +94,7 @@ Use normal relative paths when adding images to a note:
 ```html
 <section class="note-body">
   <h2>Overview</h2>
-  <img src="../assets/claude_code_architecture.png" alt="Claude Code architecture overview">
+  <img src="../assets/your-image.png" alt="Describe this image">
 </section>
 ```
 
