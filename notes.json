@@ -15,30 +15,5 @@
       "system": true
     }
   ],
-  "notes": [
-    {
-      "id": "pdf-dive-into-claude-code-mod5bta8",
-      "title": "Dive into Claude Code",
-      "href": "Papers/Dive%20into%20Claude%20Code.pdf",
-      "htmlHref": "Paper-html/Dive%20into%20Claude%20Code.html",
-      "pdfStorageKey": "",
-      "date": "2026-04-24",
-      "categoryId": "uncategorized",
-      "venue": "",
-      "summary": "",
-      "tags": []
-    },
-    {
-      "id": "pdf-deepseek-v4-mod5ennd",
-      "title": "DeepSeek V4",
-      "href": "Papers/DeepSeek-V4.pdf",
-      "htmlHref": "Paper-html/DeepSeek-V4.html",
-      "pdfStorageKey": "",
-      "date": "2026-04-24",
-      "categoryId": "uncategorized",
-      "venue": "",
-      "summary": "",
-      "tags": []
-    }
-  ]
+  "notes": []
 }

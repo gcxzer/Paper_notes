@@ -1,4 +1,4 @@
-const STORAGE_KEY = "paper-notes-library-v12";
+const STORAGE_KEY = "paper-notes-library-v13";
 const EXPANDED_KEY = "paper-notes-expanded-v1";
 const LAYOUT_KEY = "paper-notes-layout-v1";
 const SORT_KEY = "paper-notes-sort-v1";
@@ -6,7 +6,7 @@ const FILE_DB_NAME = "paper-notes-files-v1";
 const FILE_STORE_NAME = "paper-files";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
-const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11"];
+const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11", "paper-notes-library-v12"];
 
 LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
 
@@ -223,6 +223,7 @@ function sanitizeLibrary(rawLibrary) {
       htmlHref: normalizeText(note.htmlHref),
       pdfStorageKey: normalizeText(note.pdfStorageKey),
       date: normalizeText(note.date) || "",
+      order: Number.isFinite(Number(note.order)) ? Number(note.order) : index,
       categoryId: leafIds.has(requestedCategoryId) ? requestedCategoryId : UNCATEGORIZED_ID,
       venue: normalizeText(note.venue),
       summary: normalizeText(note.summary),
@@ -357,13 +358,15 @@ function getVisibleNotes() {
 
 function sortNotes(notes) {
   return [...notes].sort((left, right) => {
+    const leftOrder = Number.isFinite(Number(left.order)) ? Number(left.order) : state.library.notes.indexOf(left);
+    const rightOrder = Number.isFinite(Number(right.order)) ? Number(right.order) : state.library.notes.indexOf(right);
     if (state.sortMode === "date-asc") {
-      return (left.date || "").localeCompare(right.date || "") || left.title.localeCompare(right.title);
+      return (left.date || "").localeCompare(right.date || "") || leftOrder - rightOrder || left.title.localeCompare(right.title);
     }
     if (state.sortMode === "title-asc") {
       return left.title.localeCompare(right.title) || (right.date || "").localeCompare(left.date || "");
     }
-    return (right.date || "").localeCompare(left.date || "") || left.title.localeCompare(right.title);
+    return (right.date || "").localeCompare(left.date || "") || leftOrder - rightOrder || left.title.localeCompare(right.title);
   });
 }
 
@@ -900,9 +903,18 @@ async function importPdfFiles(files) {
   if (!pdfFiles.length) return;
 
   const categoryId = getDefaultImportCategoryId();
-  const importedNotes = await Promise.all(pdfFiles.map((file) => importPdfWithServer(file, categoryId)));
+  const importedNotes = [];
+  for (const file of pdfFiles) {
+    importedNotes.push(await importPdfWithServer(file, categoryId));
+  }
 
   updateLibrary((library) => {
+    const nextOrder = library.notes.reduce((max, note, index) => (
+      Math.max(max, Number.isFinite(Number(note.order)) ? Number(note.order) : index)
+    ), -1) + 1;
+    importedNotes.forEach((note, index) => {
+      note.order = Number.isFinite(Number(note.order)) ? Number(note.order) : nextOrder + index;
+    });
     importedNotes.forEach((note) => library.notes.push(note));
     state.selectedNoteId = importedNotes.at(-1)?.id || state.selectedNoteId;
   });

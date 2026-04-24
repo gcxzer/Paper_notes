@@ -180,6 +180,13 @@ async function handleImportPdf(request, response) {
   const htmlName = `${path.basename(originalName, path.extname(originalName))}.html`;
   const title = noteTitleFromPdf(originalName);
   const date = getTodayLabel();
+  const library = await readLibrary();
+  library.categories = Array.isArray(library.categories) ? library.categories : structuredClone(BASE_LIBRARY.categories);
+  library.notes = Array.isArray(library.notes) ? library.notes : [];
+  const existingNotes = library.notes.filter((entry) => entry.href !== `Papers/${encodeURIComponent(originalName)}` && entry.htmlHref !== `Paper-html/${encodeURIComponent(htmlName)}`);
+  const nextOrder = existingNotes.reduce((max, note, index) => (
+    Math.max(max, Number.isFinite(Number(note.order)) ? Number(note.order) : index)
+  ), -1) + 1;
   const note = {
     id: noteIdFromTitle(title),
     title,
@@ -187,6 +194,7 @@ async function handleImportPdf(request, response) {
     htmlHref: `Paper-html/${encodeURIComponent(htmlName)}`,
     pdfStorageKey: "",
     date,
+    order: nextOrder,
     categoryId: normalizeText(body.categoryId) || "uncategorized",
     venue: "",
     summary: "",
@@ -196,10 +204,7 @@ async function handleImportPdf(request, response) {
   await fs.writeFile(path.join(PAPERS_DIR, originalName), pdfBuffer);
   await fs.writeFile(path.join(HTML_DIR, htmlName), createPaperNoteHtml({ title, date, fileName: originalName }));
 
-  const library = await readLibrary();
-  library.categories = Array.isArray(library.categories) ? library.categories : structuredClone(BASE_LIBRARY.categories);
-  library.notes = Array.isArray(library.notes) ? library.notes : [];
-  library.notes = library.notes.filter((entry) => entry.href !== note.href && entry.htmlHref !== note.htmlHref);
+  library.notes = existingNotes;
   library.notes.push(note);
   await writeLibrary(library);
 
