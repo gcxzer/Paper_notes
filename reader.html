@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Reader</title>
+  <script src="assets/theme.js"></script>
   <link rel="stylesheet" href="assets/reader.css">
 </head>
 <body>
@@ -14,16 +15,57 @@
         <span id="readerKicker">Paper</span>
         <strong id="readerTitle">Loading...</strong>
       </div>
+      <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
     </header>
 
     <main class="reader-layout" id="readerLayout">
       <section class="pdf-pane" aria-label="PDF viewer">
-        <iframe id="pdfFrame" title="PDF"></iframe>
+        <div class="pdf-tools" aria-label="PDF annotation tools">
+          <button class="pdf-tool pdf-sidebar-tool is-active" type="button" id="annotationSidebarToolbarToggle" aria-label="Toggle annotations">Annotations</button>
+          <div class="pdf-tool-group" role="group" aria-label="Annotation mode">
+            <button class="pdf-tool is-active" type="button" data-pdf-mode="pan">Browse</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="highlight">Highlight</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="underline">Underline</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="note">Note</button>
+          </div>
+          <div class="pdf-color-group" role="group" aria-label="Annotation color">
+            <button class="pdf-color is-active" type="button" data-pdf-color="yellow" aria-label="Yellow"></button>
+            <button class="pdf-color" type="button" data-pdf-color="green" aria-label="Green"></button>
+            <button class="pdf-color" type="button" data-pdf-color="blue" aria-label="Blue"></button>
+            <button class="pdf-color" type="button" data-pdf-color="red" aria-label="Red"></button>
+            <button class="pdf-color" type="button" data-pdf-color="purple" aria-label="Purple"></button>
+          </div>
+          <div class="pdf-tool-group" role="group" aria-label="PDF zoom">
+            <button class="pdf-tool" type="button" id="zoomOut">−</button>
+            <span class="pdf-zoom" id="zoomLabel">100%</span>
+            <button class="pdf-tool" type="button" id="zoomIn">+</button>
+          </div>
+          <button class="pdf-tool document-theme-toggle" type="button" data-document-theme-toggle>Paper Light</button>
+          <button class="pdf-tool pdf-html-tool is-active" type="button" id="htmlPaneToggle" aria-label="Toggle HTML note">HTML</button>
+        </div>
+        <div class="pdf-body">
+          <aside class="pdf-annotation-sidebar" aria-label="PDF annotations">
+            <div class="annotation-sidebar-header">
+              <strong>Annotations</strong>
+              <div class="annotation-sidebar-actions">
+                <span id="annotationCount">0</span>
+                <button class="annotation-sidebar-toggle" type="button" id="annotationSidebarToggle" aria-label="Collapse annotations">‹</button>
+              </div>
+            </div>
+            <div class="annotation-list" id="annotationList"></div>
+          </aside>
+          <div class="pdf-viewer" id="pdfViewer" aria-label="PDF pages"></div>
+        </div>
       </section>
 
       <div class="reader-resizer" id="readerResizer" role="separator" aria-label="Resize PDF and note panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="note-pane" aria-label="Paper note">
+        <div class="html-zoom-controls" aria-label="HTML note zoom">
+          <button type="button" id="htmlZoomOut" aria-label="Zoom HTML note out">−</button>
+          <span id="htmlZoomLabel">100%</span>
+          <button type="button" id="htmlZoomIn" aria-label="Zoom HTML note in">+</button>
+        </div>
         <article class="note-page" id="notePage"></article>
       </aside>
     </main>
@@ -35,7 +77,8 @@
     </main>
   </div>
 
-  <script src="assets/note.js"></script>
-  <script src="assets/reader.js"></script>
+  <script src="node_modules/pdfjs-dist/build/pdf.js?v=pdfjs3"></script>
+  <script src="assets/note.js?v=annotations-v6"></script>
+  <script src="assets/reader.js?v=annotations-v6"></script>
 </body>
 </html>

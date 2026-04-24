@@ -25,6 +25,7 @@ const state = {
   query: "",
   pendingCategoryId: null,
   pendingParentId: null,
+  pendingRenameNoteId: null,
   confirmAction: null,
   contextCategoryId: null,
   draggedCategoryId: null,
@@ -38,6 +39,8 @@ const state = {
   },
   dataSource: "default"
 };
+
+const summarySaveTimers = new Map();
 
 const elements = {
   body: document.body,
@@ -72,7 +75,19 @@ const elements = {
   confirmDialogBody: document.querySelector("#confirmDialogBody"),
   confirmDialogAction: document.querySelector("#confirmDialogAction"),
   closeConfirmDialog: document.querySelector("#closeConfirmDialog"),
-  cancelConfirmDialog: document.querySelector("#cancelConfirmDialog")
+  cancelConfirmDialog: document.querySelector("#cancelConfirmDialog"),
+  renameNoteDialog: document.querySelector("#renameNoteDialog"),
+  renameNoteForm: document.querySelector("#renameNoteForm"),
+  renameNoteInput: document.querySelector("#renameNoteInput"),
+  renameNoteError: document.querySelector("#renameNoteError"),
+  closeRenameNoteDialog: document.querySelector("#closeRenameNoteDialog"),
+  cancelRenameNoteDialog: document.querySelector("#cancelRenameNoteDialog"),
+  messageDialog: document.querySelector("#messageDialog"),
+  messageDialogEyebrow: document.querySelector("#messageDialogEyebrow"),
+  messageDialogTitle: document.querySelector("#messageDialogTitle"),
+  messageDialogBody: document.querySelector("#messageDialogBody"),
+  messageDialogAction: document.querySelector("#messageDialogAction"),
+  closeMessageDialog: document.querySelector("#closeMessageDialog")
 };
 
 function cloneLibrary(library) {
@@ -430,6 +445,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
+  <script src="../assets/theme.js"></script>
   <link rel="stylesheet" href="../assets/note.css">
 </head>
 <body>
@@ -484,7 +500,7 @@ function renderCategoryNode(category, level = 0) {
 }
 
 function renderCategories() {
-  const topLevel = getChildren(null);
+  const topLevel = getChildren(null).filter((category) => category.id !== UNCATEGORIZED_ID);
   elements.categoryList.innerHTML = topLevel.map((category) => renderCategoryNode(category, 0)).join("");
 }
 
@@ -533,14 +549,13 @@ function renderNotes() {
       : leafCategory?.name || "Uncategorized";
     return `
       <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${note.id}">
-        <a class="note-card-main" href="${getReaderHref(note)}" aria-label="Open ${note.title}">
+        <div class="note-card-main">
           <div class="meta">
             <span>${note.date || "No date"}</span>
             <span>${detailLabel}</span>
           </div>
           <h3>${note.title}</h3>
-          ${note.summary ? `<p>${note.summary}</p>` : ""}
-        </a>
+        </div>
         <span class="note-card-actions-inline">
           <button class="note-open" type="button" data-rename-note-id="${note.id}">Rename</button>
           <a class="note-open" href="${getReaderHref(note)}" aria-label="Open ${note.title}">Open</a>
@@ -574,6 +589,10 @@ function renderDetails() {
         ${note.href ? `<a class="toolbar-button" href="${note.href}" target="_blank" rel="noopener">Open PDF</a>` : ""}
         ${note.htmlHref ? `<a class="toolbar-button" href="${note.htmlHref}" target="_blank" rel="noopener">Open HTML</a>` : ""}
       </div>
+    </div>
+    <div class="details-row">
+      <strong>Summary</strong>
+      <textarea class="details-summary-input" data-summary-note-id="${note.id}" rows="6" placeholder="Write a short summary...">${escapeHtml(note.summary)}</textarea>
     </div>
     <div class="details-row">
       <strong>Collection</strong>
@@ -653,6 +672,34 @@ function openConfirmDialog({ title, body, action }) {
 function closeConfirmDialog() {
   state.confirmAction = null;
   elements.confirmDialog.close();
+}
+
+function showMessageDialog({ eyebrow = "Notice", title = "Message", body = "" }) {
+  elements.messageDialogEyebrow.textContent = eyebrow;
+  elements.messageDialogTitle.textContent = title;
+  elements.messageDialogBody.textContent = body;
+  elements.messageDialog.showModal();
+}
+
+function closeMessageDialog() {
+  elements.messageDialog.close();
+}
+
+function openRenameNoteDialog(noteId) {
+  const note = getNoteById(noteId);
+  if (!note) return;
+  state.pendingRenameNoteId = noteId;
+  elements.renameNoteInput.value = note.title;
+  elements.renameNoteError.hidden = true;
+  elements.renameNoteError.textContent = "";
+  elements.renameNoteDialog.showModal();
+  elements.renameNoteInput.focus();
+  elements.renameNoteInput.select();
+}
+
+function closeRenameNoteDialog() {
+  state.pendingRenameNoteId = null;
+  elements.renameNoteDialog.close();
 }
 
 function createCategory(name, parentId = null) {
@@ -760,17 +807,46 @@ function moveNoteToCategory(noteId, categoryId) {
   });
 }
 
-async function renameNote(noteId) {
+async function saveNoteSummaryToServer(noteId, summary) {
+  const response = await fetch(getApiUrl("/api/update-note-summary"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: noteId, summary })
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Summary save failed (${response.status})`);
+  }
+}
+
+function updateNoteSummary(noteId, summary) {
   const note = getNoteById(noteId);
   if (!note) return;
 
-  const nextTitle = normalizeText(prompt("New paper name", note.title));
-  if (!nextTitle || nextTitle === note.title) return;
+  note.summary = normalizeText(summary);
+  saveLibraryToStorage();
+  state.dataSource = "storage";
+
+  window.clearTimeout(summarySaveTimers.get(noteId));
+  summarySaveTimers.set(noteId, window.setTimeout(() => {
+    saveNoteSummaryToServer(noteId, note.summary).catch((error) => {
+      console.warn("Could not sync summary to notes.json.", error);
+    });
+  }, 400));
+}
+
+async function renameNote(noteId, nextTitle) {
+  const note = getNoteById(noteId);
+  if (!note) return;
+
+  const cleanTitle = normalizeText(nextTitle);
+  if (!cleanTitle || cleanTitle === note.title) return;
 
   const response = await fetch(getApiUrl("/api/rename-note"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: note.id, title: nextTitle })
+    body: JSON.stringify({ id: note.id, title: cleanTitle })
   });
 
   if (!response.ok) {
@@ -781,7 +857,7 @@ async function renameNote(noteId) {
   const updatedNote = await response.json();
   updateLibrary((library) => {
     const entry = library.notes.find((item) => item.id === noteId);
-    if (entry) entry.title = normalizeText(updatedNote.title) || nextTitle;
+    if (entry) entry.title = normalizeText(updatedNote.title) || cleanTitle;
   });
 }
 
@@ -1066,7 +1142,11 @@ elements.pdfInput.addEventListener("change", async (event) => {
   try {
     await importPdfFiles(event.target.files);
   } catch (error) {
-    alert("Could not import this PDF. Please start the local server with npm start, then open http://localhost:4173.");
+    showMessageDialog({
+      eyebrow: "Import PDF",
+      title: "Could not import this PDF",
+      body: "Please start the local server with npm start, then open http://localhost:4173."
+    });
     console.error(error);
   }
   elements.pdfInput.value = "";
@@ -1076,6 +1156,12 @@ function handleNoteMove(event) {
   const select = event.target.closest("[data-detail-note-id]");
   if (!select) return;
   moveNoteToCategory(select.dataset.detailNoteId, select.value);
+}
+
+function handleSummaryInput(event) {
+  const textarea = event.target.closest("[data-summary-note-id]");
+  if (!textarea) return;
+  updateNoteSummary(textarea.dataset.summaryNoteId, textarea.value);
 }
 
 elements.sortButton.addEventListener("click", () => {
@@ -1096,15 +1182,43 @@ elements.sortMenu.addEventListener("click", (event) => {
 });
 
 elements.detailsCard.addEventListener("change", handleNoteMove);
+elements.detailsCard.addEventListener("input", handleSummaryInput);
 elements.notesGrid.addEventListener("click", (event) => {
   const button = event.target.closest("[data-rename-note-id]");
-  if (!button) return;
+  if (button) {
+    event.preventDefault();
+    event.stopPropagation();
+    openRenameNoteDialog(button.dataset.renameNoteId);
+    return;
+  }
+
+  if (event.target.closest("a")) return;
+  const card = event.target.closest("[data-note-id]");
+  if (!card) return;
+  state.selectedNoteId = card.dataset.noteId;
+  renderNotes();
+  renderDetails();
+});
+
+elements.renameNoteForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  event.stopPropagation();
-  renameNote(button.dataset.renameNoteId).catch((error) => {
-    alert("Could not rename this paper.");
+  const noteId = state.pendingRenameNoteId;
+  const nextTitle = normalizeText(elements.renameNoteInput.value);
+
+  if (!nextTitle) {
+    elements.renameNoteError.textContent = "Paper name cannot be empty.";
+    elements.renameNoteError.hidden = false;
+    return;
+  }
+
+  try {
+    await renameNote(noteId, nextTitle);
+    closeRenameNoteDialog();
+  } catch (error) {
+    elements.renameNoteError.textContent = "Could not rename this paper.";
+    elements.renameNoteError.hidden = false;
     console.error(error);
-  });
+  }
 });
 
 elements.categoryForm.addEventListener("submit", (event) => {
@@ -1128,6 +1242,10 @@ elements.categoryForm.addEventListener("submit", (event) => {
 
 elements.closeCategoryDialog.addEventListener("click", closeCategoryDialog);
 elements.cancelCategoryDialog.addEventListener("click", closeCategoryDialog);
+elements.closeRenameNoteDialog.addEventListener("click", closeRenameNoteDialog);
+elements.cancelRenameNoteDialog.addEventListener("click", closeRenameNoteDialog);
+elements.closeMessageDialog.addEventListener("click", closeMessageDialog);
+elements.messageDialogAction.addEventListener("click", closeMessageDialog);
 
 elements.confirmDialogAction.addEventListener("click", () => {
   if (typeof state.confirmAction === "function") state.confirmAction();

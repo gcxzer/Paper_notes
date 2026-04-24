@@ -8,6 +8,62 @@
     return slug || `section-${index + 1}`;
   }
 
+  function headingLevel(heading) {
+    return Number(heading.tagName.replace("H", ""));
+  }
+
+  function headingText(heading) {
+    const clone = heading.cloneNode(true);
+    clone.querySelectorAll(".note-heading-toggle").forEach((button) => button.remove());
+    return clone.textContent.trim();
+  }
+
+  function sectionNodesForHeading(heading) {
+    const level = headingLevel(heading);
+    const nodes = [];
+    let sibling = heading.nextElementSibling;
+    while (sibling) {
+      if (/^H[2-4]$/.test(sibling.tagName) && headingLevel(sibling) <= level) break;
+      nodes.push(sibling);
+      sibling = sibling.nextElementSibling;
+    }
+    return nodes;
+  }
+
+  function setHeadingCollapsed(heading, collapsed) {
+    heading.classList.toggle("is-collapsed", collapsed);
+    heading.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    sectionNodesForHeading(heading).forEach((node) => {
+      node.hidden = collapsed;
+    });
+  }
+
+  function setupCollapsibleHeadings(headings) {
+    headings.forEach((heading) => {
+      if (!heading.classList.contains("note-heading")) {
+        heading.classList.add("note-heading");
+        heading.setAttribute("aria-expanded", "true");
+      }
+
+      if (!heading.querySelector(".note-heading-toggle")) {
+        const button = document.createElement("button");
+        button.className = "note-heading-toggle";
+        button.type = "button";
+        button.setAttribute("aria-label", `Toggle ${headingText(heading) || "section"}`);
+        button.setAttribute("aria-hidden", "true");
+        heading.append(button);
+      }
+
+      if (!heading.dataset.collapseReady) {
+        heading.addEventListener("click", (event) => {
+          if (event.target.closest("a")) return;
+          setHeadingCollapsed(heading, !heading.classList.contains("is-collapsed"));
+        });
+        heading.dataset.collapseReady = "true";
+      }
+    });
+  }
+
   function buildNoteMenu(root) {
     const scope = root || document;
     const body = scope.querySelector(".note-body");
@@ -40,7 +96,7 @@
       menuShell.dataset.outlineReady = "true";
     }
 
-    const headings = Array.from(body.querySelectorAll("h2, h3"));
+    const headings = Array.from(body.querySelectorAll("h2, h3, h4"));
     const collapse = menuShell.querySelector(".note-menu-collapse");
     menu.innerHTML = "";
     menuShell.hidden = false;
@@ -54,13 +110,16 @@
     if (headings.length === 0) menuShell.classList.remove("is-open");
 
     headings.forEach((heading, index) => {
-      if (!heading.id) heading.id = slugify(heading.textContent, index);
+      const title = headingText(heading);
+      if (!heading.id) heading.id = slugify(title, index);
       const link = document.createElement("a");
       link.href = `#${heading.id}`;
       link.className = `note-menu-link note-menu-link-${heading.tagName.toLowerCase()}`;
-      link.textContent = heading.textContent.trim() || `Section ${index + 1}`;
+      link.textContent = title || `Section ${index + 1}`;
       menu.appendChild(link);
     });
+
+    setupCollapsibleHeadings(headings);
   }
 
   window.buildNoteMenu = buildNoteMenu;

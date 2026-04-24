@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Notes</title>
+  <script src="assets/theme.js"></script>
   <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
@@ -39,6 +40,7 @@
         <div class="content-actions">
           <button class="icon-button add-paper-button" id="addPdfButton" type="button" aria-label="Import PDF">+</button>
           <input id="pdfInput" type="file" accept="application/pdf,.pdf" multiple hidden>
+          <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
           <div class="sort-control">
             <button class="toolbar-button sort-button" id="sortButton" type="button" aria-expanded="false" aria-haspopup="menu">Sort: Newest</button>
             <div class="sort-menu" id="sortMenu" role="menu" hidden>
@@ -103,6 +105,48 @@
       <div class="modal-actions">
         <button class="toolbar-button" type="button" id="cancelConfirmDialog">Cancel</button>
         <button class="toolbar-button toolbar-button-danger" type="button" id="confirmDialogAction">Delete</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="renameNoteDialog">
+    <form class="modal-card" id="renameNoteForm" method="dialog">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow">Paper</div>
+          <h3>Rename paper</h3>
+        </div>
+        <button class="icon-button" type="button" id="closeRenameNoteDialog" aria-label="Close dialog">x</button>
+      </div>
+
+      <label class="field">
+        <span>Name</span>
+        <input id="renameNoteInput" type="text" maxlength="120" autocomplete="off">
+      </label>
+
+      <p class="field-error" id="renameNoteError" hidden></p>
+
+      <div class="modal-actions">
+        <button class="toolbar-button" type="button" id="cancelRenameNoteDialog">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="messageDialog">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow" id="messageDialogEyebrow">Notice</div>
+          <h3 id="messageDialogTitle">Message</h3>
+        </div>
+        <button class="icon-button" type="button" id="closeMessageDialog" aria-label="Close dialog">x</button>
+      </div>
+
+      <p class="confirm-copy" id="messageDialogBody"></p>
+
+      <div class="modal-actions">
+        <button class="toolbar-button toolbar-button-primary" type="button" id="messageDialogAction">OK</button>
       </div>
     </div>
   </dialog>

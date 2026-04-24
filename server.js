@@ -8,12 +8,14 @@ const HOST = "127.0.0.1";
 const MAX_BODY_SIZE = 200 * 1024 * 1024;
 const PAPERS_DIR = path.join(ROOT, "Papers");
 const HTML_DIR = path.join(ROOT, "Paper-html");
+const ANNOTATIONS_DIR = path.join(ROOT, "Paper-annotations");
 const NOTES_PATH = path.join(ROOT, "notes.json");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".pdf": "application/pdf",
   ".png": "image/png",
@@ -79,6 +81,16 @@ function noteTitleFromPdf(fileName) {
   return path.basename(fileName, path.extname(fileName)).replace(/[-_]+/g, " ").trim() || "Untitled PDF";
 }
 
+function safeAnnotationId(noteId) {
+  return normalizeText(noteId).replace(/[^a-z0-9\u4e00-\u9fff._-]+/gi, "-").replace(/^-+|-+$/g, "");
+}
+
+function annotationPathFor(noteId) {
+  const safeId = safeAnnotationId(noteId);
+  if (!safeId) return null;
+  return path.join(ANNOTATIONS_DIR, `${safeId}.json`);
+}
+
 function noteIdFromTitle(title) {
   const slug = title
     .toLowerCase()
@@ -99,6 +111,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
+  <script src="../assets/theme.js"></script>
   <link rel="stylesheet" href="../assets/note.css">
 </head>
 <body>
@@ -235,6 +248,61 @@ async function handleRenameNote(request, response) {
   sendJson(response, 200, note);
 }
 
+async function handleUpdateNoteSummary(request, response) {
+  const body = JSON.parse(await readRequestBody(request));
+  const noteId = normalizeText(body.id);
+  const summary = normalizeText(body.summary);
+
+  if (!noteId) {
+    send(response, 400, "Note id is required.");
+    return;
+  }
+
+  const library = await readLibrary();
+  const note = Array.isArray(library.notes)
+    ? library.notes.find((entry) => entry.id === noteId)
+    : null;
+
+  if (!note) {
+    send(response, 404, "Note not found.");
+    return;
+  }
+
+  note.summary = summary;
+  await writeLibrary(library);
+  sendJson(response, 200, note);
+}
+
+async function handleReadAnnotations(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const annotationsPath = annotationPathFor(url.searchParams.get("noteId"));
+  if (!annotationsPath) {
+    send(response, 400, "noteId is required.");
+    return;
+  }
+
+  try {
+    const raw = await fs.readFile(annotationsPath, "utf8");
+    send(response, 200, raw, "application/json; charset=utf-8");
+  } catch {
+    sendJson(response, 200, { annotations: [] });
+  }
+}
+
+async function handleWriteAnnotations(request, response) {
+  const body = JSON.parse(await readRequestBody(request));
+  const annotationsPath = annotationPathFor(body.noteId);
+  if (!annotationsPath) {
+    send(response, 400, "noteId is required.");
+    return;
+  }
+
+  const annotations = Array.isArray(body.annotations) ? body.annotations : [];
+  await fs.mkdir(ANNOTATIONS_DIR, { recursive: true });
+  await fs.writeFile(annotationsPath, `${JSON.stringify({ annotations }, null, 2)}\n`);
+  sendJson(response, 200, { annotations });
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
@@ -275,6 +343,21 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/api/rename-note") {
       await handleRenameNote(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/update-note-summary") {
+      await handleUpdateNoteSummary(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && request.url.startsWith("/api/annotations")) {
+      await handleReadAnnotations(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/annotations") {
+      await handleWriteAnnotations(request, response);
       return;
     }
 
