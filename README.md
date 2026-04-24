@@ -1,6 +1,8 @@
 # Paper Notes
 
-Paper Notes is a local HTML-first paper reading workspace. It keeps PDFs and notes as plain files, then opens them in a split reader: PDF on the left, rendered HTML note on the right.
+Paper Notes turns a folder of PDFs into a clean, local research workspace: read the paper on the left, build a beautiful HTML note on the right.
+
+The HTML notes are designed to be generated or refined with an LLM, then kept as plain editable files you can version, customize, and reopen anytime.
 
 ## Preview
 
@@ -165,3 +167,7 @@ Renaming a paper updates `notes.json`. If the note HTML exists, the app also upd
 - Default port: `4173`.
 - Static files are served with `Cache-Control: no-store` so note edits show up after refresh.
 - `Papers/` and `Paper-html/` are intentionally not ignored by git because they are part of the paper library.
+
+## License
+
+MIT License. If you use or redistribute this project, keep the copyright and license notice.
