@@ -1,4 +1,4 @@
-const STORAGE_KEY = "paper-notes-library-v10";
+const STORAGE_KEY = "paper-notes-library-v12";
 const FILE_DB_NAME = "paper-notes-files-v1";
 const FILE_STORE_NAME = "paper-files";
 const READER_SPLIT_KEY = "paper-notes-reader-split-v1";
@@ -188,10 +188,20 @@ function renderSection(title, body = "") {
   `;
 }
 
-function extractGeneratedNoteBody(html) {
+function absolutizeEmbeddedAssetUrls(root, baseHref) {
+  if (!root || !baseHref) return;
+  root.querySelectorAll("img[src], video[src], audio[src], source[src]").forEach((element) => {
+    const value = element.getAttribute("src");
+    if (!value || value.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(value)) return;
+    element.setAttribute("src", new URL(value, baseHref).href);
+  });
+}
+
+function extractGeneratedNoteBody(html, baseHref = window.location.href) {
   if (!html) return "";
   const documentBody = new DOMParser().parseFromString(html, "text/html");
   const note = documentBody.querySelector("main.note") || documentBody.body;
+  absolutizeEmbeddedAssetUrls(note, baseHref);
   return note ? note.innerHTML : "";
 }
 
@@ -200,9 +210,10 @@ async function fetchGeneratedNoteBody(note) {
   try {
     const baseUrl = window.location.protocol === "file:" ? "http://localhost:4173/" : "";
     const separator = note.htmlHref.includes("?") ? "&" : "?";
-    const response = await fetch(`${baseUrl}${note.htmlHref}${separator}t=${Date.now()}`, { cache: "no-store" });
+    const noteUrl = new URL(note.htmlHref, baseUrl || window.location.href);
+    const response = await fetch(`${noteUrl.href}${separator}t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) return "";
-    return extractGeneratedNoteBody(await response.text());
+    return extractGeneratedNoteBody(await response.text(), noteUrl.href);
   } catch (error) {
     console.warn("Failed to load generated HTML note.", error);
     return "";

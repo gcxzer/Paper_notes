@@ -50,26 +50,72 @@ a {
 }
 
 .note-workspace {
-  display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
-  gap: 34px;
+  position: relative;
 }
 
 .note-menu {
   position: sticky;
-  top: 20px;
-  align-self: start;
-  max-height: calc(100vh - 40px);
-  overflow: auto;
-  padding: 28px 0 0;
+  top: 14px;
+  left: 0;
+  z-index: 1000;
+  width: min(260px, calc(100vw - 36px));
+  height: 0;
+  color: var(--muted);
+  overflow: visible;
+  pointer-events: none;
 }
 
 .note-menu[hidden] {
   display: none;
 }
 
+.note-menu-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 8px 0 0;
+  border-bottom: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.note-menu-tab {
+  display: none;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.note-menu-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-height: 38px;
+  border: 1px solid rgba(35, 33, 29, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.88);
+  color: var(--muted);
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 28px rgba(42, 35, 25, 0.14);
+}
+
+.note-menu-collapse:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .note-menu-title {
-  margin-bottom: 10px;
+  display: none;
+  margin: 16px 16px 10px;
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 800;
@@ -78,21 +124,37 @@ a {
 }
 
 .note-menu nav {
+  display: none;
+}
+
+.note-menu.is-open nav {
   display: grid;
-  gap: 4px;
+  gap: 2px;
+  max-height: min(420px, calc(100vh - 72px));
+  overflow: auto;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #e3dbcf;
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.94);
+  pointer-events: auto;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 44px rgba(42, 35, 25, 0.18);
 }
 
 .note-menu-link {
   display: block;
   border-left: 2px solid transparent;
   color: var(--muted);
-  padding: 5px 0 5px 10px;
+  border-radius: 6px;
+  padding: 6px 8px 6px 10px;
   text-decoration: none;
   line-height: 1.35;
 }
 
 .note-menu-link:hover,
 .note-menu-link:focus-visible {
+  background: rgba(29, 111, 106, 0.08);
   border-left-color: var(--accent);
   color: var(--ink);
 }
@@ -237,13 +299,15 @@ img {
   }
 
   .note-workspace {
-    grid-template-columns: 1fr;
-    gap: 0;
+    position: relative;
   }
 
   .note-menu {
-    position: static;
-    max-height: none;
-    padding-top: 20px;
+    top: 12px;
+    width: min(250px, calc(100vw - 24px));
+  }
+
+  .note-body {
+    padding-top: 30px;
   }
 }

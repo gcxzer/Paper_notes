@@ -111,7 +111,6 @@ function createPaperNoteHtml({ title, date, fileName }) {
 
     <div class="note-workspace">
       <aside class="note-menu" aria-label="Note sections">
-        <div class="note-menu-title">Contents</div>
         <nav data-note-menu></nav>
       </aside>
 
