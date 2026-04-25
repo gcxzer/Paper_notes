@@ -965,7 +965,7 @@ body.is-resizing-reader {
 
 .pdf-annotation-editor textarea {
   width: 100%;
-  min-height: 136px;
+  min-height: 245px;
   resize: vertical;
   border: 1px solid #dfd4a6;
   border-radius: 8px;
