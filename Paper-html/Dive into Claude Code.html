@@ -36,7 +36,6 @@
 
         <h2>1. Introduction</h2>
         <p>
-          AI-assisted software development has evolved from autocomplete tools to fully agentic systems.
         </p>
 
         <h2>2. Design Philosophies</h2>
@@ -50,20 +49,65 @@
           <li>Contextual Adaptability</li>
         </ul>
 
+
         <h3>2.2 Design Principles</h3>
+
         <p>
-          Deny-first, context management, extensibility, persistence.
+          本节把前面的五个价值观落到 <strong>13 条设计原则</strong> 上。核心意思是：
+          生产级 Coding Agent 不是只靠模型能力，而是要回答一系列反复出现的系统设计问题，
+          例如：默认是否允许动作、权限如何升级、context 如何压缩、扩展机制如何组织、状态如何保存。
         </p>
 
-        <h2>3. Architecture Overview</h2>
+        <ul>
+          <li><strong>Deny-first：</strong>未知或危险动作默认不放行，而是拒绝或升级给人类。</li>
+          <li><strong>Graduated trust：</strong>信任不是一次性给满，而是从严格到宽松逐步变化。</li>
+          <li><strong>Defense in depth：</strong>安全不靠单一机制，而是权限、hooks、classifier、sandbox 多层叠加。</li>
+          <li><strong>Externalized policy：</strong>策略不写死在代码里，而是通过配置、hooks、规则外部化。</li>
+          <li><strong>Context as scarce resource：</strong>把上下文窗口当成核心瓶颈，用渐进式压缩管理。</li>
+          <li><strong>Append-only state：</strong>状态主要以追加日志保存，方便审计、恢复、分支。</li>
+          <li><strong>Minimal scaffolding：</strong>不强加复杂规划图，让模型自由推理，系统负责执行与约束。</li>
+          <li><strong>Values over rules：</strong>不是死规则驱动，而是在确定性护栏内允许情境判断。</li>
+          <li><strong>Composable extensibility：</strong>MCP、plugins、skills、hooks 分层扩展，而不是一个统一接口解决所有问题。</li>
+          <li><strong>Reversibility-weighted risk：</strong>可逆/只读操作风险低，不可逆操作需要更严格控制。</li>
+          <li><strong>Transparent memory：</strong>用用户可见、可编辑、可版本控制的文件保存记忆。</li>
+          <li><strong>Isolated subagents：</strong>子 Agent 默认隔离上下文和权限，避免污染主任务。</li>
+          <li><strong>Graceful recovery：</strong>遇到错误时优先恢复、重试、降级，而不是直接崩溃。</li>
+        </ul>
+
         <p>
-          The system is composed of 7 components: user, interfaces, agent loop, permission system, tools,
-          state & persistence, execution environment.
+          作者还把 Claude Code 和三类替代路线对比：
         </p>
+
+        <ul>
+          <li><strong>LangGraph 类：</strong>用显式状态图组织推理流程。</li>
+          <li><strong>SWE-Agent / OpenHands 类：</strong>主要依赖 Docker 等容器隔离。</li>
+          <li><strong>Aider 类：</strong>主要依赖 Git 回滚作为安全机制。</li>
+        </ul>
+
+        <p>
+          Claude Code 的独特组合是：
+          <strong>最小决策脚手架 + 分层策略控制 + deny-first 默认值 + 渐进式 context 管理 + 可组合扩展机制。</strong>
+        </p>        
+
+        <h2>3. Architecture Overview</h2>
+        <h3>3.1Design Questions and Running Example</h3>
+
+
+
+
+
+
+
+
+
+
+
+        
+
 
         <h2>4. Agent Loop</h2>
         <pre>
-        User → Context → Model → Tool → Permission → Execute → Loop
+
         </pre>
 
         <h2>5. Permission System</h2>

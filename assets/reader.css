@@ -236,6 +236,22 @@ a {
   font-size: 0.82rem;
 }
 
+.pdf-tool:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.pdf-history-tools {
+  gap: 6px;
+}
+
+.pdf-history-tool {
+  min-width: 34px;
+  padding-inline: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
 .pdf-color-group {
   display: inline-flex;
   align-items: center;

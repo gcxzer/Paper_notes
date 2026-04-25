@@ -11,6 +11,7 @@ const READER_SPLIT_KEY = "paper-notes-reader-split-v1";
 const ANNOTATION_SIDEBAR_KEY = "paper-notes-annotation-sidebar-v1";
 const HTML_PANE_KEY = "paper-notes-html-pane-v1";
 const HTML_ZOOM_KEY = "paper-notes-html-zoom-v1";
+const PDF_SCROLL_KEY = "paper-notes-pdf-scroll-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
 
@@ -36,6 +37,8 @@ const elements = {
   zoomIn: document.querySelector("#zoomIn"),
   zoomOut: document.querySelector("#zoomOut"),
   zoomLabel: document.querySelector("#zoomLabel"),
+  annotationUndo: document.querySelector("#annotationUndo"),
+  annotationRedo: document.querySelector("#annotationRedo"),
   modeButtons: Array.from(document.querySelectorAll("[data-pdf-mode]")),
   colorButtons: Array.from(document.querySelectorAll("[data-pdf-color]"))
 };
@@ -55,6 +58,11 @@ const pdfState = {
   scale: 2.15,
   renderToken: 0,
   annotations: [],
+  historyPast: [],
+  historyFuture: [],
+  historyLimit: 80,
+  suppressScrollSave: false,
+  scrollSaveTimer: 0,
   saveTimer: 0,
   openEditor: null,
   selectedAnnotationId: ""
@@ -333,6 +341,116 @@ function initializeResizer() {
   });
 }
 
+function readPdfScrollStore() {
+  try {
+    const raw = localStorage.getItem(PDF_SCROLL_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("Failed to read PDF scroll position.", error);
+    return {};
+  }
+}
+
+function writePdfScrollStore(store) {
+  try {
+    localStorage.setItem(PDF_SCROLL_KEY, JSON.stringify(store));
+  } catch (error) {
+    console.warn("Failed to save PDF scroll position.", error);
+  }
+}
+
+function pdfScrollAnchorOffset() {
+  const viewer = elements.pdfViewer;
+  if (!viewer) return 0;
+  return Math.round(clamp(viewer.clientHeight * 0.18, 64, 180));
+}
+
+function currentPdfScrollPosition() {
+  const viewer = elements.pdfViewer;
+  if (!viewer || !pdfState.noteId) return null;
+  const pages = Array.from(viewer.querySelectorAll(".pdf-page"));
+  if (!pages.length) return null;
+
+  const viewerBox = viewer.getBoundingClientRect();
+  const anchorOffset = pdfScrollAnchorOffset();
+  const anchorY = viewerBox.top + anchorOffset;
+  let bestPage = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  pages.forEach((pageElement) => {
+    const rect = pageElement.getBoundingClientRect();
+    const distance = rect.top <= anchorY && rect.bottom >= anchorY
+      ? 0
+      : Math.min(Math.abs(rect.top - anchorY), Math.abs(rect.bottom - anchorY));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPage = { element: pageElement, rect };
+    }
+  });
+
+  if (!bestPage) return null;
+  return {
+    page: Number(bestPage.element.dataset.page) || 1,
+    offset: clamp((anchorY - bestPage.rect.top) / Math.max(1, bestPage.rect.height), 0, 1),
+    scrollTop: viewer.scrollTop,
+    scale: pdfState.scale,
+    updatedAt: Date.now()
+  };
+}
+
+function storedPdfScrollPosition() {
+  if (!pdfState.noteId) return null;
+  return readPdfScrollStore()[pdfState.noteId] || null;
+}
+
+function persistPdfScrollPosition() {
+  if (pdfState.suppressScrollSave) return;
+  const position = currentPdfScrollPosition();
+  if (!position || !pdfState.noteId) return;
+  const store = readPdfScrollStore();
+  store[pdfState.noteId] = position;
+  writePdfScrollStore(store);
+}
+
+function schedulePersistPdfScrollPosition() {
+  if (pdfState.suppressScrollSave) return;
+  window.clearTimeout(pdfState.scrollSaveTimer);
+  pdfState.scrollSaveTimer = window.setTimeout(persistPdfScrollPosition, 120);
+}
+
+function restorePdfScrollPosition(position) {
+  const viewer = elements.pdfViewer;
+  if (!viewer || !position) return;
+  const pageElement = viewer.querySelector(`.pdf-page[data-page="${Number(position.page) || 1}"]`);
+  if (!pageElement) {
+    if (Number.isFinite(position.scrollTop)) viewer.scrollTop = position.scrollTop;
+    return;
+  }
+
+  const viewerBox = viewer.getBoundingClientRect();
+  const pageBox = pageElement.getBoundingClientRect();
+  const anchorOffset = pdfScrollAnchorOffset();
+  const pageOffset = clamp(Number(position.offset) || 0, 0, 1) * pageBox.height;
+  viewer.scrollTop += pageBox.top - viewerBox.top + pageOffset - anchorOffset;
+}
+
+function finishPdfScrollRestore(position) {
+  restorePdfScrollPosition(position);
+  window.requestAnimationFrame(() => {
+    restorePdfScrollPosition(position);
+    window.setTimeout(() => {
+      pdfState.suppressScrollSave = false;
+      persistPdfScrollPosition();
+    }, 80);
+  });
+}
+
+function initializePdfScrollPersistence() {
+  elements.pdfViewer?.addEventListener("scroll", schedulePersistPdfScrollPosition, { passive: true });
+  window.addEventListener("beforeunload", persistPdfScrollPosition);
+}
+
 function setPdfMode(mode) {
   pdfState.mode = mode;
   elements.pdfViewer?.classList.toggle("is-annotating", mode !== "pan");
@@ -377,6 +495,63 @@ function normalizeAnnotation(annotation) {
     quote,
     createdAt: normalizeText(annotation.createdAt) || new Date().toISOString()
   };
+}
+
+function cloneAnnotation(annotation) {
+  return {
+    ...annotation,
+    rects: Array.isArray(annotation.rects) ? annotation.rects.map((rect) => ({ ...rect })) : []
+  };
+}
+
+function cloneAnnotationSnapshot() {
+  return pdfState.annotations.map(cloneAnnotation);
+}
+
+function updateAnnotationHistoryButtons() {
+  if (elements.annotationUndo) elements.annotationUndo.disabled = !pdfState.historyPast.length;
+  if (elements.annotationRedo) elements.annotationRedo.disabled = !pdfState.historyFuture.length;
+}
+
+function resetAnnotationHistory() {
+  pdfState.historyPast = [];
+  pdfState.historyFuture = [];
+  updateAnnotationHistoryButtons();
+}
+
+function pushAnnotationHistory() {
+  pdfState.historyPast.push(cloneAnnotationSnapshot());
+  if (pdfState.historyPast.length > pdfState.historyLimit) {
+    pdfState.historyPast.shift();
+  }
+  pdfState.historyFuture = [];
+  updateAnnotationHistoryButtons();
+}
+
+function restoreAnnotationSnapshot(snapshot) {
+  closeNoteEditor();
+  pdfState.annotations = (Array.isArray(snapshot) ? snapshot : [])
+    .map((annotation) => normalizeAnnotation(cloneAnnotation(annotation)));
+  pdfState.selectedAnnotationId = "";
+  scheduleSaveAnnotations();
+  renderAllAnnotations();
+  updateAnnotationHistoryButtons();
+}
+
+function undoAnnotationChange() {
+  if (!pdfState.historyPast.length) return;
+  const currentSnapshot = cloneAnnotationSnapshot();
+  const previousSnapshot = pdfState.historyPast.pop();
+  pdfState.historyFuture.push(currentSnapshot);
+  restoreAnnotationSnapshot(previousSnapshot);
+}
+
+function redoAnnotationChange() {
+  if (!pdfState.historyFuture.length) return;
+  const currentSnapshot = cloneAnnotationSnapshot();
+  const nextSnapshot = pdfState.historyFuture.pop();
+  pdfState.historyPast.push(currentSnapshot);
+  restoreAnnotationSnapshot(nextSnapshot);
 }
 
 function normalizeAnnotationRect(rect) {
@@ -463,6 +638,7 @@ function annotationSummary(annotation) {
 
 function renderAnnotationList() {
   if (!elements.annotationList) return;
+  updateAnnotationHistoryButtons();
   const sorted = [...pdfState.annotations].sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
   if (elements.annotationCount) elements.annotationCount.textContent = String(sorted.length);
   if (!sorted.length) {
@@ -583,7 +759,10 @@ function openAnnotationEditor(annotation, pageElement) {
   editor.addEventListener("pointerdown", (event) => event.stopPropagation());
   editor.querySelectorAll("[data-editor-color]").forEach((button) => {
     button.addEventListener("click", () => {
-      annotation.color = button.dataset.editorColor || "yellow";
+      const nextColor = PDF_COLORS[button.dataset.editorColor] ? button.dataset.editorColor : "yellow";
+      if (annotation.color === nextColor) return;
+      pushAnnotationHistory();
+      annotation.color = nextColor;
       applyAnnotationColor(editor, annotation);
       editor.querySelectorAll("[data-editor-color]").forEach((entry) => {
         entry.classList.toggle("is-active", entry === button);
@@ -595,13 +774,18 @@ function openAnnotationEditor(annotation, pageElement) {
   });
   editor.addEventListener("submit", (event) => {
     event.preventDefault();
-    annotation.comment = editor.querySelector("textarea").value.trim();
-    annotation.text = annotation.comment;
-    scheduleSaveAnnotations();
+    const nextComment = editor.querySelector("textarea").value.trim();
+    if (annotation.comment !== nextComment) {
+      pushAnnotationHistory();
+      annotation.comment = nextComment;
+      annotation.text = annotation.comment;
+      scheduleSaveAnnotations();
+    }
     closeNoteEditor();
     renderAllAnnotations();
   });
   editor.querySelector("[data-annotation-delete]").addEventListener("click", () => {
+    pushAnnotationHistory();
     pdfState.annotations = pdfState.annotations.filter((entry) => entry.id !== annotation.id);
     pdfState.selectedAnnotationId = "";
     scheduleSaveAnnotations();
@@ -668,16 +852,22 @@ function groupTextItemsByLine(items) {
   return lines;
 }
 
+function lineBoundsFromItems(items) {
+  return {
+    left: Math.min(...items.map((item) => item.rect.left)),
+    right: Math.max(...items.map((item) => item.rect.right)),
+    top: Math.min(...items.map((item) => item.rect.top)),
+    bottom: Math.max(...items.map((item) => item.rect.bottom))
+  };
+}
+
 function lineRectsFromClientRects(clientRects, pageBox, type) {
   const items = clientRects
     .map((rect) => clampClientRectToPage(rect, pageBox))
     .filter((rect) => rect.width > 1 && rect.height > 1);
 
   return groupTextItemsByLine(items.map((rect) => ({ rect }))).map((line) => {
-    const left = Math.min(...line.items.map((item) => item.rect.left));
-    const right = Math.max(...line.items.map((item) => item.rect.right));
-    const top = Math.min(...line.items.map((item) => item.rect.top));
-    const bottom = Math.max(...line.items.map((item) => item.rect.bottom));
+    const { left, right, top, bottom } = lineBoundsFromItems(line.items);
     const lineHeight = Math.max(1, bottom - top);
     const underlineHeight = Math.max(2, lineHeight * 0.13);
     const visualTop = type === "underline" ? bottom - underlineHeight : top + lineHeight * 0.08;
@@ -776,12 +966,7 @@ function textFromSelectionForPage(pageElement) {
 
   const lines = groupTextItemsByLine(clientRects.map((rect) => ({ rect })));
   const lineTexts = lines.map((line) => {
-    const lineRect = {
-      left: Math.min(...line.items.map((item) => item.rect.left)),
-      right: Math.max(...line.items.map((item) => item.rect.right)),
-      top: Math.min(...line.items.map((item) => item.rect.top)),
-      bottom: Math.max(...line.items.map((item) => item.rect.bottom))
-    };
+    const lineRect = lineBoundsFromItems(line.items);
     return spans
       .filter((entry) => {
         const vOverlap = verticalOverlap(entry.rect, lineRect);
@@ -809,6 +994,7 @@ function addNoteAnnotation(event, pageElement) {
     text: "",
     comment: ""
   });
+  pushAnnotationHistory();
   pdfState.annotations.push(annotation);
   scheduleSaveAnnotations();
   renderAnnotationsForPage(pageElement);
@@ -833,6 +1019,7 @@ function finishSelectionAnnotation(pageElement, type) {
       comment: ""
     });
     if (annotation.w < 0.01 || annotation.h < 0.001) return;
+    pushAnnotationHistory();
     pdfState.annotations.push(annotation);
     window.getSelection()?.removeAllRanges();
     scheduleSaveAnnotations();
@@ -863,6 +1050,112 @@ function normalizeCopiedPdfText(text) {
     .replace(/([A-Za-z0-9,.;:)%])\n([A-Za-z0-9(])/g, "$1 $2")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function textLayerLines(textLayer) {
+  const spans = Array.from(textLayer.querySelectorAll("span[role='presentation']"))
+    .map((span) => ({ span, text: span.textContent || "", rect: span.getBoundingClientRect() }))
+    .filter((entry) => normalizeText(entry.text) && entry.rect.width > 0 && entry.rect.height > 0);
+
+  return groupTextItemsByLine(spans).map((line) => {
+    const items = line.items
+      .filter((item) => item.span)
+      .sort((a, b) => a.rect.left - b.rect.left);
+    const bounds = lineBoundsFromItems(items);
+    return {
+      ...bounds,
+      height: Math.max(1, bounds.bottom - bounds.top),
+      width: Math.max(1, bounds.right - bounds.left),
+      items,
+      text: items.map((item) => item.text).join("")
+    };
+  }).filter((line) => normalizeText(line.text));
+}
+
+function selectSpanRange(firstSpan, lastSpan) {
+  const firstNode = firstSpan?.firstChild;
+  const lastNode = lastSpan?.firstChild;
+  if (!firstNode || !lastNode) return false;
+  const range = document.createRange();
+  range.setStart(firstNode, 0);
+  range.setEnd(lastNode, lastNode.textContent.length);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return true;
+}
+
+function selectTextLayerLines(lines) {
+  const firstSpan = lines.at(0)?.items.at(0)?.span;
+  const lastSpan = lines.at(-1)?.items.at(-1)?.span;
+  return selectSpanRange(firstSpan, lastSpan);
+}
+
+function findTextLayerLineIndex(lines, targetSpan, event) {
+  const spanIndex = lines.findIndex((line) => line.items.some((item) => item.span === targetSpan));
+  if (spanIndex !== -1) return spanIndex;
+  const y = event.clientY;
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  lines.forEach((line, index) => {
+    const center = (line.top + line.bottom) / 2;
+    const distance = Math.abs(center - y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+function lineGap(previousLine, nextLine) {
+  return Math.max(0, nextLine.top - previousLine.bottom);
+}
+
+function shouldJoinParagraphLine(previousLine, nextLine, typicalGap) {
+  const gap = lineGap(previousLine, nextLine);
+  const averageHeight = (previousLine.height + nextLine.height) / 2;
+  const heightRatio = Math.max(previousLine.height, nextLine.height) / Math.max(1, Math.min(previousLine.height, nextLine.height));
+  const overlap = horizontalOverlap(previousLine, nextLine) / Math.max(1, Math.min(previousLine.width, nextLine.width));
+  const maxGap = Math.max(averageHeight * 0.92, typicalGap * 2.2, 8);
+  return gap <= maxGap && overlap >= 0.35 && heightRatio <= 1.45;
+}
+
+function paragraphLinesAround(lines, lineIndex) {
+  const gaps = lines.slice(1).map((line, index) => lineGap(lines[index], line));
+  const typicalGap = median(gaps) || 0;
+  let start = lineIndex;
+  let end = lineIndex;
+
+  while (start > 0 && shouldJoinParagraphLine(lines[start - 1], lines[start], typicalGap)) {
+    start -= 1;
+  }
+  while (end < lines.length - 1 && shouldJoinParagraphLine(lines[end], lines[end + 1], typicalGap)) {
+    end += 1;
+  }
+  return lines.slice(start, end + 1);
+}
+
+function handleTextLayerMultiClick(event) {
+  if (event.button !== 0 || event.detail < 3) return;
+  const textLayer = event.currentTarget;
+  const targetSpan = event.target.closest("span[role='presentation']");
+  if (!targetSpan || !textLayer.contains(targetSpan)) return;
+
+  const lines = textLayerLines(textLayer);
+  const lineIndex = findTextLayerLineIndex(lines, targetSpan, event);
+  if (lineIndex < 0) return;
+
+  event.preventDefault();
+  const selectedLines = event.detail >= 4 ? paragraphLinesAround(lines, lineIndex) : [lines[lineIndex]];
+  selectTextLayerLines(selectedLines);
 }
 
 function measuredTextWidth(text, fontSize, fontFamily) {
@@ -984,6 +1277,7 @@ async function renderOperatorTextLayer(page, textContent, viewport, container) {
 }
 
 async function renderSelectableTextLayer(page, textContent, viewport, container) {
+  container.addEventListener("click", handleTextLayerMultiClick);
   container.addEventListener("copy", (event) => {
     const pageElement = container.closest(".pdf-page");
     const selectionText = pageElement ? textFromSelectionForPage(pageElement) : window.getSelection()?.toString() || "";
@@ -1008,7 +1302,7 @@ async function renderSelectableTextLayer(page, textContent, viewport, container)
   await task.promise;
 }
 
-async function renderPdfPage(pageNumber, renderToken, scale) {
+async function renderPdfPage(pageNumber, renderToken, scale, target = elements.pdfViewer, options = {}) {
   const page = await pdfState.document.getPage(pageNumber);
   if (renderToken !== pdfState.renderToken) return false;
   const viewport = page.getViewport({ scale });
@@ -1036,7 +1330,7 @@ async function renderPdfPage(pageNumber, renderToken, scale) {
 
   pageElement.append(canvas, textLayer, overlay);
   if (renderToken !== pdfState.renderToken) return false;
-  elements.pdfViewer.appendChild(pageElement);
+  target.appendChild(pageElement);
   wirePageAnnotationEvents(pageElement);
   const renderTask = page.render({
     canvasContext: context,
@@ -1054,31 +1348,54 @@ async function renderPdfPage(pageNumber, renderToken, scale) {
     pageElement.remove();
     return false;
   }
-  renderAnnotationsForPage(pageElement);
+  if (options.renderAnnotations !== false) {
+    renderAnnotationsForPage(pageElement);
+  }
   return true;
 }
 
 async function renderPdf() {
   if (!pdfState.document) return;
+  const positionToRestore = currentPdfScrollPosition() || storedPdfScrollPosition();
   const renderToken = pdfState.renderToken + 1;
   const scale = pdfState.scale;
+  const hasRenderedPages = Boolean(elements.pdfViewer.querySelector(".pdf-page"));
+  const renderTarget = hasRenderedPages ? document.createDocumentFragment() : elements.pdfViewer;
   pdfState.renderToken = renderToken;
-  elements.pdfViewer.innerHTML = "";
+  pdfState.suppressScrollSave = true;
+  if (!hasRenderedPages) elements.pdfViewer.innerHTML = "";
   if (elements.zoomLabel) elements.zoomLabel.textContent = `${Math.round(scale * 100)}%`;
   const pageCount = Number(pdfState.document.numPages || pdfState.document._pdfInfo?.numPages || 0);
   if (!pageCount) {
+    pdfState.suppressScrollSave = false;
     throw new Error("PDF loaded, but page count was unavailable.");
   }
-  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-    const rendered = await renderPdfPage(pageNumber, renderToken, scale);
-    if (!rendered || renderToken !== pdfState.renderToken) return;
+  try {
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const rendered = await renderPdfPage(pageNumber, renderToken, scale, renderTarget, {
+        renderAnnotations: !hasRenderedPages
+      });
+      if (!rendered || renderToken !== pdfState.renderToken) {
+        pdfState.suppressScrollSave = false;
+        return;
+      }
+    }
+  } catch (error) {
+    pdfState.suppressScrollSave = false;
+    throw error;
   }
+  if (hasRenderedPages) {
+    elements.pdfViewer.replaceChildren(...Array.from(renderTarget.childNodes));
+    elements.pdfViewer.querySelectorAll(".pdf-page").forEach(renderAnnotationsForPage);
+  }
+  finishPdfScrollRestore(positionToRestore);
 }
 
 async function loadPdf(pdfHref, noteId) {
   pdfState.noteId = noteId;
   pdfState.url = pdfHref;
   pdfState.annotations = await readAnnotations(noteId);
+  resetAnnotationHistory();
   setAnnotationStatus(pdfState.annotations.length ? "Annotations loaded" : "No annotations yet");
   renderAnnotationList();
   setPdfLoading("Fetching PDF...");
@@ -1114,6 +1431,8 @@ function initializePdfTools() {
   elements.colorButtons.forEach((button) => {
     button.addEventListener("click", () => setPdfColor(button.dataset.pdfColor || "yellow"));
   });
+  elements.annotationUndo?.addEventListener("click", undoAnnotationChange);
+  elements.annotationRedo?.addEventListener("click", redoAnnotationChange);
   elements.zoomIn?.addEventListener("click", async () => {
     pdfState.scale = clamp(pdfState.scale + 0.1, 0.7, 2.2);
     await renderPdf();
@@ -1124,6 +1443,7 @@ function initializePdfTools() {
   });
   setPdfMode("pan");
   setPdfColor("yellow");
+  updateAnnotationHistoryButtons();
 }
 
 function renderSection(title, body = "") {
@@ -1221,6 +1541,7 @@ async function initialize() {
   initializeHtmlPaneToggle();
   initializeHtmlZoom();
   initializePdfTools();
+  initializePdfScrollPersistence();
   const noteId = new URLSearchParams(window.location.search).get("id");
   if (!noteId) {
     showError();
