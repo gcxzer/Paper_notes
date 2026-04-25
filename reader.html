@@ -39,6 +39,11 @@
             <button class="pdf-color" type="button" data-pdf-color="red" aria-label="Red"></button>
             <button class="pdf-color" type="button" data-pdf-color="purple" aria-label="Purple"></button>
           </div>
+          <div class="pdf-page-control" role="group" aria-label="PDF page navigation">
+            <span class="pdf-page-label">Page</span>
+            <input class="pdf-page-input" id="pdfPageInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="1" aria-label="PDF page number">
+            <span class="pdf-page-total" id="pdfPageTotal">/ 0</span>
+          </div>
           <div class="pdf-tool-group" role="group" aria-label="PDF zoom">
             <button class="pdf-tool" type="button" id="zoomOut">−</button>
             <span class="pdf-zoom" id="zoomLabel">100%</span>
@@ -59,6 +64,10 @@
             <div class="annotation-list" id="annotationList"></div>
           </aside>
           <div class="pdf-viewer" id="pdfViewer" aria-label="PDF pages"></div>
+        </div>
+        <div class="pdf-link-return" id="pdfLinkReturn" hidden>
+          <button class="pdf-link-back" type="button" id="pdfLinkBack" aria-label="Return to previous PDF position">↩ Back</button>
+          <button class="pdf-link-dismiss" type="button" id="pdfLinkDismiss" aria-label="Hide return button">×</button>
         </div>
       </section>
 
@@ -83,6 +92,6 @@
 
   <script src="node_modules/pdfjs-dist/build/pdf.js?v=pdfjs3"></script>
   <script src="assets/note.js?v=annotations-v6"></script>
-  <script src="assets/reader.js?v=annotations-v14"></script>
+  <script src="assets/reader.js?v=annotations-v22"></script>
 </body>
 </html>

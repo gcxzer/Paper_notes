@@ -197,6 +197,7 @@ a {
 }
 
 .pdf-pane {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--input-bg);
@@ -282,6 +283,48 @@ a {
 .pdf-color:focus-visible,
 .pdf-color.is-active {
   border-color: var(--text);
+}
+
+.pdf-page-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.pdf-page-label,
+.pdf-page-total {
+  line-height: 1;
+}
+
+.pdf-page-input {
+  width: 42px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pdf-page-input:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 1px;
+}
+
+.pdf-page-input:disabled {
+  opacity: 0.45;
 }
 
 .pdf-tool:hover,
@@ -599,6 +642,65 @@ body.is-resizing-reader {
   background: var(--document-bg, var(--input-bg));
 }
 
+.pdf-link-return {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34), 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  transform: translateX(-50%);
+  backdrop-filter: blur(14px);
+}
+
+.pdf-link-return[hidden] {
+  display: none;
+}
+
+.pdf-link-back,
+.pdf-link-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.pdf-link-back {
+  padding: 0 22px;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.pdf-link-dismiss {
+  width: 48px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.pdf-link-back:hover,
+.pdf-link-back:focus-visible {
+  background: color-mix(in srgb, var(--accent) 82%, #000000);
+}
+
+.pdf-link-dismiss:hover,
+.pdf-link-dismiss:focus-visible {
+  background: var(--hover);
+}
+
 .pdf-loading {
   align-self: center;
   justify-self: center;
@@ -660,6 +762,38 @@ body.is-resizing-reader {
   cursor: text;
   transform-origin: 0% 0%;
   user-select: text;
+}
+
+.pdf-page.is-over-pdf-link,
+.pdf-page.is-over-pdf-link .textLayer :is(span, br) {
+  cursor: pointer;
+}
+
+.pdf-link-target-flash {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid #ffb000;
+  border-radius: 6px;
+  background: rgba(255, 176, 0, 0.24);
+  box-shadow: 0 0 0 5px rgba(255, 176, 0, 0.14), 0 8px 26px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+  animation: pdf-target-flash 2.6s ease forwards;
+}
+
+@keyframes pdf-target-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  12%,
+  72% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.02);
+  }
 }
 
 .textLayer span.markedContent {
@@ -783,9 +917,9 @@ body.is-resizing-reader {
   z-index: 5;
   pointer-events: auto;
   display: grid;
-  gap: 8px;
-  width: 260px;
-  padding: 10px;
+  gap: 10px;
+  width: min(380px, calc(100% - 20px));
+  padding: 14px;
   border: 1px solid rgba(var(--annotation-rgb), 0.45);
   border-radius: 10px;
   background: #fffdf1;
@@ -831,11 +965,11 @@ body.is-resizing-reader {
 
 .pdf-annotation-editor textarea {
   width: 100%;
-  min-height: 86px;
+  min-height: 136px;
   resize: vertical;
   border: 1px solid #dfd4a6;
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px;
   background: #fff;
   color: #24211d;
   font: inherit;

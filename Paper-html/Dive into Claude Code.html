@@ -146,7 +146,7 @@
         <figure class="note-figure">
         <img src="../assets/claude_code_architecture.png" 
             alt="Claude Code Architecture"
-            style="width:100%; border-radius:8px; margin:16px 0;">
+            >
         </figure>
 
         <h2>1. Introduction</h2>
@@ -268,7 +268,55 @@
           </div>
         </div>
 
-        <h2>4. Agent Loop</h2>
+        <div class="note-point">
+        <h4>3. Default Safety Posture</h4>
+
+        <p><b>一句话：</b>默认不信任（deny-first），并通过多层机制保障安全。</p>
+
+        <ul>
+          <li><b>优先级：</b>deny > ask > allow</li>
+          <li><b>未知操作：</b>升级给用户（不自动执行）</li>
+          <li><b>多层防御：</b>rules + hooks + classifier + sandbox</li>
+        </ul>
+
+        <p><b>核心思想：</b></p>
+        <ul>
+          <li>安全在执行前控制，而不是事后补救</li>
+          <li>任意一层都可以阻止危险操作</li>
+        </ul>
+      </div>
+
+      <div class="note-point">
+        <h4>4. Binding Resource Constraint</h4>
+
+        <p><b>一句话：</b>Claude Code 的核心瓶颈是 context window。</p>
+
+        <ul>
+          <li>模型能看到的信息是有限的</li>
+          <li>上下文过长 → 会被截断或丢失</li>
+        </ul>
+
+        <p><b>解决方案：</b></p>
+        <ul>
+          <li>5层压缩：budget → snip → micro → collapse → auto</li>
+          <li>lazy loading（按需加载）</li>
+          <li>deferred schemas（延迟工具）</li>
+          <li>subagent summary（只返回总结）</li>
+        </ul>
+      </div>
+
+        <h3>3.3 Layered Subsystem Decomposition</h3>
+        <figure class="note-figure">
+          <img src="../assets/Claude_Code_Layers.png" alt="Claude Code Layers">
+          <figcaption>Claude Code layered subsystem decomposition</figcaption>
+        </figure>
+
+        <h2>4. Turn Execution: The Agentic Query Loop</h2>
+        <h3>4.1 The Query Pipeline</h3>
+        <figure class="note-figure">
+          <img src="../assets/Claude_Code_query_pipeline.png" alt="Claude Code query pipeline">
+          <figcaption>Claude Code query pipeline</figcaption>
+        </figure>
 
         <h2>5. Permission System</h2>
         <p>Deny-first + multiple safety layers + classifier + sandbox.</p>
