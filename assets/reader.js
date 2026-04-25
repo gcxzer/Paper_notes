@@ -12,6 +12,7 @@ const ANNOTATION_SIDEBAR_KEY = "paper-notes-annotation-sidebar-v1";
 const HTML_PANE_KEY = "paper-notes-html-pane-v1";
 const HTML_ZOOM_KEY = "paper-notes-html-zoom-v1";
 const PDF_SCROLL_KEY = "paper-notes-pdf-scroll-v1";
+const NOTE_SCROLL_KEY = "paper-notes-note-scroll-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
 
@@ -63,6 +64,8 @@ const pdfState = {
   historyLimit: 80,
   suppressScrollSave: false,
   scrollSaveTimer: 0,
+  suppressNoteScrollSave: false,
+  noteScrollSaveTimer: 0,
   saveTimer: 0,
   openEditor: null,
   selectedAnnotationId: ""
@@ -451,6 +454,148 @@ function initializePdfScrollPersistence() {
   window.addEventListener("beforeunload", persistPdfScrollPosition);
 }
 
+function readNoteScrollStore() {
+  try {
+    const raw = localStorage.getItem(NOTE_SCROLL_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("Failed to read note scroll position.", error);
+    return {};
+  }
+}
+
+function writeNoteScrollStore(store) {
+  try {
+    localStorage.setItem(NOTE_SCROLL_KEY, JSON.stringify(store));
+  } catch (error) {
+    console.warn("Failed to save note scroll position.", error);
+  }
+}
+
+function noteScrollAnchorOffset() {
+  const pane = elements.notePane;
+  if (!pane) return 0;
+  return Math.round(clamp(pane.clientHeight * 0.16, 56, 150));
+}
+
+function noteScrollAnchorElements() {
+  if (!elements.notePage) return [];
+  return Array.from(elements.notePage.querySelectorAll("h1, h2, h3, h4, p, li, figure, img, table, pre, blockquote"))
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+}
+
+function currentNoteScrollPosition() {
+  const pane = elements.notePane;
+  if (!pane || !pdfState.noteId) return null;
+  const maxScroll = Math.max(0, pane.scrollHeight - pane.clientHeight);
+  const paneBox = pane.getBoundingClientRect();
+  const anchorOffset = noteScrollAnchorOffset();
+  const anchorY = paneBox.top + anchorOffset;
+  const anchors = noteScrollAnchorElements();
+  let bestAnchor = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  anchors.forEach((element, index) => {
+    const rect = element.getBoundingClientRect();
+    const distance = rect.top <= anchorY && rect.bottom >= anchorY
+      ? 0
+      : Math.min(Math.abs(rect.top - anchorY), Math.abs(rect.bottom - anchorY));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestAnchor = { element, index, rect };
+    }
+  });
+
+  return {
+    scrollTop: pane.scrollTop,
+    ratio: maxScroll ? pane.scrollTop / maxScroll : 0,
+    anchorId: bestAnchor?.element.id || "",
+    anchorIndex: bestAnchor?.index ?? -1,
+    anchorOffset: bestAnchor ? clamp((anchorY - bestAnchor.rect.top) / Math.max(1, bestAnchor.rect.height), 0, 1) : 0,
+    updatedAt: Date.now()
+  };
+}
+
+function storedNoteScrollPosition(noteId = pdfState.noteId) {
+  if (!noteId) return null;
+  return readNoteScrollStore()[noteId] || null;
+}
+
+function persistNoteScrollPosition() {
+  if (pdfState.suppressNoteScrollSave) return;
+  const position = currentNoteScrollPosition();
+  if (!position || !pdfState.noteId) return;
+  const store = readNoteScrollStore();
+  store[pdfState.noteId] = position;
+  writeNoteScrollStore(store);
+}
+
+function schedulePersistNoteScrollPosition() {
+  if (pdfState.suppressNoteScrollSave) return;
+  window.clearTimeout(pdfState.noteScrollSaveTimer);
+  pdfState.noteScrollSaveTimer = window.setTimeout(persistNoteScrollPosition, 120);
+}
+
+function restoreNoteScrollPosition(position) {
+  const pane = elements.notePane;
+  if (!pane || !position) return;
+  const maxScroll = Math.max(0, pane.scrollHeight - pane.clientHeight);
+  const paneBox = pane.getBoundingClientRect();
+  const anchorOffset = noteScrollAnchorOffset();
+  const anchors = noteScrollAnchorElements();
+  let target = Number(position.scrollTop);
+  if (!Number.isFinite(target)) {
+    target = Number.isFinite(position.ratio) ? position.ratio * maxScroll : 0;
+  }
+
+  const idAnchor = position.anchorId ? document.getElementById(position.anchorId) : null;
+  const anchor = idAnchor && elements.notePage?.contains(idAnchor)
+    ? idAnchor
+    : anchors[Number(position.anchorIndex)];
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const elementOffset = clamp(Number(position.anchorOffset) || 0, 0, 1) * rect.height;
+    target = pane.scrollTop + rect.top - paneBox.top + elementOffset - anchorOffset;
+  }
+
+  pane.scrollTop = clamp(target, 0, maxScroll);
+}
+
+function finishNoteScrollRestore(position) {
+  const pane = elements.notePane;
+  if (!pane) return;
+  if (!position) {
+    pane.scrollTop = 0;
+    pdfState.suppressNoteScrollSave = false;
+    return;
+  }
+
+  restoreNoteScrollPosition(position);
+  elements.notePage?.querySelectorAll("img").forEach((image) => {
+    if (!image.complete) {
+      image.addEventListener("load", () => restoreNoteScrollPosition(position), { once: true });
+    }
+  });
+  window.requestAnimationFrame(() => {
+    restoreNoteScrollPosition(position);
+    window.setTimeout(() => restoreNoteScrollPosition(position), 140);
+    window.setTimeout(() => {
+      restoreNoteScrollPosition(position);
+      pdfState.suppressNoteScrollSave = false;
+      persistNoteScrollPosition();
+    }, 520);
+  });
+}
+
+function initializeNoteScrollPersistence() {
+  elements.notePane?.addEventListener("scroll", schedulePersistNoteScrollPosition, { passive: true });
+  window.addEventListener("beforeunload", persistNoteScrollPosition);
+}
+
 function setPdfMode(mode) {
   pdfState.mode = mode;
   elements.pdfViewer?.classList.toggle("is-annotating", mode !== "pan");
@@ -554,6 +699,42 @@ function redoAnnotationChange() {
   restoreAnnotationSnapshot(nextSnapshot);
 }
 
+function editableKeyboardTarget(element) {
+  return Boolean(element?.closest?.("input, textarea, select, [contenteditable='true'], [contenteditable='']"));
+}
+
+function deleteSelectedAnnotation() {
+  const annotationId = pdfState.selectedAnnotationId;
+  if (!annotationId || !pdfState.annotations.some((entry) => entry.id === annotationId)) return false;
+  pushAnnotationHistory();
+  pdfState.annotations = pdfState.annotations.filter((entry) => entry.id !== annotationId);
+  pdfState.selectedAnnotationId = "";
+  closeNoteEditor();
+  scheduleSaveAnnotations();
+  renderAllAnnotations();
+  return true;
+}
+
+function handleAnnotationKeyboard(event) {
+  if (editableKeyboardTarget(event.target)) return;
+  const key = event.key.toLowerCase();
+  const commandKey = event.metaKey || event.ctrlKey;
+
+  if (commandKey && key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) {
+      redoAnnotationChange();
+    } else {
+      undoAnnotationChange();
+    }
+    return;
+  }
+
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && ["delete", "backspace"].includes(key)) {
+    if (deleteSelectedAnnotation()) event.preventDefault();
+  }
+}
+
 function normalizeAnnotationRect(rect) {
   const x = clamp(Number(rect?.x) || 0, 0, 1);
   const y = clamp(Number(rect?.y) || 0, 0, 1);
@@ -651,22 +832,41 @@ function renderAnnotationList() {
     return;
   }
   elements.annotationList.innerHTML = "";
+  const pageGroups = new Map();
   sorted.forEach((annotation) => {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "annotation-card";
-    card.dataset.annotationId = annotation.id;
-    card.classList.toggle("is-selected", annotation.id === pdfState.selectedAnnotationId);
-    applyAnnotationColor(card, annotation);
-    card.innerHTML = `
-      <span class="annotation-card-strip" aria-hidden="true"></span>
-      <span class="annotation-card-main">
-        <span class="annotation-card-meta">${annotationTypeLabel(annotation.type)} · Page ${annotation.page}</span>
-        <span class="annotation-card-text">${escapeHtml(annotationSummary(annotation))}</span>
-      </span>
+    const page = Number(annotation.page) || 1;
+    if (!pageGroups.has(page)) pageGroups.set(page, []);
+    pageGroups.get(page).push(annotation);
+  });
+
+  pageGroups.forEach((annotations, page) => {
+    const section = document.createElement("section");
+    section.className = "annotation-page-section";
+    section.setAttribute("aria-label", `Page ${page} annotations`);
+    section.innerHTML = `
+      <div class="annotation-page-heading">
+        <span>Page ${page}</span>
+        <small>${annotations.length}</small>
+      </div>
     `;
-    card.addEventListener("click", () => jumpToAnnotation(annotation.id));
-    elements.annotationList.appendChild(card);
+    annotations.forEach((annotation) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "annotation-card";
+      card.dataset.annotationId = annotation.id;
+      card.classList.toggle("is-selected", annotation.id === pdfState.selectedAnnotationId);
+      applyAnnotationColor(card, annotation);
+      card.innerHTML = `
+        <span class="annotation-card-strip" aria-hidden="true"></span>
+        <span class="annotation-card-main">
+          <span class="annotation-card-meta">${annotationTypeLabel(annotation.type)}</span>
+          <span class="annotation-card-text">${escapeHtml(annotationSummary(annotation))}</span>
+        </span>
+      `;
+      card.addEventListener("click", () => jumpToAnnotation(annotation.id));
+      section.appendChild(card);
+    });
+    elements.annotationList.appendChild(section);
   });
 }
 
@@ -728,7 +928,34 @@ function closeNoteEditor() {
   pdfState.openEditor = null;
 }
 
-function openAnnotationEditor(annotation, pageElement) {
+function saveAnnotationEditorComment(editor = pdfState.openEditor) {
+  if (!editor) return false;
+  const annotation = pdfState.annotations.find((entry) => entry.id === editor.dataset.annotationId);
+  const textarea = editor.querySelector("textarea");
+  if (!annotation || !textarea) return false;
+  const nextComment = textarea.value.trim();
+  if (annotation.comment === nextComment) return false;
+  pushAnnotationHistory();
+  annotation.comment = nextComment;
+  annotation.text = annotation.comment;
+  scheduleSaveAnnotations();
+  return true;
+}
+
+function closeOpenAnnotationEditor(saveComment = false) {
+  const changed = saveComment ? saveAnnotationEditorComment() : false;
+  closeNoteEditor();
+  if (changed) renderAllAnnotations();
+  return changed;
+}
+
+function handleAnnotationEditorOutsidePointer(event) {
+  const editor = pdfState.openEditor;
+  if (!editor || editor.contains(event.target)) return;
+  closeOpenAnnotationEditor(true);
+}
+
+function openAnnotationEditor(annotation, pageElement, options = {}) {
   closeNoteEditor();
   pdfState.selectedAnnotationId = annotation.id;
   renderAnnotationList();
@@ -739,6 +966,8 @@ function openAnnotationEditor(annotation, pageElement) {
   const box = { width: canvas.clientWidth, height: canvas.clientHeight };
   const editor = document.createElement("form");
   editor.className = "pdf-annotation-editor";
+  editor.tabIndex = -1;
+  editor.dataset.annotationId = annotation.id;
   applyAnnotationColor(editor, annotation);
   editor.style.left = `${clamp((annotation.x + annotation.w) * box.width + 10, 10, box.width - 270)}px`;
   editor.style.top = `${clamp(annotation.y * box.height, 10, box.height - 190)}px`;
@@ -774,13 +1003,7 @@ function openAnnotationEditor(annotation, pageElement) {
   });
   editor.addEventListener("submit", (event) => {
     event.preventDefault();
-    const nextComment = editor.querySelector("textarea").value.trim();
-    if (annotation.comment !== nextComment) {
-      pushAnnotationHistory();
-      annotation.comment = nextComment;
-      annotation.text = annotation.comment;
-      scheduleSaveAnnotations();
-    }
+    saveAnnotationEditorComment(editor);
     closeNoteEditor();
     renderAllAnnotations();
   });
@@ -794,7 +1017,11 @@ function openAnnotationEditor(annotation, pageElement) {
   });
   pageElement.appendChild(editor);
   pdfState.openEditor = editor;
-  editor.querySelector("textarea").focus();
+  if (options.focusComment) {
+    editor.querySelector("textarea").focus();
+  } else {
+    editor.focus({ preventScroll: true });
+  }
 }
 
 function renderAllAnnotations() {
@@ -998,7 +1225,7 @@ function addNoteAnnotation(event, pageElement) {
   pdfState.annotations.push(annotation);
   scheduleSaveAnnotations();
   renderAnnotationsForPage(pageElement);
-  openAnnotationEditor(annotation, pageElement);
+  openAnnotationEditor(annotation, pageElement, { focusComment: true });
 }
 
 function finishSelectionAnnotation(pageElement, type) {
@@ -1433,6 +1660,8 @@ function initializePdfTools() {
   });
   elements.annotationUndo?.addEventListener("click", undoAnnotationChange);
   elements.annotationRedo?.addEventListener("click", redoAnnotationChange);
+  document.addEventListener("keydown", handleAnnotationKeyboard);
+  document.addEventListener("pointerdown", handleAnnotationEditorOutsidePointer, true);
   elements.zoomIn?.addEventListener("click", async () => {
     pdfState.scale = clamp(pdfState.scale + 0.1, 0.7, 2.2);
     await renderPdf();
@@ -1501,6 +1730,7 @@ async function fetchGeneratedNoteBody(note) {
 
 async function renderReader(library, note) {
   const collectionPath = getCollectionPath(library, note.categoryId);
+  const notePositionToRestore = storedNoteScrollPosition(note.id);
   const storedFile = await readPaperFile(note.pdfStorageKey || note.id).catch((error) => {
     console.warn("Failed to read stored paper file.", error);
     return null;
@@ -1511,6 +1741,7 @@ async function renderReader(library, note) {
   elements.title.textContent = note.title;
   elements.kicker.textContent = collectionPath;
   await loadPdf(pdfHref, note.id);
+  pdfState.suppressNoteScrollSave = true;
   elements.notePage.innerHTML = generatedNoteBody || `
     <header class="note-section">
       <p class="note-eyebrow">Paper Note</p>
@@ -1525,6 +1756,7 @@ async function renderReader(library, note) {
   `;
   if (typeof window.buildNoteMenu === "function") window.buildNoteMenu(elements.notePage);
   mountReaderNoteMenu();
+  finishNoteScrollRestore(notePositionToRestore);
 }
 
 async function initialize() {
@@ -1542,6 +1774,7 @@ async function initialize() {
   initializeHtmlZoom();
   initializePdfTools();
   initializePdfScrollPersistence();
+  initializeNoteScrollPersistence();
   const noteId = new URLSearchParams(window.location.search).get("id");
   if (!noteId) {
     showError();

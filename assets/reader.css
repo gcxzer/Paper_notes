@@ -446,8 +446,46 @@ a {
 
 .annotation-list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   padding: 10px;
+}
+
+.annotation-page-section {
+  display: grid;
+  gap: 8px;
+}
+
+.annotation-page-heading {
+  position: sticky;
+  top: 52px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 2px 3px;
+  background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.annotation-page-heading small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 0.66rem;
+  letter-spacing: 0;
 }
 
 .annotation-empty {
@@ -1079,6 +1117,72 @@ body.is-resizing-reader {
 .note-body {
   min-width: 0;
   padding-top: 26px;
+}
+
+.note-figure {
+  margin: 1.2em 0 2em;
+}
+
+.note-figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--paper-line);
+  border-radius: 8px;
+  box-shadow: 0 16px 34px rgba(42, 35, 25, 0.12);
+}
+
+.note-figure figcaption {
+  margin-top: 0.7em;
+  color: var(--paper-muted);
+  font-size: 0.92rem;
+  text-align: center;
+}
+
+.note-body table {
+  width: 100%;
+  margin: 1.1em 0;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.note-body th,
+.note-body td {
+  padding: 0.62em 0.7em;
+  border: 1px solid var(--paper-line);
+  color: var(--paper-muted);
+  text-align: left;
+  vertical-align: top;
+}
+
+.note-body th {
+  color: var(--paper-ink);
+  font-weight: 800;
+  background: color-mix(in srgb, var(--paper-line) 42%, transparent);
+}
+
+.note-table-wrap {
+  overflow-x: auto;
+  margin: 1em 0;
+  border: 1px solid var(--paper-line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.note-table-wrap .note-table {
+  min-width: 760px;
+  margin: 0;
+}
+
+.note-table td:first-child {
+  color: var(--paper-ink);
+  white-space: nowrap;
+}
+
+.note-table code {
+  white-space: nowrap;
 }
 
 .note-heading {

@@ -5,11 +5,128 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dive into Claude Code</title>
   <link rel="stylesheet" href="../assets/note.css">
+  <style>
+    .dive-note .note-section,
+    .dive-note .note-body {
+      max-width: 840px;
+      margin-inline: auto;
+    }
+
+    .dive-note .note-body {
+      font-size: 1rem;
+    }
+
+    .dive-note .note-body h2 {
+      margin-top: 2.25em;
+      padding-top: 1.05em;
+      border-top: 1px solid var(--line);
+    }
+
+    .dive-note .note-body h2:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .dive-note .note-body h3 {
+      margin-top: 1.75em;
+      color: var(--ink);
+    }
+
+    .dive-note .note-body h4 {
+      margin-top: 0;
+      color: var(--ink);
+      font-size: 1rem;
+    }
+
+    .dive-note .note-body strong,
+    .dive-note .note-body b {
+      color: var(--ink);
+    }
+
+    .principle-list li::marker,
+    .comparison-list li::marker,
+    .insight-list li::marker {
+      color: var(--accent);
+    }
+
+    .note-point {
+      margin: 1.2em 0 1.6em;
+      padding: 1.1em 1.15em;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      background: var(--quote-bg);
+    }
+
+    .note-point pre {
+      margin: 0.9em 0;
+    }
+
+    .note-point .point-title {
+      margin: 0 0 0.85em;
+      color: var(--ink);
+      font-size: 1rem;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .note-point > :last-child {
+      margin-bottom: 0;
+    }
+
+    .note-table-wrap {
+      overflow-x: auto;
+      margin: 1em 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .note-table {
+      min-width: 760px;
+      margin: 0;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    .note-table th,
+    .note-table td {
+      border: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    .note-table th {
+      color: var(--ink);
+      font-weight: 800;
+      white-space: nowrap;
+      background: color-mix(in srgb, var(--line) 34%, transparent);
+    }
+
+    .note-table td:first-child {
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .note-table code {
+      white-space: nowrap;
+    }
+
+    @media (max-width: 760px) {
+      .dive-note .note-section,
+      .dive-note .note-body {
+        max-width: 100%;
+      }
+
+      .note-point {
+        padding: 1em;
+      }
+    }
+  </style>
 </head>
 
 <body>
-  <main class="note">
-
+  <main class="note dive-note">
     <header class="note-section">
       <p class="eyebrow note-eyebrow">Paper Note</p>
       <h1>Dive into Claude Code</h1>
@@ -17,31 +134,26 @@
     </header>
 
     <div class="note-workspace">
-
       <!-- 📚 自动目录 -->
-      <aside class="note-menu">
+      <aside class="note-menu" aria-label="Note sections">
         <div class="note-menu-title">Contents</div>
         <nav data-note-menu></nav>
       </aside>
 
       <!-- 📄 内容区（关键） -->
       <section class="note-body">
-
         <h2>0. Overview</h2>
-        <p>
+        <figure class="note-figure">
         <img src="../assets/claude_code_architecture.png" 
             alt="Claude Code Architecture"
             style="width:100%; border-radius:8px; margin:16px 0;">
-        </p>
+        </figure>
 
         <h2>1. Introduction</h2>
-        <p>
-        </p>
 
         <h2>2. Design Philosophies</h2>
-
         <h3>2.1 Five Values</h3>
-        <ul>
+        <ul class="principle-list">
           <li>Human Decision Authority</li>
           <li>Safety, Security, Privacy</li>
           <li>Reliable Execution</li>
@@ -49,16 +161,14 @@
           <li>Contextual Adaptability</li>
         </ul>
 
-
         <h3>2.2 Design Principles</h3>
-
         <p>
           本节把前面的五个价值观落到 <strong>13 条设计原则</strong> 上。核心意思是：
           生产级 Coding Agent 不是只靠模型能力，而是要回答一系列反复出现的系统设计问题，
           例如：默认是否允许动作、权限如何升级、context 如何压缩、扩展机制如何组织、状态如何保存。
         </p>
 
-        <ul>
+        <ul class="principle-list">
           <li><strong>Deny-first：</strong>未知或危险动作默认不放行，而是拒绝或升级给人类。</li>
           <li><strong>Graduated trust：</strong>信任不是一次性给满，而是从严格到宽松逐步变化。</li>
           <li><strong>Defense in depth：</strong>安全不靠单一机制，而是权限、hooks、classifier、sandbox 多层叠加。</li>
@@ -74,11 +184,8 @@
           <li><strong>Graceful recovery：</strong>遇到错误时优先恢复、重试、降级，而不是直接崩溃。</li>
         </ul>
 
-        <p>
-          作者还把 Claude Code 和三类替代路线对比：
-        </p>
-
-        <ul>
+        <p>作者还把 Claude Code 和三类替代路线对比：</p>
+        <ul class="comparison-list">
           <li><strong>LangGraph 类：</strong>用显式状态图组织推理流程。</li>
           <li><strong>SWE-Agent / OpenHands 类：</strong>主要依赖 Docker 等容器隔离。</li>
           <li><strong>Aider 类：</strong>主要依赖 Git 回滚作为安全机制。</li>
@@ -87,33 +194,84 @@
         <p>
           Claude Code 的独特组合是：
           <strong>最小决策脚手架 + 分层策略控制 + deny-first 默认值 + 渐进式 context 管理 + 可组合扩展机制。</strong>
-        </p>        
+        </p>
 
         <h2>3. Architecture Overview</h2>
-        <h3>3.1Design Questions and Running Example</h3>
+        <h3>3.1 Design Questions and Running Example</h3>
+        <div class="note-point">
+          <h4>1. Where does reasoning live?</h4>
+          <p><b>核心：</b>模型负责思考，系统负责执行。</p>
+          <ul>
+            <li>模型不能直接访问文件、shell、网络</li>
+            <li>所有操作必须通过 <code>tool_use</code> 接口</li>
+            <li>系统负责安全（sandbox / permission / deny-first）</li>
+          </ul>
 
+          <p><b>关键 insight：</b></p>
+          <ul class="insight-list">
+            <li>Reasoning ≠ Execution</li>
+            <li>Agent ≠ 模型，而是模型 + 系统</li>
+            <li>98% 是工程系统，不是 AI</li>
+          </ul>
+        </div>
 
+        <div class="note-point">
+          <h4>2. How many execution engines?</h4>
 
+          <p>
+            <b>核心：</b>Claude Code 只有一个核心执行引擎：
+            <code>queryLoop()</code>。不同入口只是外层 UI / 调用方式不同。
+          </p>
 
-
-
-
-
-
-
-
-        
-
+          <div class="note-table-wrap">
+            <table class="note-table" border="1" cellspacing="0" cellpadding="8">
+              <thead>
+                <tr>
+                  <th>入口方式</th>
+                  <th>谁在用</th>
+                  <th>有没有界面</th>
+                  <th>典型用途</th>
+                  <th>和执行引擎的关系</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>Interactive Terminal</b></td>
+                  <td>人类用户</td>
+                  <td>有</td>
+                  <td>终端里对话、确认权限、查看流式输出</td>
+                  <td>把用户输入包装成消息，交给同一个 <code>queryLoop()</code></td>
+                </tr>
+                <tr>
+                  <td><b>Headless CLI</b></td>
+                  <td>脚本 / 自动化程序</td>
+                  <td>无</td>
+                  <td>一次性命令调用，例如 <code>claude -p "fix bug"</code></td>
+                  <td>跳过交互界面，直接把 prompt 投递给 <code>queryLoop()</code></td>
+                </tr>
+                <tr>
+                  <td><b>Agent SDK</b></td>
+                  <td>开发者</td>
+                  <td>通常无</td>
+                  <td>把 Claude Code 嵌入自己的应用或系统</td>
+                  <td>通过 API 调用同一套 agent loop、权限和工具执行逻辑</td>
+                </tr>
+                <tr>
+                  <td><b>IDE Integration</b></td>
+                  <td>开发者</td>
+                  <td>有</td>
+                  <td>在 VS Code / Cursor 等编辑器里使用</td>
+                  <td>编辑器只提供上下文和界面，底层仍走 <code>queryLoop()</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <h2>4. Agent Loop</h2>
-        <pre>
-
-        </pre>
 
         <h2>5. Permission System</h2>
-        <p>
-          Deny-first + multiple safety layers + classifier + sandbox.
-        </p>
+        <p>Deny-first + multiple safety layers + classifier + sandbox.</p>
 
         <h2>6. Extensibility</h2>
         <ul>
@@ -124,29 +282,19 @@
         </ul>
 
         <h2>7. Context & Memory</h2>
-        <p>
-          Context is the main bottleneck. Managed with 5-layer compaction.
-        </p>
+        <p>Context is the main bottleneck. Managed with 5-layer compaction.</p>
 
         <h2>8. Subagents</h2>
-        <p>
-          Subagents run in isolated context and return summary only.
-        </p>
+        <p>Subagents run in isolated context and return summary only.</p>
 
         <h2>9. Persistence</h2>
-        <p>
-          Append-only JSONL logs enable resume, fork, rewind.
-        </p>
+        <p>Append-only JSONL logs enable resume, fork, rewind.</p>
 
         <h2>10. OpenClaw Comparison</h2>
-        <p>
-          Same design questions, different answers under different deployment contexts.
-        </p>
+        <p>Same design questions, different answers under different deployment contexts.</p>
 
         <h2>11. Discussion</h2>
-        <p>
-          Most complexity lies in system infrastructure, not model logic.
-        </p>
+        <p>Most complexity lies in system infrastructure, not model logic.</p>
 
         <h2>12. Future Directions</h2>
         <ul>
@@ -155,7 +303,6 @@
           <li>Governance</li>
           <li>Human capability preservation</li>
         </ul>
-
       </section>
     </div>
   </main>
