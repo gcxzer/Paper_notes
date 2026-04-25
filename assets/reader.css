@@ -574,6 +574,7 @@ body.is-resizing-reader {
   position: relative;
   background: var(--pdf-page-bg, #fff);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  user-select: text;
 }
 
 .pdf-page-canvas {
@@ -582,13 +583,85 @@ body.is-resizing-reader {
   image-rendering: auto;
 }
 
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0.25;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+  --scale-factor: 1;
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  display: inline-block;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.textLayer ::selection {
+  background: AccentColor;
+}
+
+.textLayer br::-moz-selection {
+  background: transparent;
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: -1;
+  cursor: default;
+  user-select: none;
+}
+
+.textLayer .endOfContent.active {
+  top: 0;
+}
+
 .pdf-annotation-layer {
   position: absolute;
   inset: 0;
+  z-index: 3;
+  pointer-events: none;
 }
 
-.pdf-viewer.is-annotating .pdf-annotation-layer {
+.pdf-viewer.is-note-annotating .pdf-annotation-layer {
   cursor: crosshair;
+  pointer-events: auto;
+}
+
+.pdf-viewer.is-note-annotating .textLayer {
+  user-select: none;
+  pointer-events: none;
+}
+
+.pdf-viewer.is-text-annotating .textLayer {
+  user-select: text;
+  pointer-events: auto;
+}
+
+.pdf-viewer.is-text-annotating .pdf-annotation-layer {
+  pointer-events: none;
 }
 
 .pdf-annotation,
@@ -601,12 +674,17 @@ body.is-resizing-reader {
 
 .pdf-annotation {
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .pdf-annotation-highlight,
 .pdf-annotation-draft {
   background: rgba(var(--annotation-rgb), 0.34);
   outline: 1px solid rgba(var(--annotation-rgb), 0.62);
+}
+
+.pdf-annotation-highlight {
+  border-radius: 2px;
 }
 
 .pdf-annotation-underline,
@@ -649,6 +727,7 @@ body.is-resizing-reader {
 .pdf-annotation-editor {
   position: absolute;
   z-index: 5;
+  pointer-events: auto;
   display: grid;
   gap: 8px;
   width: 260px;

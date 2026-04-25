@@ -15,5 +15,18 @@
       "system": true
     }
   ],
-  "notes": []
+  "notes": [
+    {
+      "id": "pdf-dive-into-claude-code-moe5uzh5",
+      "title": "Dive into Claude Code",
+      "href": "Papers/Dive%20into%20Claude%20Code.pdf",
+      "htmlHref": "Paper-html/Dive%20into%20Claude%20Code.html",
+      "pdfStorageKey": "",
+      "date": "2026-04-25",
+      "categoryId": "uncategorized",
+      "venue": "",
+      "summary": "",
+      "tags": []
+    }
+  ]
 }

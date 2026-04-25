@@ -1,4 +1,4 @@
-const STORAGE_KEY = "paper-notes-library-v13";
+const STORAGE_KEY = "paper-notes-library-v14";
 const EXPANDED_KEY = "paper-notes-expanded-v1";
 const LAYOUT_KEY = "paper-notes-layout-v1";
 const SORT_KEY = "paper-notes-sort-v1";
@@ -6,7 +6,7 @@ const FILE_DB_NAME = "paper-notes-files-v1";
 const FILE_STORE_NAME = "paper-files";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
-const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11", "paper-notes-library-v12"];
+const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11", "paper-notes-library-v12", "paper-notes-library-v13"];
 
 LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
 

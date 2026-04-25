@@ -4,120 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dive into Claude Code</title>
-  <script src="../assets/theme.js"></script>
   <link rel="stylesheet" href="../assets/note.css">
 </head>
-
 <body>
   <main class="note">
-
     <header class="note-section">
       <p class="eyebrow note-eyebrow">Paper Note</p>
       <h1>Dive into Claude Code</h1>
-      <p class="meta note-meta">2026-04-24 · Dive into Claude Code.pdf</p>
+      <p class="meta note-meta">2026-04-25 · Dive into Claude Code.pdf</p>
     </header>
 
     <div class="note-workspace">
-
-      <!-- 📚 自动目录 -->
-      <aside class="note-menu">
-        <div class="note-menu-title">Contents</div>
+      <aside class="note-menu" aria-label="Note sections">
         <nav data-note-menu></nav>
       </aside>
 
-      <!-- 📄 内容区（关键） -->
-      <section class="note-body">
-        <h2>0. Overview</h2>
-        <figure>
-          <img src="../assets/Claude_Code_Architecture.png" alt="Claude Code Architecture" style="width:100%; border-radius:8px; margin:16px 0;">
-        </figure>
-
-        <h2>1. Introduction</h2>
-        <p>
-          AI-assisted software development has evolved from autocomplete tools to fully agentic systems.
-        </p>
-
-        <h2>2. Design Philosophies</h2>
-
-        <h3>2.1 Five Values</h3>
-        <h4>2.1.1 Operational Values</h4>
-        <p>
-          The architecture reflects how Claude Code balances user control, safety, reliable execution, and extensibility.
-        </p>
-        <ul>
-          <li>Human Decision Authority</li>
-          <li>Safety, Security, Privacy</li>
-          <li>Reliable Execution</li>
-          <li>Capability Amplification</li>
-          <li>Contextual Adaptability</li>
-        </ul>
-
-        <h3>2.2 Design Principles</h3>
-        <p>
-          Deny-first, context management, extensibility, persistence.
-        </p>
-
-        <h2>3. Architecture Overview</h2>
-        <p>
-          The system is composed of 7 components: user, interfaces, agent loop, permission system, tools,
-          state & persistence, execution environment.
-        </p>
-
-        <h2>4. Agent Loop</h2>
-        <pre>
-User → Context → Model → Tool → Permission → Execute → Loop
-        </pre>
-
-        <h2>5. Permission System</h2>
-        <p>
-          Deny-first + multiple safety layers + classifier + sandbox.
-        </p>
-
-        <h2>6. Extensibility</h2>
-        <ul>
-          <li>MCP</li>
-          <li>Plugins</li>
-          <li>Skills</li>
-          <li>Hooks</li>
-        </ul>
-
-        <h2>7. Context & Memory</h2>
-        <p>
-          Context is the main bottleneck. Managed with 5-layer compaction.
-        </p>
-
-        <h2>8. Subagents</h2>
-        <p>
-          Subagents run in isolated context and return summary only.
-        </p>
-
-        <h2>9. Persistence</h2>
-        <p>
-          Append-only JSONL logs enable resume, fork, rewind.
-        </p>
-
-        <h2>10. OpenClaw Comparison</h2>
-        <p>
-          Same design questions, different answers under different deployment contexts.
-        </p>
-
-        <h2>11. Discussion</h2>
-        <p>
-          Most complexity lies in system infrastructure, not model logic.
-        </p>
-
-        <h2>12. Future Directions</h2>
-        <ul>
-          <li>Silent failures</li>
-          <li>Long-term memory</li>
-          <li>Governance</li>
-          <li>Human capability preservation</li>
-        </ul>
-
-      </section>
+      <section class="note-body"></section>
     </div>
   </main>
-
   <script src="../assets/note.js"></script>
 </body>
 </html>
