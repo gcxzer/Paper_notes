@@ -41,6 +41,8 @@ const state = {
 };
 
 const summarySaveTimers = new Map();
+let librarySyncQueue = Promise.resolve();
+let librarySyncVersion = 0;
 
 const elements = {
   body: document.body,
@@ -236,6 +238,41 @@ function sanitizeLibrary(rawLibrary) {
 
 function saveLibraryToStorage() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.library));
+}
+
+function syncLibraryToServer(library = state.library) {
+  if (window.location.protocol === "file:") return Promise.resolve(null);
+
+  const snapshot = cloneLibrary(library);
+  const version = ++librarySyncVersion;
+  const request = async () => {
+    const response = await fetch(getApiUrl("/api/library"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+      keepalive: true
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `Library save failed (${response.status})`);
+    }
+
+    return sanitizeLibrary(await response.json());
+  };
+
+  librarySyncQueue = librarySyncQueue.catch(() => null).then(request);
+  librarySyncQueue.then((syncedLibrary) => {
+    if (!syncedLibrary || version !== librarySyncVersion) return;
+    state.library = syncedLibrary;
+    saveLibraryToStorage();
+    state.dataSource = "default";
+    renderApp();
+  }).catch((error) => {
+    console.warn("Could not sync library to notes.json.", error);
+  });
+
+  return librarySyncQueue;
 }
 
 function readLibraryFromStorage() {
@@ -561,6 +598,7 @@ function renderNotes() {
         </div>
         <span class="note-card-actions-inline">
           <button class="note-open" type="button" data-rename-note-id="${note.id}">Rename</button>
+          <button class="note-open note-open-danger" type="button" data-delete-note-id="${note.id}">Delete</button>
           <a class="note-open" href="${getReaderHref(note)}" aria-label="Open ${note.title}">Open</a>
         </span>
       </article>
@@ -591,6 +629,7 @@ function renderDetails() {
         <a class="toolbar-button" href="${getReaderHref(note)}">Open Note</a>
         ${note.href ? `<a class="toolbar-button" href="${note.href}" target="_blank" rel="noopener">Open PDF</a>` : ""}
         ${note.htmlHref ? `<a class="toolbar-button" href="${note.htmlHref}" target="_blank" rel="noopener">Open HTML</a>` : ""}
+        <button class="toolbar-button toolbar-button-danger" type="button" data-delete-note-id="${note.id}">Delete</button>
       </div>
     </div>
     <div class="details-row">
@@ -622,6 +661,7 @@ function updateLibrary(mutator) {
   mutator(state.library);
   state.library = sanitizeLibrary(state.library);
   saveLibraryToStorage();
+  syncLibraryToServer(state.library);
   saveExpandedState();
   state.dataSource = "storage";
   renderApp();
@@ -742,6 +782,23 @@ function deleteCategory(categoryId) {
     descendants.forEach((childId) => state.expandedCategoryIds.delete(childId));
     if (movedIds.has(state.activeCategoryId)) state.activeCategoryId = UNCATEGORIZED_ID;
     if (state.selectedNoteId && !getNoteById(state.selectedNoteId)) state.selectedNoteId = null;
+  });
+}
+
+function deleteNote(noteId) {
+  updateLibrary((library) => {
+    library.notes = library.notes.filter((note) => note.id !== noteId);
+    if (state.selectedNoteId === noteId) state.selectedNoteId = null;
+  });
+}
+
+function confirmDeleteNote(noteId) {
+  const note = getNoteById(noteId);
+  if (!note) return;
+  openConfirmDialog({
+    title: `Delete ${note.title}?`,
+    body: "This removes the paper from the website list. The PDF and HTML files stay in your local folders.",
+    action: () => deleteNote(noteId)
   });
 }
 
@@ -1195,7 +1252,21 @@ elements.sortMenu.addEventListener("click", (event) => {
 
 elements.detailsCard.addEventListener("change", handleNoteMove);
 elements.detailsCard.addEventListener("input", handleSummaryInput);
+elements.detailsCard.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-note-id]");
+  if (!deleteButton) return;
+  event.preventDefault();
+  confirmDeleteNote(deleteButton.dataset.deleteNoteId);
+});
 elements.notesGrid.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-note-id]");
+  if (deleteButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    confirmDeleteNote(deleteButton.dataset.deleteNoteId);
+    return;
+  }
+
   const button = event.target.closest("[data-rename-note-id]");
   if (button) {
     event.preventDefault();

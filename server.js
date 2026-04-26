@@ -100,6 +100,92 @@ function noteIdFromTitle(title) {
   return `pdf-${slug || Date.now()}-${Date.now().toString(36)}`;
 }
 
+function normalizeTags(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((tag) => normalizeText(tag)).filter(Boolean);
+}
+
+function sanitizeLibrary(rawLibrary) {
+  const raw = rawLibrary && typeof rawLibrary === "object" ? rawLibrary : {};
+  const rawCategories = Array.isArray(raw.categories) ? raw.categories : [];
+  const categoryMap = new Map();
+
+  rawCategories.forEach((category, index) => {
+    const id = normalizeText(category.id);
+    if (!id || categoryMap.has(id)) return;
+    categoryMap.set(id, {
+      id,
+      name: normalizeText(category.name) || "Untitled",
+      parentId: normalizeText(category.parentId) || null,
+      order: Number.isFinite(Number(category.order)) ? Number(category.order) : index,
+      system: Boolean(category.system)
+    });
+  });
+
+  BASE_LIBRARY.categories.forEach((category) => {
+    categoryMap.set(category.id, { ...category });
+  });
+
+  const categories = Array.from(categoryMap.values()).map((category) => {
+    if (category.id === "all") return { ...category, parentId: null, order: 0, system: true };
+    if (category.id === "uncategorized") return { ...category, parentId: null, order: 1, system: true };
+    return category;
+  });
+
+  const validIds = new Set(categories.map((category) => category.id));
+  categories.forEach((category) => {
+    if (category.parentId && !validIds.has(category.parentId)) category.parentId = null;
+    if (category.parentId === "all" || category.parentId === "uncategorized") category.parentId = null;
+  });
+
+  const topLevelIds = new Set(categories.filter((category) => category.parentId === null).map((category) => category.id));
+  categories.forEach((category) => {
+    if (category.parentId && !topLevelIds.has(category.parentId)) category.parentId = null;
+  });
+
+  const childMap = new Map();
+  categories.forEach((category) => {
+    const key = category.parentId || "root";
+    if (!childMap.has(key)) childMap.set(key, []);
+    childMap.get(key).push(category);
+  });
+
+  childMap.forEach((group) => {
+    group.sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
+    group.forEach((category, index) => {
+      if (category.parentId === null) {
+        if (category.id === "all") category.order = 0;
+        else if (category.id === "uncategorized") category.order = 1;
+        else category.order = Math.max(index, 2);
+      } else {
+        category.order = index;
+      }
+    });
+  });
+
+  const parentIdsWithChildren = new Set(categories.filter((category) => category.parentId).map((category) => category.parentId));
+  const leafIds = new Set(categories.filter((category) => !parentIdsWithChildren.has(category.id)).map((category) => category.id));
+  const rawNotes = Array.isArray(raw.notes) ? raw.notes : [];
+  const notes = rawNotes.map((note, index) => {
+    const requestedCategoryId = normalizeText(note.categoryId);
+    return {
+      id: normalizeText(note.id) || noteIdFromTitle(note.title || `note-${index + 1}`),
+      title: normalizeText(note.title) || "Untitled Note",
+      href: normalizeText(note.href),
+      htmlHref: normalizeText(note.htmlHref),
+      pdfStorageKey: normalizeText(note.pdfStorageKey),
+      date: normalizeText(note.date),
+      order: Number.isFinite(Number(note.order)) ? Number(note.order) : index,
+      categoryId: leafIds.has(requestedCategoryId) ? requestedCategoryId : "uncategorized",
+      venue: normalizeText(note.venue),
+      summary: normalizeText(note.summary),
+      tags: normalizeTags(note.tags)
+    };
+  });
+
+  return { categories, notes };
+}
+
 function createPaperNoteHtml({ title, date, fileName }) {
   const safeTitle = escapeHtml(title);
   const safeDate = escapeHtml(date);
@@ -137,14 +223,14 @@ function createPaperNoteHtml({ title, date, fileName }) {
 
 async function readLibrary() {
   try {
-    return JSON.parse(await fs.readFile(NOTES_PATH, "utf8"));
+    return sanitizeLibrary(JSON.parse(await fs.readFile(NOTES_PATH, "utf8")));
   } catch {
     return structuredClone(BASE_LIBRARY);
   }
 }
 
 async function writeLibrary(library) {
-  await fs.writeFile(NOTES_PATH, `${JSON.stringify(library, null, 2)}\n`);
+  await fs.writeFile(NOTES_PATH, `${JSON.stringify(sanitizeLibrary(library), null, 2)}\n`);
 }
 
 async function readRequestBody(request) {
@@ -278,6 +364,13 @@ async function handleUpdateNoteSummary(request, response) {
   sendJson(response, 200, note);
 }
 
+async function handleWriteLibrary(request, response) {
+  const body = JSON.parse(await readRequestBody(request));
+  const library = sanitizeLibrary(body);
+  await writeLibrary(library);
+  sendJson(response, 200, library);
+}
+
 async function handleReadAnnotations(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const annotationsPath = annotationPathFor(url.searchParams.get("noteId"));
@@ -353,6 +446,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/api/update-note-summary") {
       await handleUpdateNoteSummary(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/library") {
+      await handleWriteLibrary(request, response);
       return;
     }
 

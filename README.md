@@ -16,21 +16,37 @@ The library view keeps imported papers, summaries, collections, and paper action
 
 ## Quick Start
 
-Run the local server:
+Recommended macOS setup: install the local background service once.
+
+```bash
+scripts/install-autostart.sh
+```
+
+Then bookmark and open:
+
+```text
+http://127.0.0.1:4173
+```
+
+After that, Paper Notes starts automatically when you log in. You can open the bookmark directly without running `npm start`.
+
+Manual fallback:
 
 ```bash
 npm start
 ```
 
-Open:
-
-```text
-http://localhost:4173
-```
+Then open `http://localhost:4173`.
 
 On macOS, you can also double-click `Open Paper Notes.command`.
 
-The local server is required for PDF import because the browser cannot write files into this folder when `index.html` is opened directly.
+The local server is required because the browser cannot write PDFs, HTML notes, annotations, or `notes.json` updates into this folder when `index.html` is opened directly.
+
+To remove the background service:
+
+```bash
+scripts/uninstall-autostart.sh
+```
 
 ## Import PDFs
 
@@ -61,6 +77,7 @@ Click a paper card or `Open Note` to open the split reader.
 - Drag the middle divider to resize the PDF and note panes.
 - The PDF pane and HTML note pane scroll independently on desktop.
 - The PDF pane supports Zotero-style local annotations: highlights, underlines, and sticky notes.
+- The PDF toolbar supports page number jumping, internal PDF links, larger zoom levels, undo/redo for annotation changes, and a temporary back button after PDF link jumps.
 - The reader has separate theme controls for the UI shell and the PDF/HTML reading surface.
 - Refresh the reader after editing `Paper-html/<paper>.html`; the app reloads the latest HTML with caching disabled.
 
@@ -135,11 +152,14 @@ The library page supports:
 - Importing PDFs with the `+` button.
 - Opening a note, PDF, or HTML from the details panel.
 - Renaming a paper from the paper card.
+- Deleting a paper from the website list. This removes the note entry from `notes.json`; it does not delete the local PDF or HTML file.
 - Writing a short summary in the details panel.
 - Moving a paper between collections from the details panel.
 - Creating, renaming, reordering, and deleting collections from the sidebar.
 
 Renaming a paper updates `notes.json`. If the note HTML exists, the app also updates the HTML `<title>` and first `<h1>`.
+
+Collection changes are also written back to `notes.json` when the local server is running, so a refresh keeps newly created collections, renamed collections, drag order, and paper moves.
 
 ## File Structure
 
@@ -150,6 +170,7 @@ Renaming a paper updates `notes.json`. If the note HTML exists, the app also upd
 ├── server.js                  # Local server and file-writing API
 ├── notes.json                 # Library metadata
 ├── note-template.html         # Manual note template
+├── scripts/                   # macOS auto-start install/uninstall helpers
 ├── Papers/                    # Imported PDFs
 ├── Paper-html/                # HTML note files
 ├── Paper-annotations/         # PDF highlight and sticky-note JSON files
@@ -163,6 +184,7 @@ Renaming a paper updates `notes.json`. If the note HTML exists, the app also upd
 
 - The app has no build step.
 - The only npm script is `npm start`, which runs `node server.js`.
+- `scripts/install-autostart.sh` registers a macOS LaunchAgent named `com.paper-notes.local`.
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.
 - Static files are served with `Cache-Control: no-store` so note edits show up after refresh.

@@ -626,6 +626,16 @@ body.is-resizing .panel-resizer::before {
   color: var(--text);
 }
 
+.note-open-danger {
+  color: color-mix(in srgb, var(--danger) 68%, var(--text));
+}
+
+.note-open-danger:hover {
+  border-color: rgba(224, 108, 117, 0.28);
+  background: rgba(224, 108, 117, 0.12);
+  color: color-mix(in srgb, var(--danger) 74%, var(--text));
+}
+
 .meta,
 .tags {
   display: flex;
