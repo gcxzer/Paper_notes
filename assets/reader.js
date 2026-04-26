@@ -15,6 +15,9 @@ const PDF_SCROLL_KEY = "paper-notes-pdf-scroll-v1";
 const NOTE_SCROLL_KEY = "paper-notes-note-scroll-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
+const PDF_MIN_SCALE = 0.7;
+const PDF_MAX_SCALE = 4;
+const PDF_SCALE_STEP = 0.1;
 
 const elements = {
   layout: document.querySelector("#readerLayout"),
@@ -85,6 +88,7 @@ const PDF_COLORS = {
   red: { label: "Red", hex: "#ff7a7a", rgb: "255, 122, 122" },
   purple: { label: "Purple", hex: "#b996ff", rgb: "185, 150, 255" }
 };
+const PDF_NOTE_MARKER_SIZE = 24;
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -1299,14 +1303,17 @@ function textFromSelectionForPage(pageElement) {
 
 function addNoteAnnotation(event, pageElement) {
   const point = normalizedPointer(event, pageElement);
+  const box = pageViewportBox(pageElement);
+  const noteWidth = PDF_NOTE_MARKER_SIZE / Math.max(1, box.width);
+  const noteHeight = PDF_NOTE_MARKER_SIZE / Math.max(1, box.height);
   const annotation = normalizeAnnotation({
     id: `note-${Date.now().toString(36)}`,
     type: "note",
     page: Number(pageElement.dataset.page),
-    x: point.x,
-    y: point.y,
-    w: 0.035,
-    h: 0.035,
+    x: clamp(point.x - noteWidth / 2, 0, 1 - noteWidth),
+    y: clamp(point.y - noteHeight / 2, 0, 1 - noteHeight),
+    w: noteWidth,
+    h: noteHeight,
     color: pdfState.color,
     text: "",
     comment: ""
@@ -2059,11 +2066,11 @@ function initializePdfTools() {
   document.addEventListener("keydown", handleAnnotationKeyboard);
   document.addEventListener("pointerdown", handleAnnotationEditorOutsidePointer, true);
   elements.zoomIn?.addEventListener("click", async () => {
-    pdfState.scale = clamp(pdfState.scale + 0.1, 0.7, 2.2);
+    pdfState.scale = clamp(pdfState.scale + PDF_SCALE_STEP, PDF_MIN_SCALE, PDF_MAX_SCALE);
     await renderPdf();
   });
   elements.zoomOut?.addEventListener("click", async () => {
-    pdfState.scale = clamp(pdfState.scale - 0.1, 0.7, 2.2);
+    pdfState.scale = clamp(pdfState.scale - PDF_SCALE_STEP, PDF_MIN_SCALE, PDF_MAX_SCALE);
     await renderPdf();
   });
   initializePdfPageControl();
