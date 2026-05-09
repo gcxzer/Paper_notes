@@ -1,6 +1,8 @@
 {
   "scripts": {
-    "start": "uv run python src/paper_notes/server.py"
+    "start": "uv run python main.py",
+    "test": "uv run --group dev pytest",
+    "lint": "uv run --group dev ruff check src tests"
   },
   "dependencies": {
     "pdfjs-dist": "^3.11.174"

@@ -1,11 +1,26 @@
 # macOS
 .DS_Store
 
-# Dependencies
+# Dependencies and virtual environments
 node_modules/
 .venv/
+venv/
+env/
+
+# Python caches and tooling
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.egg-info/
 
 # Logs
 *.log
@@ -14,10 +29,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Local environment
+# Local environment and runtime state
 .env
 .env.*
 .paper-notes-local/
+
+# Local reference repositories
+.reference-repos/
 
 # Editor and tooling
 .vscode/
@@ -35,4 +53,3 @@ build/
 # Local paper library data
 notes.json
 resources/
-

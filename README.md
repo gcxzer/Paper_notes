@@ -33,7 +33,7 @@ After that, Paper Notes starts automatically when you log in. You can open the b
 Manual fallback:
 
 ```bash
-uv run python src/paper_notes/server.py
+uv run python main.py
 ```
 
 Then open `http://localhost:4173`.
@@ -143,7 +143,7 @@ Use normal relative paths when adding images to a note:
 </section>
 ```
 
-When a note is rendered inside `reader.html`, root-relative image and media paths are served from `src/public/`.
+When a note is rendered inside `reader.html`, root-relative image and media paths are served from `src/ui/frontend/`.
 
 ## Library Actions
 
@@ -170,14 +170,25 @@ Collection changes are also written back to `notes.json` when the local server i
 ├── pyproject.toml             # uv/Python project metadata
 ├── scripts/                   # macOS auto-start install/uninstall helpers
 ├── src/
-│   ├── paper_notes/
-│   │   └── server.py          # Python local server and file-writing API
-│   └── public/
-│       ├── index.html         # Library page
-│       ├── reader.html        # Split PDF / HTML reader
-│       ├── note-template.html # Manual note template
-│       ├── scripts/           # Browser JavaScript
-│       └── styles/            # CSS
+│   └── ui/
+│       ├── backend/
+│       │   ├── server.py      # Thin Python HTTP/static routing layer
+│       │   ├── library.py     # notes.json schema, import, rename, summaries
+│       │   ├── annotations.py # PDF annotation JSON storage
+│       │   ├── storage.py     # Atomic local file writes
+│       │   ├── note_html.py   # Generated note HTML helpers
+│       │   ├── core.py        # Shared backend normalization helpers
+│       │   └── paths.py       # Project paths and server constants
+│       └── frontend/
+│           ├── index.html         # Library page
+│           ├── reader.html        # Split PDF / HTML reader
+│           ├── note-template.html # Manual note template
+│           ├── scripts/           # Browser JavaScript
+│           │   ├── shared/        # Shared browser model/schema helpers
+│           │   ├── site/          # Library page state and app code
+│           │   ├── reader/        # Reader page state and app code
+│           │   └── note/          # Generated/manual note page behavior
+│           └── styles/            # CSS
 ├── assets/                    # Local image/media assets served at /assets
 ├── resources/                 # Local paper workspace data, ignored by Git
 │   ├── Papers/                # Imported PDFs
@@ -188,8 +199,11 @@ Collection changes are also written back to `notes.json` when the local server i
 ## Development Notes
 
 - The app has no build step.
-- The local backend is Python and can be started with `uv run python src/paper_notes/server.py`.
+- The local backend is Python and can be started with `uv run python main.py`.
 - `npm start` is kept as a convenience wrapper for the same Python server.
+- Run backend tests with `npm test` or `uv run --group dev pytest`.
+- Run lint checks with `npm run lint`.
+- Agent/chat backend endpoints are intentionally not included in this structure yet.
 - `scripts/install-autostart.sh` registers a macOS LaunchAgent named `com.paper-notes.local`.
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.

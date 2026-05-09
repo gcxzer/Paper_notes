@@ -35,7 +35,7 @@ cat > "$PLIST_PATH" <<PLIST
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd "$APP_DIR" &amp;&amp; exec "$UV_BIN" run python src/paper_notes/server.py</string>
+    <string>cd "$APP_DIR" &amp;&amp; exec "$UV_BIN" run python main.py</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$APP_DIR</string>
