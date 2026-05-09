@@ -8,11 +8,11 @@ The HTML notes are designed to be generated or refined with an LLM, then kept as
 
 Paper Notes opens a PDF and its matching HTML note side by side:
 
-![Paper Notes split reader preview](assets/images/paper-notes-reader-preview.png)
+![Paper Notes split reader preview](src/public/assets/images/paper-notes-reader-preview.png)
 
 The library view keeps imported papers, summaries, collections, and paper actions in one place:
 
-![Paper Notes library preview](assets/images/paper-notes-library-preview.png)
+![Paper Notes library preview](src/public/assets/images/paper-notes-library-preview.png)
 
 ## Quick Start
 
@@ -82,7 +82,6 @@ Click a paper card or `Open Note` to open the split reader.
 - The PDF pane and HTML note pane scroll independently on desktop.
 - The PDF pane supports Zotero-style local annotations: highlights, underlines, and sticky notes.
 - The PDF toolbar supports page number jumping, internal PDF links, larger zoom levels, undo/redo for annotation changes, and a temporary back button after PDF link jumps.
-- The reader has separate theme controls for the UI shell and the PDF/HTML reading surface.
 - Refresh the reader after editing `resources/Paper-html/<paper>.html`; the app reloads the latest HTML with caching disabled.
 
 To edit a note, open the matching file in `resources/Paper-html/` and write normal HTML inside `.note-body`.
@@ -115,10 +114,7 @@ Annotations are saved as JSON files in `resources/Paper-annotations/`. The origi
 
 ## Themes
 
-Paper Notes has two independent theme controls:
-
-- The library and reader chrome use the `Light` / `Dark` button in the top-right corner.
-- The reader toolbar also has a `Paper Light` / `Paper Dark` button next to `HTML`, which changes only the PDF reading background and the rendered HTML note.
+Paper Notes uses a single app theme control in the library settings menu.
 
 Theme choices are stored locally in the browser and do not change `notes.json`.
 
@@ -143,11 +139,11 @@ Use normal relative paths when adding images to a note:
 ```html
 <section class="note-body">
   <h2>Overview</h2>
-  <img src="../../assets/images/your-image.png" alt="Describe this image">
+  <img src="/assets/images/your-image.png" alt="Describe this image">
 </section>
 ```
 
-When a note is rendered inside `reader.html`, embedded image and media paths are resolved relative to the original `resources/Paper-html/<paper>.html` file, so the same HTML also works when opened directly.
+When a note is rendered inside `reader.html`, root-relative image and media paths are served from `src/public/`.
 
 ## Library Actions
 
@@ -169,26 +165,30 @@ Collection changes are also written back to `notes.json` when the local server i
 
 ```text
 .
-├── index.html                 # Library page
-├── reader.html                # Split PDF / HTML reader
-├── server.js                  # Local server and file-writing API
 ├── notes.json                 # Local library metadata, generated at runtime
-├── note-template.html         # Manual note template
+├── package.json               # npm scripts and frontend dependency metadata
+├── pyproject.toml             # uv/Python project metadata
 ├── scripts/                   # macOS auto-start install/uninstall helpers
+├── src/
+│   ├── server.js              # Local server and file-writing API
+│   └── public/
+│       ├── index.html         # Library page
+│       ├── reader.html        # Split PDF / HTML reader
+│       ├── note-template.html # Manual note template
+│       └── assets/
+│           ├── scripts/       # Browser JavaScript
+│           ├── styles/        # CSS
+│           └── images/        # README and note images
 ├── resources/                 # Local paper workspace data, ignored by Git
 │   ├── Papers/                # Imported PDFs
 │   ├── Paper-html/            # HTML note files
 │   └── Paper-annotations/     # PDF highlight and sticky-note JSON files
-└── assets/
-    ├── scripts/               # Browser JavaScript
-    ├── styles/                # CSS
-    └── images/                # README and note images
 ```
 
 ## Development Notes
 
 - The app has no build step.
-- The only npm script is `npm start`, which runs `node server.js`.
+- The only npm script is `npm start`, which runs `node src/server.js`.
 - `scripts/install-autostart.sh` registers a macOS LaunchAgent named `com.paper-notes.local`.
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.

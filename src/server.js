@@ -2,15 +2,16 @@ const http = require("http");
 const fs = require("fs/promises");
 const path = require("path");
 
-const ROOT = __dirname;
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 4173);
 const HOST = "127.0.0.1";
 const MAX_BODY_SIZE = 200 * 1024 * 1024;
-const RESOURCES_DIR = path.join(ROOT, "resources");
+const RESOURCES_DIR = path.join(PROJECT_ROOT, "resources");
 const PAPERS_DIR = path.join(RESOURCES_DIR, "Papers");
 const HTML_DIR = path.join(RESOURCES_DIR, "Paper-html");
 const ANNOTATIONS_DIR = path.join(RESOURCES_DIR, "Paper-annotations");
-const NOTES_PATH = path.join(ROOT, "notes.json");
+const NOTES_PATH = path.join(PROJECT_ROOT, "notes.json");
 const PAPERS_HREF_PREFIX = "resources/Papers";
 const HTML_HREF_PREFIX = "resources/Paper-html";
 
@@ -214,8 +215,8 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
-  <script src="../../assets/scripts/theme.js"></script>
-  <link rel="stylesheet" href="../../assets/styles/note.css">
+  <script src="/assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="/assets/styles/note.css">
 </head>
 <body>
   <main class="note">
@@ -233,7 +234,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
       <section class="note-body"></section>
     </div>
   </main>
-  <script src="../../assets/scripts/note.js"></script>
+  <script src="/assets/scripts/note.js"></script>
 </body>
 </html>`;
 }
@@ -340,7 +341,7 @@ async function handleRenameNote(request, response) {
   await writeLibrary(library);
 
   if (note.htmlHref) {
-    const htmlPath = path.normalize(path.join(ROOT, decodeURIComponent(note.htmlHref)));
+    const htmlPath = path.normalize(path.join(PROJECT_ROOT, decodeURIComponent(note.htmlHref)));
     if (htmlPath.startsWith(HTML_DIR)) {
       try {
         const safeTitle = escapeHtml(nextTitle);
@@ -423,9 +424,20 @@ async function handleWriteAnnotations(request, response) {
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
-  const filePath = path.normalize(path.join(ROOT, pathname));
+  let baseDir = PUBLIC_DIR;
+  let relativePath = pathname;
 
-  if (!filePath.startsWith(ROOT)) {
+  if (pathname.startsWith("/resources/")) {
+    baseDir = PROJECT_ROOT;
+  } else if (pathname.startsWith("/node_modules/")) {
+    baseDir = PROJECT_ROOT;
+  } else if (pathname === "/notes.json") {
+    baseDir = PROJECT_ROOT;
+  }
+
+  const filePath = path.normalize(path.join(baseDir, relativePath));
+
+  if (!filePath.startsWith(baseDir)) {
     send(response, 403, "Forbidden");
     return;
   }

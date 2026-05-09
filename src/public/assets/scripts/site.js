@@ -539,8 +539,8 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
-  <script src="../../assets/scripts/theme.js"></script>
-  <link rel="stylesheet" href="../../assets/styles/note.css">
+  <script src="/assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="/assets/styles/note.css">
 </head>
 <body>
   <main class="note">
@@ -558,7 +558,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
       <section class="note-body"></section>
     </div>
   </main>
-  <script src="../../assets/scripts/note.js"></script>
+  <script src="/assets/scripts/note.js"></script>
 </body>
 </html>`;
 }

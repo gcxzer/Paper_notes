@@ -35,7 +35,7 @@ cat > "$PLIST_PATH" <<PLIST
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd "$APP_DIR" &amp;&amp; exec "$NODE_BIN" server.js</string>
+    <string>cd "$APP_DIR" &amp;&amp; exec "$NODE_BIN" src/server.js</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$APP_DIR</string>
