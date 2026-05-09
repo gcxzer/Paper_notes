@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "PaperNotesMcp",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "PaperNotesMcp"
+  },
+  "runtimes": [
+    {
+      "name": "PaperNotesMcp",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "app/PaperNotesMcp/",
+      "runtimeVersion": "PYTHON_3_14",
+      "envVars": [
+        {
+          "name": "AWS_REGION",
+          "value": "your-region"
+        },
+        {
+          "name": "PAPER_NOTES_KNOWLEDGE_BASE_ID",
+          "value": "your-knowledge-base-id"
+        },
+        {
+          "name": "PAPER_NOTES_KB_NUMBER_OF_RESULTS",
+          "value": "5"
+        },
+        {
+          "name": "PAPER_NOTES_WEB_SEARCH_MAX_RESULTS",
+          "value": "5"
+        }
+      ],
+      "networkMode": "PUBLIC",
+      "instrumentation": {
+        "enableOtel": false
+      },
+      "protocol": "MCP"
+    }
+  ],
+  "memories": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "httpGateways": []
+}

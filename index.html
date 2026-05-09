@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Notes</title>
-  <script src="assets/theme.js"></script>
-  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="assets/styles/site.css">
 </head>
 <body>
   <div class="app-shell">
@@ -27,6 +27,26 @@
         <div class="category-list" id="categoryList"></div>
       </div>
 
+      <div class="sidebar-footer">
+        <div class="settings-control">
+          <button class="settings-button" id="settingsButton" type="button" aria-expanded="false" aria-haspopup="menu">Settings</button>
+          <div class="settings-menu" id="settingsMenu" role="menu" hidden>
+            <div class="settings-menu-label">Appearance</div>
+            <button class="settings-theme-switch" type="button" data-theme-switch role="switch" aria-checked="false">
+              <span>
+                <span class="settings-theme-title">Theme</span>
+                <span class="settings-theme-value" data-theme-switch-label>Dark</span>
+              </span>
+              <span class="settings-switch-track" aria-hidden="true">
+                <span class="settings-switch-thumb"></span>
+              </span>
+            </button>
+            <div class="settings-menu-label">Knowledge Base</div>
+            <button class="settings-action-button" id="settingsSyncRagButton" type="button" role="menuitem">Sync RAG</button>
+          </div>
+        </div>
+      </div>
+
     </aside>
 
     <div class="panel-resizer panel-resizer-left" id="leftResizer" aria-hidden="true"></div>
@@ -40,7 +60,6 @@
         <div class="content-actions">
           <button class="icon-button add-paper-button" id="addPdfButton" type="button" aria-label="Import PDF">+</button>
           <input id="pdfInput" type="file" accept="application/pdf,.pdf" multiple hidden>
-          <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
           <div class="sort-control">
             <button class="toolbar-button sort-button" id="sortButton" type="button" aria-expanded="false" aria-haspopup="menu">Sort: Newest</button>
             <div class="sort-menu" id="sortMenu" role="menu" hidden>
@@ -133,6 +152,32 @@
     </form>
   </dialog>
 
+  <dialog class="modal chat-modal" id="chatDialog">
+    <form class="modal-card chat-card" id="chatForm" method="dialog">
+      <div class="modal-header chat-header">
+        <div>
+          <div class="modal-eyebrow">Agent</div>
+          <h3>Paper Notes Agent</h3>
+        </div>
+        <button class="icon-button" type="button" id="closeChatDialog" aria-label="Close dialog">x</button>
+      </div>
+
+      <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+
+      <label class="chat-composer">
+        <span class="sr-only">Ask Paper Notes Agent</span>
+        <textarea id="chatInput" rows="3" placeholder="Ask about your papers and notes"></textarea>
+      </label>
+
+      <p class="field-error" id="chatError" hidden></p>
+
+      <div class="modal-actions chat-actions">
+        <button class="toolbar-button" type="button" id="clearChatButton">Clear</button>
+        <button class="toolbar-button toolbar-button-primary" type="submit" id="sendChatButton">Send</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="modal" id="messageDialog">
     <div class="modal-card">
       <div class="modal-header">
@@ -151,6 +196,6 @@
     </div>
   </dialog>
 
-  <script src="assets/site.js?v=delete-note-v1"></script>
+  <script src="assets/scripts/site.js?v=agent-chat-v1"></script>
 </body>
 </html>

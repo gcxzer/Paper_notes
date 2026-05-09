@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 780" role="img" aria-labelledby="title desc">
+  <title id="title">Post-training note diagram</title>
+  <desc id="desc">Post-training pipeline notes for specialist training and OPD.</desc>
+  <style>
+    .bg{fill:#fffdf8}.card{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.warn{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:14}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.thin{stroke:#6d655b;stroke-width:2;fill:none;stroke-dasharray:7 7}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:850}.m{font-size:15px}.tiny{font-size:13px}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker></defs>
+  <rect class="bg" width="1280" height="780"/>
+  <text class="h ink" x="54" y="64">5. Post-Training：专家分开练，OPD 合并</text>
+  <text class="m muted" x="54" y="96">不是“一个 RL 阶段解决所有能力”，而是多 teacher、多轨迹、多系统组件一起合并。</text>
+
+  <rect class="card" x="60" y="320" width="160" height="86"/><text class="k ink" x="140" y="354" text-anchor="middle">Base</text><text class="m muted" x="140" y="380" text-anchor="middle">V4-Pro / Flash</text>
+  <path class="line" d="M220 363 H300"/>
+  <rect class="hot" x="300" y="150" width="220" height="80"/><text class="k ink" x="410" y="183" text-anchor="middle">Math specialist</text><text class="m muted" x="410" y="208" text-anchor="middle">SFT + GRPO</text>
+  <rect class="hot" x="300" y="280" width="220" height="80"/><text class="k ink" x="410" y="313" text-anchor="middle">Code specialist</text><text class="m muted" x="410" y="338" text-anchor="middle">SFT + GRPO</text>
+  <rect class="hot" x="300" y="410" width="220" height="80"/><text class="k ink" x="410" y="443" text-anchor="middle">Agent / IF specialist</text><text class="m muted" x="410" y="468" text-anchor="middle">tools + rewards</text>
+  <path class="line" d="M520 190 C630 205 665 310 735 340"/><path class="line" d="M520 320 H725"/><path class="line" d="M520 450 C630 435 665 375 735 348"/>
+  <rect class="warn" x="735" y="280" width="250" height="140"/><text class="k ink" x="860" y="318" text-anchor="middle">OPD</text><text class="m muted" x="860" y="348" text-anchor="middle">student trajectories</text><text class="m muted" x="860" y="373" text-anchor="middle">teacher full-vocab distributions</text><text class="m muted" x="860" y="398" text-anchor="middle">on-policy, multi-teacher</text>
+  <path class="line" d="M985 350 H1060"/><rect class="hot" x="1060" y="310" width="150" height="86"/><text class="k ink" x="1135" y="346" text-anchor="middle">Final model</text><text class="m muted" x="1135" y="372" text-anchor="middle">unified</text>
+
+  <rect class="card" x="130" y="610" width="290" height="104"/><text class="k ink" x="160" y="648">Quick Instruction</text><text class="m muted" x="160" y="676">特殊 token 复用 KV cache</text><text class="m muted" x="160" y="700">降低辅助任务 TTFT</text>
+  <rect class="card" x="495" y="610" width="290" height="104"/><text class="k ink" x="525" y="648">Teacher Scheduling</text><text class="m muted" x="525" y="676">按需加载大型 teachers</text><text class="m muted" x="525" y="700">避免 logits 和权重爆内存</text>
+  <rect class="card" x="860" y="610" width="290" height="104"/><text class="k ink" x="890" y="648">DSec Sandbox</text><text class="m muted" x="890" y="676">工具轨迹隔离执行</text><text class="m muted" x="890" y="700">preemption-safe resume</text>
+  <line class="thin" x1="275" y1="610" x2="800" y2="420"/><line class="thin" x1="640" y1="610" x2="860" y2="420"/><line class="thin" x1="1005" y1="610" x2="900" y2="420"/>
+</svg>

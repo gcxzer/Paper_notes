@@ -1,0 +1,4 @@
+boto3>=1.43.1
+botocore>=1.43.1
+mcp>=1.0.0
+python-dotenv>=1.2.1

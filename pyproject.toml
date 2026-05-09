@@ -1,0 +1,16 @@
+[project]
+name = "paper-notes"
+version = "0.1.0"
+description = "Local Paper Notes server backed by FastAPI and AWS Bedrock AgentCore."
+requires-python = ">=3.11"
+dependencies = [
+  "boto3>=1.43.1",
+  "botocore>=1.43.1",
+  "fastapi>=0.124.0",
+  "mcp>=1.0.0",
+  "python-dotenv>=1.2.1",
+  "uvicorn>=0.38.0",
+]
+
+[tool.uv]
+package = false

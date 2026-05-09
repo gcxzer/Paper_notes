@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Reader</title>
-  <script src="assets/theme.js"></script>
-  <link rel="stylesheet" href="assets/reader.css">
+  <script src="assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="assets/styles/reader.css?v=session-trash-v2">
 </head>
 <body>
   <div class="reader-shell">
@@ -15,18 +15,26 @@
         <span id="readerKicker">Paper</span>
         <strong id="readerTitle">Loading...</strong>
       </div>
-      <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
+      <div class="reader-header-actions" role="group" aria-label="Reader side panes">
+        <div class="reader-settings-control">
+          <button class="toolbar-button reader-settings-button" type="button" id="readerSettingsButton" aria-expanded="false" aria-haspopup="menu">Settings</button>
+          <div class="reader-settings-menu" id="readerSettingsMenu" role="menu" hidden>
+            <button class="reader-settings-action" type="button" id="syncRagButton" role="menuitem">Sync RAG</button>
+          </div>
+        </div>
+        <button class="toolbar-button reader-side-toggle pdf-html-tool is-active" type="button" id="htmlPaneToggle" aria-label="Toggle HTML note">HTML</button>
+        <button class="toolbar-button reader-side-toggle pdf-ask-tool" type="button" id="askPaneToggle" aria-label="Toggle Ask panel">Ask</button>
+      </div>
     </header>
 
-    <main class="reader-layout" id="readerLayout">
+    <main class="reader-layout is-ask-pane-hidden" id="readerLayout">
       <section class="pdf-pane" aria-label="PDF viewer">
         <div class="pdf-tools" aria-label="PDF annotation tools">
           <button class="pdf-tool pdf-sidebar-tool is-active" type="button" id="annotationSidebarToolbarToggle" aria-label="Toggle annotations">Annotations</button>
           <div class="pdf-tool-group" role="group" aria-label="Annotation mode">
-            <button class="pdf-tool is-active" type="button" data-pdf-mode="pan">Browse</button>
-            <button class="pdf-tool" type="button" data-pdf-mode="highlight">Highlight</button>
-            <button class="pdf-tool" type="button" data-pdf-mode="underline">Underline</button>
-            <button class="pdf-tool" type="button" data-pdf-mode="note">Note</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="highlight" aria-pressed="false">Highlight</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="underline" aria-pressed="false">Underline</button>
+            <button class="pdf-tool" type="button" data-pdf-mode="note" aria-pressed="false">Note</button>
           </div>
           <div class="pdf-tool-group pdf-history-tools" role="group" aria-label="Annotation history">
             <button class="pdf-tool pdf-history-tool" type="button" id="annotationUndo" aria-label="Undo annotation mark" title="Undo annotation mark" disabled>↶</button>
@@ -49,8 +57,6 @@
             <span class="pdf-zoom" id="zoomLabel">100%</span>
             <button class="pdf-tool" type="button" id="zoomIn">+</button>
           </div>
-          <button class="pdf-tool document-theme-toggle" type="button" data-document-theme-toggle>Paper Light</button>
-          <button class="pdf-tool pdf-html-tool is-active" type="button" id="htmlPaneToggle" aria-label="Toggle HTML note">HTML</button>
         </div>
         <div class="pdf-body">
           <aside class="pdf-annotation-sidebar" aria-label="PDF annotations">
@@ -71,7 +77,7 @@
         </div>
       </section>
 
-      <div class="reader-resizer" id="readerResizer" role="separator" aria-label="Resize PDF and note panes" aria-orientation="vertical" tabindex="0"></div>
+      <div class="reader-resizer reader-main-resizer" id="readerResizer" role="separator" aria-label="Resize PDF and note panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="note-pane" aria-label="Paper note">
         <div class="html-zoom-controls" aria-label="HTML note zoom">
@@ -80,6 +86,38 @@
           <button type="button" id="htmlZoomIn" aria-label="Zoom HTML note in">+</button>
         </div>
         <article class="note-page" id="notePage"></article>
+      </aside>
+
+      <div class="reader-resizer reader-ask-resizer" id="askResizer" role="separator" aria-label="Resize note and Ask panes" aria-orientation="vertical" tabindex="0"></div>
+
+      <aside class="ask-pane" id="askPane" aria-label="Ask Paper Notes Agent">
+        <header class="ask-pane-header">
+          <button class="ask-icon-button" type="button" id="chatSessionMenuButton" aria-label="Switch session" aria-haspopup="dialog" aria-expanded="false">◫</button>
+          <button class="ask-icon-button ask-pane-close" type="button" id="closeAskPane" aria-label="Close Ask panel">×</button>
+        </header>
+        <div class="ask-session-popover" id="chatSessionPopover" role="dialog" aria-label="Ask sessions" hidden>
+          <div class="ask-session-popover-header">
+            <strong>Sessions</strong>
+            <div class="ask-session-header-actions">
+              <button class="ask-session-trash-toggle" type="button" id="toggleChatSessionTrash" aria-pressed="false">Trash</button>
+              <button class="ask-session-export" type="button" id="exportChatSession">Export</button>
+              <button class="ask-session-new" type="button" id="newChatSession">New chat</button>
+            </div>
+          </div>
+          <label class="ask-session-search">
+            <span class="sr-only">Search sessions</span>
+            <input id="chatSessionSearch" type="search" placeholder="Search sessions" autocomplete="off">
+          </label>
+          <div class="ask-session-list" id="chatSessionList"></div>
+        </div>
+        <div class="ask-messages" id="readerChatMessages" aria-live="polite"></div>
+        <p class="ask-error" id="readerChatError" hidden></p>
+        <form class="ask-composer" id="readerChatForm">
+          <div class="ask-input-row">
+            <textarea id="readerChatInput" rows="1" placeholder="Ask anything"></textarea>
+            <button class="ask-send" type="submit" id="sendReaderChat">Send</button>
+          </div>
+        </form>
       </aside>
     </main>
 
@@ -91,7 +129,7 @@
   </div>
 
   <script src="node_modules/pdfjs-dist/build/pdf.js?v=pdfjs3"></script>
-  <script src="assets/note.js?v=annotations-v6"></script>
-  <script src="assets/reader.js?v=annotations-v24"></script>
+  <script src="assets/scripts/note.js?v=annotations-v6"></script>
+  <script src="assets/scripts/reader.js?v=session-trash-v2"></script>
 </body>
 </html>

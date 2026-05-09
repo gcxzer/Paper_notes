@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">KV cache note diagram</title>
+  <desc id="desc">Diagram showing what KV cache contains in DeepSeek-V4 and the relative cache reduction.</desc>
+  <style>
+    .bg{fill:#fffdf8}.panel{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.bar0{fill:#cbbfae}.bar1{fill:#1d6f6a}.bar2{fill:#8fd6d2}.line{stroke:#6d655b;stroke-width:2}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:850}.m{font-size:15px}.tiny{font-size:13px}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <rect class="bg" width="1280" height="720"/>
+  <text class="h ink" x="54" y="64">KV cache 笔记：1M context 的真实压力在“每步都要带着历史”</text>
+  <text class="m muted" x="54" y="96">V4 的 cache 不是普通 dense KV，而是压缩 KV、局部窗口、sink、落盘状态的组合。</text>
+
+  <rect class="panel" x="70" y="150" width="540" height="420"/>
+  <text class="k ink" x="100" y="188">cache 里到底有什么</text>
+  <rect class="hot" x="110" y="235" width="180" height="72"/><text class="k ink" x="200" y="265" text-anchor="middle">compressed KV</text><text class="tiny muted" x="200" y="287" text-anchor="middle">CSA/HCA 长程记忆</text>
+  <rect class="panel" x="330" y="235" width="180" height="72"/><text class="k ink" x="420" y="265" text-anchor="middle">window KV</text><text class="tiny muted" x="420" y="287" text-anchor="middle">近期 token 精确记忆</text>
+  <rect class="panel" x="110" y="345" width="180" height="72"/><text class="k ink" x="200" y="375" text-anchor="middle">sink entries</text><text class="tiny muted" x="200" y="397" text-anchor="middle">attention 稳定锚点</text>
+  <rect class="panel" x="330" y="345" width="180" height="72"/><text class="k ink" x="420" y="375" text-anchor="middle">on-disk cache</text><text class="tiny muted" x="420" y="397" text-anchor="middle">冷状态 / 长任务恢复</text>
+  <text class="m muted" x="100" y="485">笔记：压缩 KV 降显存，window KV 保局部细节，落盘 cache 保持续会话。三者解决的是不同成本。</text>
+
+  <rect class="panel" x="700" y="150" width="500" height="420"/>
+  <text class="k ink" x="730" y="188">论文给的相对量级（1M context）</text>
+  <line class="line" x1="780" y1="500" x2="1140" y2="500"/><line class="line" x1="780" y1="245" x2="780" y2="500"/>
+  <rect class="bar0" x="830" y="260" width="70" height="240"/><text class="m ink" x="865" y="528" text-anchor="middle">V3.2</text><text class="tiny muted" x="865" y="552" text-anchor="middle">100%</text>
+  <rect class="bar1" x="960" y="476" width="70" height="24"/><text class="m ink" x="995" y="528" text-anchor="middle">V4-Pro</text><text class="tiny muted" x="995" y="552" text-anchor="middle">~10%</text>
+  <rect class="bar2" x="1090" y="483" width="70" height="17"/><text class="m ink" x="1125" y="528" text-anchor="middle">V4-Flash</text><text class="tiny muted" x="1125" y="552" text-anchor="middle">~7%</text>
+  <text class="m muted" x="730" y="230">这张图只记 KV cache；FLOPs 另看 Figure 1 右侧。</text>
+  <text class="m muted" x="730" y="620">问题：这些估算和真实部署的 prefill、调度、磁盘读写、工具轨迹开销如何叠加？</text>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeek-V4 architecture notes</title>
+  <desc id="desc">Architecture diagram showing inherited V3 components and V4 changes.</desc>
+  <style>
+    .bg{fill:#fffdf8}.box{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:12}.new{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:12}.old{fill:#f6efe4;stroke:#c9bda9;stroke-width:2;rx:12}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.note{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:12}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:800}.m{font-size:15px}.tiny{font-size:13px}.tag{font-size:12px;font-weight:850;fill:#fffdf8}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker></defs>
+  <rect class="bg" width="1280" height="760"/>
+  <text class="h ink" x="54" y="64">2. Architecture：保留 MoE 地基，替换长上下文核心</text>
+  <text class="m muted" x="54" y="95">图的读法：绿色是 V4 重点改动，米色是 V3 继承或延续。</text>
+
+  <rect class="box" x="70" y="220" width="135" height="82"/><text class="k ink" x="137" y="252" text-anchor="middle">tokens</text><text class="m muted" x="137" y="278" text-anchor="middle">1M context</text>
+  <path class="line" d="M205 261 H280"/>
+  <rect class="old" x="280" y="190" width="180" height="142"/><text class="k ink" x="370" y="226" text-anchor="middle">Embedding</text><text class="m muted" x="370" y="256" text-anchor="middle">128K vocab</text><text class="m muted" x="370" y="282" text-anchor="middle">token split / FIM</text><rect x="302" y="302" width="96" height="22" rx="11" fill="#c9bda9"/><text class="tag" x="350" y="318" text-anchor="middle">inherited</text>
+  <path class="line" d="M460 261 H530"/>
+
+  <rect class="box" x="530" y="95" width="420" height="360"/>
+  <text class="k ink" x="740" y="132" text-anchor="middle">Transformer Block × L</text>
+  <rect class="new" x="580" y="165" width="320" height="62"/><text class="k ink" x="740" y="202" text-anchor="middle">mHC pre / residual mixing</text>
+  <rect class="new" x="580" y="252" width="320" height="62"/><text class="k ink" x="740" y="289" text-anchor="middle">CSA / HCA Attention</text>
+  <rect class="old" x="580" y="339" width="320" height="62"/><text class="k ink" x="740" y="376" text-anchor="middle">DeepSeekMoE FFN</text>
+  <rect x="792" y="108" width="74" height="22" rx="11" fill="#1d6f6a"/><text class="tag" x="829" y="124" text-anchor="middle">V4 new</text>
+  <rect x="804" y="348" width="96" height="22" rx="11" fill="#c9bda9"/><text class="tag" x="852" y="364" text-anchor="middle">inherited</text>
+
+  <path class="line" d="M950 261 H1020"/>
+  <rect class="old" x="1020" y="190" width="180" height="142"/><text class="k ink" x="1110" y="226" text-anchor="middle">Prediction</text><text class="m muted" x="1110" y="256" text-anchor="middle">LM loss</text><text class="m muted" x="1110" y="282" text-anchor="middle">MTP loss</text><rect x="1062" y="302" width="96" height="22" rx="11" fill="#c9bda9"/><text class="tag" x="1110" y="318" text-anchor="middle">inherited</text>
+
+  <rect class="note" x="94" y="535" width="305" height="116"/><text class="k ink" x="120" y="572">架构判断</text><text class="m muted" x="120" y="600">不是从 Transformer 开始重做。</text><text class="m muted" x="120" y="626">V4 的变量集中在连接、注意力、优化器。</text>
+  <rect class="note" x="486" y="535" width="305" height="116"/><text class="k ink" x="512" y="572">成本判断</text><text class="m muted" x="512" y="600">CSA/HCA 直接改变 KV entry 数量。</text><text class="m muted" x="512" y="626">这是 1M context 可服务的核心。</text>
+  <rect class="note" x="878" y="535" width="305" height="116"/><text class="k ink" x="904" y="572">稳定性判断</text><text class="m muted" x="904" y="600">mHC 和 Muon 都不是装饰模块。</text><text class="m muted" x="904" y="626">它们处理新结构带来的训练风险。</text>
+</svg>

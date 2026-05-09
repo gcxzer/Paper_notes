@@ -1,7 +1,5 @@
 {
-  "scripts": {
-    "start": "node server.js"
-  },
+  "private": true,
   "dependencies": {
     "pdfjs-dist": "^3.11.174"
   }

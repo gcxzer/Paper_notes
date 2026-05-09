@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">mHC note diagram</title>
+  <desc id="desc">Comparison between residual connection, hyper-connection, and mHC.</desc>
+  <style>
+    .bg{fill:#fffdf8}.panel{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.warn{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:14}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.thin{stroke:#6d655b;stroke-width:2;fill:none;stroke-dasharray:7 7;marker-end:url(#b)}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:850}.m{font-size:15px}.tiny{font-size:13px}.math{font-size:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker><marker id="b" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#6d655b"/></marker></defs>
+  <rect class="bg" width="1280" height="760"/>
+  <text class="h ink" x="54" y="64">2.2 mHC：残差连接的三层升级</text>
+  <text class="m muted" x="54" y="96">核心笔记：HC 增加多路 residual stream；mHC 给混合矩阵加守恒约束，降低深层不稳定。</text>
+
+  <rect class="panel" x="60" y="150" width="330" height="225"/><text class="k ink" x="88" y="188">Residual</text><text class="m muted" x="88" y="216">一条旁路：x + F(x)</text><rect class="warn" x="95" y="255" width="92" height="52"/><text class="m ink" x="141" y="287" text-anchor="middle">x</text><path class="line" d="M187 281 H262"/><rect class="warn" x="262" y="255" width="92" height="52"/><text class="m ink" x="308" y="287" text-anchor="middle">F(x)</text><path class="thin" d="M141 307 C185 350 273 350 318 307"/><text class="tiny muted" x="225" y="346" text-anchor="middle">简单、稳，但表达轴有限</text>
+
+  <rect class="panel" x="475" y="150" width="330" height="225"/><text class="k ink" x="503" y="188">HC</text><text class="m muted" x="503" y="216">多路 residual stream，动态混合</text><rect class="hot" x="520" y="250" width="80" height="58"/><text class="m ink" x="560" y="284" text-anchor="middle">n_hc</text><path class="line" d="M600 279 H675"/><rect class="hot" x="675" y="250" width="88" height="58"/><text class="m ink" x="719" y="284" text-anchor="middle">A/B/C</text><text class="tiny muted" x="640" y="346" text-anchor="middle">更强，但深层堆叠容易数值不稳</text>
+
+  <rect class="hot" x="890" y="150" width="330" height="225"/><text class="k ink" x="918" y="188">mHC</text><text class="m muted" x="918" y="216">把 B_l 限制到 Birkhoff polytope</text><text class="math ink" x="918" y="252">B_l 1 = 1, 1^T B_l = 1^T, B_l &gt;= 0</text><text class="math ink" x="918" y="286">||B_l||_2 &lt;= 1</text><text class="tiny muted" x="918" y="322">含义：混合可以动态，但总体不扩张</text>
+
+  <rect class="panel" x="130" y="475" width="1020" height="150"/>
+  <text class="k ink" x="165" y="515">A / B / C 的笔记</text>
+  <text class="m muted" x="165" y="550">A_l：进入 block 前选哪些 residual streams；C_l：block 输出写回哪些 streams；B_l：streams 之间的长期传播。</text>
+  <text class="m muted" x="165" y="584">动态参数来自 RMSNorm(vec(X_l)) + static bias；A_l / C_l 非负有界，B_l 双随机约束。</text>
+  <text class="m muted" x="165" y="618">代价：多了参数生成和混合逻辑；收益：给模型新增残差宽度这个扩展轴，同时控制深层训练风险。</text>
+</svg>
