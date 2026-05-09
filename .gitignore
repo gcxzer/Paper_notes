@@ -35,6 +35,4 @@ build/
 # Local paper library data
 notes.json
 resources/
-Papers/
-Paper-html/
-Paper-annotations/
+

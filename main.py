@@ -1,5 +1,4 @@
-def main():
-    print("Hello from paper-notes!")
+from src.paper_notes.server import main
 
 
 if __name__ == "__main__":

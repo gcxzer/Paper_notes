@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "node src/server.js"
+    "start": "uv run python src/paper_notes/server.py"
   },
   "dependencies": {
     "pdfjs-dist": "^3.11.174"

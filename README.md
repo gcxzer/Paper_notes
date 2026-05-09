@@ -8,11 +8,11 @@ The HTML notes are designed to be generated or refined with an LLM, then kept as
 
 Paper Notes opens a PDF and its matching HTML note side by side:
 
-![Paper Notes split reader preview](src/public/assets/images/paper-notes-reader-preview.png)
+![Paper Notes split reader preview](assets/images/paper-notes-reader-preview.png)
 
 The library view keeps imported papers, summaries, collections, and paper actions in one place:
 
-![Paper Notes library preview](src/public/assets/images/paper-notes-library-preview.png)
+![Paper Notes library preview](assets/images/paper-notes-library-preview.png)
 
 ## Quick Start
 
@@ -28,17 +28,17 @@ Then bookmark and open:
 http://127.0.0.1:4173
 ```
 
-After that, Paper Notes starts automatically when you log in. You can open the bookmark directly without running `npm start`.
+After that, Paper Notes starts automatically when you log in. You can open the bookmark directly without running the local server manually.
 
 Manual fallback:
 
 ```bash
-npm start
+uv run python src/paper_notes/server.py
 ```
 
 Then open `http://localhost:4173`.
 
-On macOS, you can also double-click `Open Paper Notes.command`.
+On macOS, you can also double-click `Open-Paper-Notes.command`.
 
 The local server is required because the browser cannot write PDFs, HTML notes, annotations, or `notes.json` updates into this folder when `index.html` is opened directly.
 
@@ -166,19 +166,19 @@ Collection changes are also written back to `notes.json` when the local server i
 ```text
 .
 ├── notes.json                 # Local library metadata, generated at runtime
-├── package.json               # npm scripts and frontend dependency metadata
+├── package.json               # Frontend dependency metadata for PDF.js
 ├── pyproject.toml             # uv/Python project metadata
 ├── scripts/                   # macOS auto-start install/uninstall helpers
 ├── src/
-│   ├── server.js              # Local server and file-writing API
+│   ├── paper_notes/
+│   │   └── server.py          # Python local server and file-writing API
 │   └── public/
 │       ├── index.html         # Library page
 │       ├── reader.html        # Split PDF / HTML reader
 │       ├── note-template.html # Manual note template
-│       └── assets/
-│           ├── scripts/       # Browser JavaScript
-│           ├── styles/        # CSS
-│           └── images/        # README and note images
+│       ├── scripts/           # Browser JavaScript
+│       └── styles/            # CSS
+├── assets/                    # Local image/media assets served at /assets
 ├── resources/                 # Local paper workspace data, ignored by Git
 │   ├── Papers/                # Imported PDFs
 │   ├── Paper-html/            # HTML note files
@@ -188,7 +188,8 @@ Collection changes are also written back to `notes.json` when the local server i
 ## Development Notes
 
 - The app has no build step.
-- The only npm script is `npm start`, which runs `node src/server.js`.
+- The local backend is Python and can be started with `uv run python src/paper_notes/server.py`.
+- `npm start` is kept as a convenience wrapper for the same Python server.
 - `scripts/install-autostart.sh` registers a macOS LaunchAgent named `com.paper-notes.local`.
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.
