@@ -94,6 +94,16 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizeResourceHref(value) {
+  const href = normalizeText(value);
+  if (!href) return "";
+  if (href.startsWith("resources/")) return href;
+  if (href.startsWith("Papers/") || href.startsWith("Paper-html/") || href.startsWith("Paper-annotations/")) {
+    return `resources/${href}`;
+  }
+  return href;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -116,8 +126,8 @@ function sanitizeLibrary(rawLibrary) {
   const notes = Array.isArray(raw.notes) ? raw.notes.map((note) => ({
     id: normalizeText(note.id),
     title: normalizeText(note.title) || "Untitled Paper",
-    href: normalizeText(note.href),
-    htmlHref: normalizeText(note.htmlHref),
+    href: normalizeResourceHref(note.href),
+    htmlHref: normalizeResourceHref(note.htmlHref),
     pdfStorageKey: normalizeText(note.pdfStorageKey),
     date: normalizeText(note.date),
     categoryId: normalizeText(note.categoryId) || UNCATEGORIZED_ID,

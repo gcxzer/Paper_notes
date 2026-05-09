@@ -6,10 +6,13 @@ const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 4173);
 const HOST = "127.0.0.1";
 const MAX_BODY_SIZE = 200 * 1024 * 1024;
-const PAPERS_DIR = path.join(ROOT, "Papers");
-const HTML_DIR = path.join(ROOT, "Paper-html");
-const ANNOTATIONS_DIR = path.join(ROOT, "Paper-annotations");
+const RESOURCES_DIR = path.join(ROOT, "resources");
+const PAPERS_DIR = path.join(RESOURCES_DIR, "Papers");
+const HTML_DIR = path.join(RESOURCES_DIR, "Paper-html");
+const ANNOTATIONS_DIR = path.join(RESOURCES_DIR, "Paper-annotations");
 const NOTES_PATH = path.join(ROOT, "notes.json");
+const PAPERS_HREF_PREFIX = "resources/Papers";
+const HTML_HREF_PREFIX = "resources/Paper-html";
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -105,6 +108,20 @@ function normalizeTags(value) {
   return value.map((tag) => normalizeText(tag)).filter(Boolean);
 }
 
+function normalizeResourceHref(value) {
+  const href = normalizeText(value);
+  if (!href) return "";
+  if (href.startsWith("resources/")) return href;
+  if (href.startsWith("Papers/") || href.startsWith("Paper-html/") || href.startsWith("Paper-annotations/")) {
+    return `resources/${href}`;
+  }
+  return href;
+}
+
+function resourceHref(prefix, fileName) {
+  return `${prefix}/${encodeURIComponent(fileName)}`;
+}
+
 function sanitizeLibrary(rawLibrary) {
   const raw = rawLibrary && typeof rawLibrary === "object" ? rawLibrary : {};
   const rawCategories = Array.isArray(raw.categories) ? raw.categories : [];
@@ -171,8 +188,8 @@ function sanitizeLibrary(rawLibrary) {
     return {
       id: normalizeText(note.id) || noteIdFromTitle(note.title || `note-${index + 1}`),
       title: normalizeText(note.title) || "Untitled Note",
-      href: normalizeText(note.href),
-      htmlHref: normalizeText(note.htmlHref),
+      href: normalizeResourceHref(note.href),
+      htmlHref: normalizeResourceHref(note.htmlHref),
       pdfStorageKey: normalizeText(note.pdfStorageKey),
       date: normalizeText(note.date),
       order: Number.isFinite(Number(note.order)) ? Number(note.order) : index,
@@ -197,8 +214,8 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
-  <script src="../assets/theme.js"></script>
-  <link rel="stylesheet" href="../assets/note.css">
+  <script src="../../assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="../../assets/styles/note.css">
 </head>
 <body>
   <main class="note">
@@ -216,7 +233,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
       <section class="note-body"></section>
     </div>
   </main>
-  <script src="../assets/note.js"></script>
+  <script src="../../assets/scripts/note.js"></script>
 </body>
 </html>`;
 }
@@ -266,18 +283,20 @@ async function handleImportPdf(request, response) {
   const htmlName = `${path.basename(originalName, path.extname(originalName))}.html`;
   const title = noteTitleFromPdf(originalName);
   const date = getTodayLabel();
+  const pdfHref = resourceHref(PAPERS_HREF_PREFIX, originalName);
+  const htmlHref = resourceHref(HTML_HREF_PREFIX, htmlName);
   const library = await readLibrary();
   library.categories = Array.isArray(library.categories) ? library.categories : structuredClone(BASE_LIBRARY.categories);
   library.notes = Array.isArray(library.notes) ? library.notes : [];
-  const existingNotes = library.notes.filter((entry) => entry.href !== `Papers/${encodeURIComponent(originalName)}` && entry.htmlHref !== `Paper-html/${encodeURIComponent(htmlName)}`);
+  const existingNotes = library.notes.filter((entry) => entry.href !== pdfHref && entry.htmlHref !== htmlHref);
   const nextOrder = existingNotes.reduce((max, note, index) => (
     Math.max(max, Number.isFinite(Number(note.order)) ? Number(note.order) : index)
   ), -1) + 1;
   const note = {
     id: noteIdFromTitle(title),
     title,
-    href: `Papers/${encodeURIComponent(originalName)}`,
-    htmlHref: `Paper-html/${encodeURIComponent(htmlName)}`,
+    href: pdfHref,
+    htmlHref,
     pdfStorageKey: "",
     date,
     order: nextOrder,

@@ -8,11 +8,11 @@ The HTML notes are designed to be generated or refined with an LLM, then kept as
 
 Paper Notes opens a PDF and its matching HTML note side by side:
 
-![Paper Notes split reader preview](assets/paper-notes-reader-preview.png)
+![Paper Notes split reader preview](assets/images/paper-notes-reader-preview.png)
 
 The library view keeps imported papers, summaries, collections, and paper actions in one place:
 
-![Paper Notes library preview](assets/paper-notes-library-preview.png)
+![Paper Notes library preview](assets/images/paper-notes-library-preview.png)
 
 ## Quick Start
 
@@ -56,9 +56,9 @@ scripts/uninstall-autostart.sh
 
 For each imported PDF, the app creates:
 
-- `Papers/<same name>.pdf`
-- `Paper-html/<same name>.html`
-- `Paper-annotations/<note id>.json` after you create annotations
+- `resources/Papers/<same name>.pdf`
+- `resources/Paper-html/<same name>.html`
+- `resources/Paper-annotations/<note id>.json` after you create annotations
 - one note entry in `notes.json`
 
 These files are local workspace data and are ignored by Git. A fresh clone starts
@@ -83,9 +83,9 @@ Click a paper card or `Open Note` to open the split reader.
 - The PDF pane supports Zotero-style local annotations: highlights, underlines, and sticky notes.
 - The PDF toolbar supports page number jumping, internal PDF links, larger zoom levels, undo/redo for annotation changes, and a temporary back button after PDF link jumps.
 - The reader has separate theme controls for the UI shell and the PDF/HTML reading surface.
-- Refresh the reader after editing `Paper-html/<paper>.html`; the app reloads the latest HTML with caching disabled.
+- Refresh the reader after editing `resources/Paper-html/<paper>.html`; the app reloads the latest HTML with caching disabled.
 
-To edit a note, open the matching file in `Paper-html/` and write normal HTML inside `.note-body`.
+To edit a note, open the matching file in `resources/Paper-html/` and write normal HTML inside `.note-body`.
 
 Example:
 
@@ -111,7 +111,7 @@ The split reader uses PDF.js instead of the browser's read-only PDF iframe. Use 
 
 Choose a color from the toolbar before creating an annotation. The annotation sidebar lists every annotation by page; click an item to jump back to its position, edit its comment, or delete it.
 
-Annotations are saved as JSON files in `Paper-annotations/`. The original PDF is not modified.
+Annotations are saved as JSON files in `resources/Paper-annotations/`. The original PDF is not modified.
 
 ## Themes
 
@@ -143,11 +143,11 @@ Use normal relative paths when adding images to a note:
 ```html
 <section class="note-body">
   <h2>Overview</h2>
-  <img src="../assets/your-image.png" alt="Describe this image">
+  <img src="../../assets/images/your-image.png" alt="Describe this image">
 </section>
 ```
 
-When a note is rendered inside `reader.html`, embedded image and media paths are resolved relative to the original `Paper-html/<paper>.html` file, so the same HTML also works when opened directly.
+When a note is rendered inside `reader.html`, embedded image and media paths are resolved relative to the original `resources/Paper-html/<paper>.html` file, so the same HTML also works when opened directly.
 
 ## Library Actions
 
@@ -175,13 +175,14 @@ Collection changes are also written back to `notes.json` when the local server i
 ├── notes.json                 # Local library metadata, generated at runtime
 ├── note-template.html         # Manual note template
 ├── scripts/                   # macOS auto-start install/uninstall helpers
-├── Papers/                    # Local imported PDFs, ignored by Git
-├── Paper-html/                # Local HTML note files, ignored by Git
-├── Paper-annotations/         # Local annotation JSON files, ignored by Git
+├── resources/                 # Local paper workspace data, ignored by Git
+│   ├── Papers/                # Imported PDFs
+│   ├── Paper-html/            # HTML note files
+│   └── Paper-annotations/     # PDF highlight and sticky-note JSON files
 └── assets/
-    ├── site.js / site.css     # Library UI
-    ├── reader.js / reader.css # Split reader
-    └── note.js / note.css     # Note rendering and contents menu
+    ├── scripts/               # Browser JavaScript
+    ├── styles/                # CSS
+    └── images/                # README and note images
 ```
 
 ## Development Notes
@@ -192,7 +193,7 @@ Collection changes are also written back to `notes.json` when the local server i
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.
 - Static files are served with `Cache-Control: no-store` so note edits show up after refresh.
-- `notes.json`, `Papers/`, `Paper-html/`, and `Paper-annotations/` are local user data and are ignored by Git.
+- `notes.json` and `resources/` are local user data and are ignored by Git.
 - `.env`, `.venv/`, `.paper-notes-local/`, `node_modules/`, and temporary/cache folders are also ignored.
 
 ## License

@@ -6,6 +6,8 @@ const FILE_DB_NAME = "paper-notes-files-v1";
 const FILE_STORE_NAME = "paper-files";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
+const PAPERS_HREF_PREFIX = "resources/Papers";
+const HTML_HREF_PREFIX = "resources/Paper-html";
 const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11", "paper-notes-library-v12", "paper-notes-library-v13"];
 
 LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
@@ -107,6 +109,16 @@ function normalizeText(value) {
 function normalizeTags(value) {
   if (!Array.isArray(value)) return [];
   return value.map((tag) => normalizeText(tag)).filter(Boolean);
+}
+
+function normalizeResourceHref(value) {
+  const href = normalizeText(value);
+  if (!href) return "";
+  if (href.startsWith("resources/")) return href;
+  if (href.startsWith("Papers/") || href.startsWith("Paper-html/") || href.startsWith("Paper-annotations/")) {
+    return `resources/${href}`;
+  }
+  return href;
 }
 
 function readExpandedState() {
@@ -221,8 +233,8 @@ function sanitizeLibrary(rawLibrary) {
     return {
       id: normalizeText(note.id) || uniqueId(`note-${index + 1}`),
       title: normalizeText(note.title) || "Untitled Note",
-      href: normalizeText(note.href) || "index.html",
-      htmlHref: normalizeText(note.htmlHref),
+      href: normalizeResourceHref(note.href) || "index.html",
+      htmlHref: normalizeResourceHref(note.htmlHref),
       pdfStorageKey: normalizeText(note.pdfStorageKey),
       date: normalizeText(note.date) || "",
       order: Number.isFinite(Number(note.order)) ? Number(note.order) : index,
@@ -434,11 +446,11 @@ function slugifyFileName(value) {
 }
 
 function getPaperHref(file) {
-  return `Papers/${encodeURIComponent(file.name)}`;
+  return `${PAPERS_HREF_PREFIX}/${encodeURIComponent(file.name)}`;
 }
 
 function getPaperHtmlHref(title) {
-  return `Paper-html/${encodeURIComponent(`${slugifyFileName(title)}.html`)}`;
+  return `${HTML_HREF_PREFIX}/${encodeURIComponent(`${slugifyFileName(title)}.html`)}`;
 }
 
 function getApiUrl(path) {
@@ -485,8 +497,8 @@ function createPaperNoteHtml({ title, date, fileName }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${safeTitle}</title>
-  <script src="../assets/theme.js"></script>
-  <link rel="stylesheet" href="../assets/note.css">
+  <script src="../../assets/scripts/theme.js"></script>
+  <link rel="stylesheet" href="../../assets/styles/note.css">
 </head>
 <body>
   <main class="note">
@@ -504,7 +516,7 @@ function createPaperNoteHtml({ title, date, fileName }) {
       <section class="note-body"></section>
     </div>
   </main>
-  <script src="../assets/note.js"></script>
+  <script src="../../assets/scripts/note.js"></script>
 </body>
 </html>`;
 }
