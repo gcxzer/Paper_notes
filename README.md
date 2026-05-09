@@ -58,7 +58,11 @@ For each imported PDF, the app creates:
 
 - `Papers/<same name>.pdf`
 - `Paper-html/<same name>.html`
+- `Paper-annotations/<note id>.json` after you create annotations
 - one note entry in `notes.json`
+
+These files are local workspace data and are ignored by Git. A fresh clone starts
+with an empty library; importing PDFs recreates the folders as needed.
 
 The generated HTML note starts with the paper title and metadata, then an empty note body:
 
@@ -168,12 +172,12 @@ Collection changes are also written back to `notes.json` when the local server i
 ├── index.html                 # Library page
 ├── reader.html                # Split PDF / HTML reader
 ├── server.js                  # Local server and file-writing API
-├── notes.json                 # Library metadata
+├── notes.json                 # Local library metadata, generated at runtime
 ├── note-template.html         # Manual note template
 ├── scripts/                   # macOS auto-start install/uninstall helpers
-├── Papers/                    # Imported PDFs
-├── Paper-html/                # HTML note files
-├── Paper-annotations/         # PDF highlight and sticky-note JSON files
+├── Papers/                    # Local imported PDFs, ignored by Git
+├── Paper-html/                # Local HTML note files, ignored by Git
+├── Paper-annotations/         # Local annotation JSON files, ignored by Git
 └── assets/
     ├── site.js / site.css     # Library UI
     ├── reader.js / reader.css # Split reader
@@ -188,7 +192,8 @@ Collection changes are also written back to `notes.json` when the local server i
 - PDF rendering uses `pdfjs-dist`.
 - Default port: `4173`.
 - Static files are served with `Cache-Control: no-store` so note edits show up after refresh.
-- `Papers/` and `Paper-html/` are intentionally not ignored by git because they are part of the paper library.
+- `notes.json`, `Papers/`, `Paper-html/`, and `Paper-annotations/` are local user data and are ignored by Git.
+- `.env`, `.venv/`, `.paper-notes-local/`, `node_modules/`, and temporary/cache folders are also ignored.
 
 ## License
 

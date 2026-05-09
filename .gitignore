@@ -3,6 +3,9 @@
 
 # Dependencies
 node_modules/
+.venv/
+__pycache__/
+*.pyc
 
 # Logs
 *.log
@@ -14,6 +17,7 @@ pnpm-debug.log*
 # Local environment
 .env
 .env.*
+.paper-notes-local/
 
 # Editor and tooling
 .vscode/
@@ -27,3 +31,9 @@ temp/
 # Build artifacts
 dist/
 build/
+
+# Local paper library data
+notes.json
+Papers/
+Paper-html/
+Paper-annotations/
