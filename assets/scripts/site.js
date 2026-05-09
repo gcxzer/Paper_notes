@@ -21,6 +21,9 @@ const DEFAULT_LIBRARY = {
   notes: []
 };
 
+const GENERIC_AGENT_ERROR = "I could not reach the assistant. Check that the local server is running and try again.";
+const SENSITIVE_AGENT_ERROR_PATTERN = /(SSL validation failed|bedrock-agentcore|harnessArn|arn:aws|amazonaws\.com|InvokeHarness|AgentCore|AWS SSO|botocore|boto3|ValidationException|AccessDeniedException|runtimeClientError|\[Errno\s+\d+\]|No such file or directory)/i;
+
 const state = {
   library: null,
   activeCategoryId: ALL_CATEGORY_ID,
@@ -127,6 +130,12 @@ function getChatSessionId() {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function sanitizeVisibleAgentError(value) {
+  const text = normalizeText(value);
+  if (!text) return GENERIC_AGENT_ERROR;
+  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? GENERIC_AGENT_ERROR : text;
 }
 
 function normalizeTags(value) {
@@ -787,14 +796,14 @@ function renderChatMessages() {
 
   elements.chatMessages.innerHTML = state.chatMessages.map((message) => `
     <div class="chat-message chat-message-${message.role}">
-      <div class="chat-bubble">${escapeHtml(message.text).replace(/\n/g, "<br>")}</div>
+      <div class="chat-bubble">${escapeHtml(message.role === "assistant" ? sanitizeVisibleAgentError(message.text) : message.text).replace(/\n/g, "<br>")}</div>
     </div>
   `).join("");
   elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
 }
 
 function setChatError(message = "") {
-  elements.chatError.textContent = message;
+  elements.chatError.textContent = message ? sanitizeVisibleAgentError(message) : "";
   elements.chatError.hidden = !message;
 }
 
@@ -871,10 +880,10 @@ async function sendChatMessage() {
     });
     renderChatMessages();
   } catch (error) {
-    setChatError(error.message || "Could not reach Paper Notes Agent.");
+    setChatError(GENERIC_AGENT_ERROR);
     state.chatMessages.push({
       role: "assistant",
-      text: "I could not reach the agent. Check that the local server is running and AWS SSO is logged in."
+      text: GENERIC_AGENT_ERROR
     });
     renderChatMessages();
   } finally {

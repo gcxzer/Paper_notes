@@ -21,6 +21,8 @@ const UNCATEGORIZED_ID = "uncategorized";
 const PDF_MIN_SCALE = 0.7;
 const PDF_MAX_SCALE = 4;
 const PDF_SCALE_STEP = 0.1;
+const GENERIC_AGENT_ERROR = "I could not reach the assistant. Check that the local server is running and try again.";
+const SENSITIVE_AGENT_ERROR_PATTERN = /(SSL validation failed|bedrock-agentcore|harnessArn|arn:aws|amazonaws\.com|InvokeHarness|AgentCore|AWS SSO|botocore|boto3|ValidationException|AccessDeniedException|runtimeClientError|\[Errno\s+\d+\]|No such file or directory)/i;
 
 const elements = {
   layout: document.querySelector("#readerLayout"),
@@ -132,6 +134,18 @@ const PDF_NOTE_MARKER_SIZE = 24;
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function sanitizeVisibleAgentError(value) {
+  const text = normalizeText(value);
+  if (!text) return GENERIC_AGENT_ERROR;
+  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? GENERIC_AGENT_ERROR : text;
+}
+
+function sanitizeChatProgressDetail(value) {
+  const text = normalizeText(value);
+  if (!text) return "";
+  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? "The assistant hit a connection issue." : text;
 }
 
 function normalizeResourceHref(value) {
@@ -420,10 +434,12 @@ function initializeAskPaneToggle() {
 
 function normalizeChatMessage(message) {
   const role = message?.role === "user" ? "user" : "assistant";
+  const text = normalizeText(message?.text);
+  const error = Boolean(message?.error) || (role === "assistant" && SENSITIVE_AGENT_ERROR_PATTERN.test(text));
   return {
     role,
-    text: normalizeText(message?.text),
-    error: Boolean(message?.error),
+    text: role === "assistant" && error ? sanitizeVisibleAgentError(text) : text,
+    error,
     sources: normalizeChatSources(message?.sources),
     noteEdit: normalizeNoteEditDraft(message?.noteEdit)
   };
@@ -535,14 +551,14 @@ function normalizeChatProgress(progress) {
   const events = Array.isArray(progress.events)
     ? progress.events.map((event) => ({
       stage: normalizeText(event?.stage),
-      detail: normalizeText(event?.detail),
+      detail: sanitizeChatProgressDetail(event?.detail),
       at: normalizeText(event?.at)
     })).filter((event) => event.detail)
     : [];
   return {
     status: normalizeText(progress.status) || "running",
     stage: normalizeText(progress.stage) || "working",
-    detail: normalizeText(progress.detail) || "Working...",
+    detail: sanitizeChatProgressDetail(progress.detail) || "Working...",
     events
   };
 }
@@ -695,7 +711,7 @@ function handleChatSourceClick(event) {
 
 function setReaderChatError(message = "") {
   if (!elements.readerChatError) return;
-  elements.readerChatError.textContent = message;
+  elements.readerChatError.textContent = message ? sanitizeVisibleAgentError(message) : "";
   elements.readerChatError.hidden = !message;
 }
 
@@ -1193,10 +1209,10 @@ async function sendReaderChatMessage() {
     void fetchReaderChatSessions({ silent: true });
   } catch (error) {
     if (payload?.sessionId) setCurrentChatSessionId(payload.sessionId);
-    setReaderChatError(error.message || "Could not reach Paper Notes Agent.");
+    setReaderChatError(GENERIC_AGENT_ERROR);
     readerState.chatMessages.push({
       role: "assistant",
-      text: "I could not reach the agent. Check that the local server is running and AWS SSO is logged in.",
+      text: GENERIC_AGENT_ERROR,
       error: true
     });
     void fetchReaderChatSessions({ silent: true });
