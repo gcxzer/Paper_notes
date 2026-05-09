@@ -10,9 +10,12 @@ const FILE_STORE_NAME = "paper-files";
 const READER_SPLIT_KEY = "paper-notes-reader-split-v1";
 const ANNOTATION_SIDEBAR_KEY = "paper-notes-annotation-sidebar-v1";
 const HTML_PANE_KEY = "paper-notes-html-pane-v1";
+const ASK_PANE_KEY = "paper-notes-ask-pane-v1";
+const ASK_WIDTH_KEY = "paper-notes-ask-width-v1";
 const HTML_ZOOM_KEY = "paper-notes-html-zoom-v1";
 const PDF_SCROLL_KEY = "paper-notes-pdf-scroll-v1";
 const NOTE_SCROLL_KEY = "paper-notes-note-scroll-v1";
+const CHAT_SESSION_STORE_KEY = "paper-notes-agent-session-by-note-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
 const PDF_MIN_SCALE = 0.7;
@@ -26,8 +29,10 @@ const elements = {
   kicker: document.querySelector("#readerKicker"),
   pdfViewer: document.querySelector("#pdfViewer"),
   notePane: document.querySelector(".note-pane"),
+  askPane: document.querySelector("#askPane"),
   notePage: document.querySelector("#notePage"),
   resizer: document.querySelector("#readerResizer"),
+  askResizer: document.querySelector("#askResizer"),
   annotationStatus: document.querySelector("#annotationStatus"),
   annotationList: document.querySelector("#annotationList"),
   annotationCount: document.querySelector("#annotationCount"),
@@ -35,6 +40,25 @@ const elements = {
   annotationSidebarToggle: document.querySelector("#annotationSidebarToggle"),
   pdfBody: document.querySelector(".pdf-body"),
   htmlPaneToggle: document.querySelector("#htmlPaneToggle"),
+  askPaneToggle: document.querySelector("#askPaneToggle"),
+  readerSettingsButton: document.querySelector("#readerSettingsButton"),
+  readerSettingsMenu: document.querySelector("#readerSettingsMenu"),
+  syncRagButton: document.querySelector("#syncRagButton"),
+  ragSyncStatus: document.querySelector("#ragSyncStatus"),
+  closeAskPane: document.querySelector("#closeAskPane"),
+  chatSessionMenuButton: document.querySelector("#chatSessionMenuButton"),
+  chatSessionPopover: document.querySelector("#chatSessionPopover"),
+  newChatSession: document.querySelector("#newChatSession"),
+  exportChatSession: document.querySelector("#exportChatSession"),
+  toggleChatSessionTrash: document.querySelector("#toggleChatSessionTrash"),
+  chatSessionSearch: document.querySelector("#chatSessionSearch"),
+  chatSessionList: document.querySelector("#chatSessionList"),
+  readerChatForm: document.querySelector("#readerChatForm"),
+  readerChatMessages: document.querySelector("#readerChatMessages"),
+  readerChatInput: document.querySelector("#readerChatInput"),
+  readerChatError: document.querySelector("#readerChatError"),
+  sendReaderChat: document.querySelector("#sendReaderChat"),
+  clearReaderChat: document.querySelector("#clearReaderChat"),
   htmlZoomIn: document.querySelector("#htmlZoomIn"),
   htmlZoomOut: document.querySelector("#htmlZoomOut"),
   htmlZoomLabel: document.querySelector("#htmlZoomLabel"),
@@ -54,8 +78,10 @@ const elements = {
 
 const splitState = {
   dragging: false,
+  askDragging: false,
   minPdfWidth: 280,
-  minNoteWidth: 360
+  minNoteWidth: 320,
+  minAskWidth: 320
 };
 
 const pdfState = {
@@ -78,6 +104,26 @@ const pdfState = {
   openEditor: null,
   selectedAnnotationId: "",
   linkReturnPosition: null
+};
+
+const readerState = {
+  library: null,
+  note: null,
+  chatSessionId: "",
+  chatSessions: [],
+  chatSessionsLoading: false,
+  chatSessionMenuOpen: false,
+  chatSessionTrashOpen: false,
+  chatSessionQuery: "",
+  confirmingDeleteSessionId: "",
+  renamingSessionId: "",
+  settingsMenuOpen: false,
+  chatMessages: [],
+  chatProgress: null,
+  chatProgressTimer: 0,
+  chatProgressRequestId: "",
+  chatPending: false,
+  ragSyncPending: false
 };
 
 const PDF_ANNOTATION_TYPES = new Set(["highlight", "underline", "area", "note"]);
@@ -113,6 +159,66 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function getApiUrl(path) {
+  return window.location.protocol === "file:"
+    ? `http://localhost:4173${path}`
+    : path;
+}
+
+function createRequestId(prefix = "reader-chat") {
+  if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readChatSessionStore() {
+  try {
+    const raw = localStorage.getItem(CHAT_SESSION_STORE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    console.warn("Failed to read chat session selection.", error);
+    return {};
+  }
+}
+
+function writeChatSessionStore(store) {
+  try {
+    localStorage.setItem(CHAT_SESSION_STORE_KEY, JSON.stringify(store || {}));
+  } catch (error) {
+    console.warn("Failed to save chat session selection.", error);
+  }
+}
+
+function currentChatNoteId() {
+  return normalizeText(readerState.note?.id || pdfState.noteId);
+}
+
+function storedChatSessionId(noteId = currentChatNoteId()) {
+  if (!noteId) return "";
+  return normalizeText(readChatSessionStore()[noteId]);
+}
+
+function setStoredChatSessionId(sessionId, noteId = currentChatNoteId()) {
+  if (!noteId) return;
+  const store = readChatSessionStore();
+  if (sessionId) {
+    store[noteId] = sessionId;
+  } else {
+    delete store[noteId];
+  }
+  writeChatSessionStore(store);
+}
+
+function setCurrentChatSessionId(sessionId) {
+  readerState.chatSessionId = normalizeText(sessionId);
+  setStoredChatSessionId(readerState.chatSessionId);
+  renderChatSessionControls();
+}
+
+function getChatSessionId() {
+  return readerState.chatSessionId;
+}
+
 function sanitizeLibrary(rawLibrary) {
   const raw = rawLibrary && typeof rawLibrary === "object" ? rawLibrary : {};
   const categories = Array.isArray(raw.categories) ? raw.categories.map((category, index) => ({
@@ -129,6 +235,16 @@ function sanitizeLibrary(rawLibrary) {
     href: normalizeResourceHref(note.href),
     htmlHref: normalizeResourceHref(note.htmlHref),
     pdfStorageKey: normalizeText(note.pdfStorageKey),
+    pdfS3Key: normalizeText(note.pdfS3Key),
+    noteS3Key: normalizeText(note.noteS3Key),
+    annotationS3Key: normalizeText(note.annotationS3Key),
+    kbPaperS3Key: normalizeText(note.kbPaperS3Key),
+    kbNoteS3Key: normalizeText(note.kbNoteS3Key),
+    kbAnnotationsS3Key: normalizeText(note.kbAnnotationsS3Key),
+    kbMetadataS3Key: normalizeText(note.kbMetadataS3Key),
+    kbSyncStatus: normalizeText(note.kbSyncStatus),
+    kbIngestionJobId: normalizeText(note.kbIngestionJobId),
+    kbSyncError: normalizeText(note.kbSyncError),
     date: normalizeText(note.date),
     categoryId: normalizeText(note.categoryId) || UNCATEGORIZED_ID,
     summary: normalizeText(note.summary)
@@ -195,6 +311,106 @@ function getCollectionPath(library, categoryId) {
   return parent ? `${parent.name} / ${category.name}` : category.name;
 }
 
+function ragSyncStatusLabel(status) {
+  const normalized = normalizeText(status).toUpperCase();
+  if (!normalized) return "Not synced";
+  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(normalized)) return "Syncing";
+  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(normalized)) return "Indexed";
+  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(normalized)) return "Failed";
+  if (normalized === "DISABLED") return "Disabled";
+  return status;
+}
+
+function ragSyncStatusTone(status) {
+  const normalized = normalizeText(status).toUpperCase();
+  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(normalized)) return "ok";
+  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(normalized)) return "failed";
+  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(normalized)) return "syncing";
+  if (normalized === "DISABLED") return "muted";
+  return "idle";
+}
+
+function renderRagSyncStatus(note = readerState.note) {
+  const status = normalizeText(note?.kbSyncStatus);
+  const error = normalizeText(note?.kbSyncError);
+  const label = readerState.ragSyncPending ? "Syncing" : ragSyncStatusLabel(status);
+  const tone = readerState.ragSyncPending ? "syncing" : ragSyncStatusTone(status);
+  if (elements.ragSyncStatus) {
+    elements.ragSyncStatus.textContent = `RAG: ${label}`;
+    elements.ragSyncStatus.dataset.status = tone;
+    elements.ragSyncStatus.title = error || `Knowledge Base sync status: ${label}`;
+  }
+  if (elements.syncRagButton) {
+    elements.syncRagButton.disabled = readerState.ragSyncPending || !note?.id;
+    elements.syncRagButton.textContent = readerState.ragSyncPending ? "Syncing" : "Sync RAG";
+    elements.syncRagButton.title = error || `Knowledge Base sync status: ${label}`;
+  }
+}
+
+function setReaderSettingsMenuOpen(open) {
+  readerState.settingsMenuOpen = open;
+  if (elements.readerSettingsMenu) elements.readerSettingsMenu.hidden = !open;
+  elements.readerSettingsButton?.setAttribute("aria-expanded", String(open));
+}
+
+function updateCurrentNote(nextNote) {
+  if (!nextNote?.id) return;
+  readerState.note = { ...(readerState.note || {}), ...nextNote };
+  if (readerState.library?.notes) {
+    const index = readerState.library.notes.findIndex((entry) => entry.id === nextNote.id);
+    if (index >= 0) {
+      readerState.library.notes[index] = { ...readerState.library.notes[index], ...nextNote };
+    }
+  }
+  renderRagSyncStatus(readerState.note);
+}
+
+async function syncCurrentNoteRag() {
+  const note = readerState.note;
+  if (!note?.id || readerState.ragSyncPending) return;
+
+  readerState.ragSyncPending = true;
+  renderRagSyncStatus(note);
+  try {
+    const response = await fetch(getApiUrl("/api/sync-note-rag"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ noteId: note.id })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.id) {
+      throw new Error(payload?.error || `RAG sync failed (${response.status})`);
+    }
+    updateCurrentNote(payload);
+    setReaderSettingsMenuOpen(false);
+  } catch (error) {
+    updateCurrentNote({
+      ...note,
+      kbSyncStatus: "FAILED",
+      kbSyncError: error.message || "RAG sync failed."
+    });
+  } finally {
+    readerState.ragSyncPending = false;
+    renderRagSyncStatus(readerState.note);
+  }
+}
+
+function initializeRagSync() {
+  renderRagSyncStatus();
+  elements.syncRagButton?.addEventListener("click", syncCurrentNoteRag);
+  elements.readerSettingsButton?.addEventListener("click", () => {
+    setReaderSettingsMenuOpen(!readerState.settingsMenuOpen);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!readerState.settingsMenuOpen) return;
+    if (elements.readerSettingsMenu?.contains(event.target) || elements.readerSettingsButton?.contains(event.target)) return;
+    setReaderSettingsMenuOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && readerState.settingsMenuOpen) setReaderSettingsMenuOpen(false);
+  });
+}
+
 function showError() {
   elements.layout.hidden = true;
   elements.error.hidden = false;
@@ -258,12 +474,869 @@ function setHtmlPaneVisible(visible) {
   elements.htmlPaneToggle?.classList.toggle("is-active", visible);
   elements.htmlPaneToggle?.setAttribute("aria-expanded", String(visible));
   localStorage.setItem(HTML_PANE_KEY, visible ? "shown" : "hidden");
+  requestAnimationFrame(() => {
+    setAskWidth(readAskWidth());
+    setSplitPercent(readSplitPercent());
+  });
 }
 
 function initializeHtmlPaneToggle() {
   setHtmlPaneVisible(localStorage.getItem(HTML_PANE_KEY) !== "hidden");
   elements.htmlPaneToggle?.addEventListener("click", () => {
     setHtmlPaneVisible(elements.layout?.classList.contains("is-html-pane-hidden"));
+  });
+}
+
+function setAskPaneVisible(visible) {
+  elements.layout?.classList.toggle("is-ask-pane-hidden", !visible);
+  elements.askPaneToggle?.classList.toggle("is-active", visible);
+  elements.askPaneToggle?.setAttribute("aria-expanded", String(visible));
+  localStorage.setItem(ASK_PANE_KEY, visible ? "shown" : "hidden");
+  if (visible) {
+    renderReaderChatMessages();
+    requestAnimationFrame(() => {
+      setAskWidth(readAskWidth());
+      elements.readerChatInput?.focus();
+    });
+  }
+  requestAnimationFrame(() => {
+    setAskWidth(readAskWidth());
+    setSplitPercent(readSplitPercent());
+  });
+}
+
+function initializeAskPaneToggle() {
+  setAskPaneVisible(localStorage.getItem(ASK_PANE_KEY) === "shown");
+  elements.askPaneToggle?.addEventListener("click", () => {
+    setAskPaneVisible(elements.layout?.classList.contains("is-ask-pane-hidden"));
+  });
+  elements.closeAskPane?.addEventListener("click", () => setAskPaneVisible(false));
+}
+
+function normalizeChatMessage(message) {
+  const role = message?.role === "user" ? "user" : "assistant";
+  return {
+    role,
+    text: normalizeText(message?.text),
+    error: Boolean(message?.error),
+    sources: normalizeChatSources(message?.sources),
+    noteEdit: normalizeNoteEditDraft(message?.noteEdit)
+  };
+}
+
+function normalizeNoteEditDraft(rawEdit) {
+  if (!rawEdit || typeof rawEdit !== "object") return null;
+  const replacementHtml = String(rawEdit.replacementHtml || "").trim();
+  const noteId = normalizeText(rawEdit.noteId);
+  if (!replacementHtml || !noteId) return null;
+  return {
+    id: normalizeText(rawEdit.id) || `note-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    noteId,
+    summary: normalizeText(rawEdit.summary) || "Prepared a note edit draft.",
+    replacementHtml,
+    applied: Boolean(rawEdit.applied)
+  };
+}
+
+function normalizeChatSources(rawSources) {
+  if (!Array.isArray(rawSources)) return [];
+  return rawSources.slice(0, 12).map((source) => {
+    const raw = typeof source === "string" ? { uri: source } : source;
+    if (!raw || typeof raw !== "object") return null;
+    const page = Number(raw.page);
+    return {
+      type: normalizeText(raw.type) || "source",
+      label: normalizeText(raw.label),
+      uri: normalizeText(raw.uri),
+      s3Key: normalizeText(raw.s3Key),
+      noteId: normalizeText(raw.noteId),
+      page: Number.isFinite(page) && page > 0 ? Math.round(page) : null,
+      excerpt: normalizeText(raw.excerpt)
+    };
+  }).filter((source) => source && (source.label || source.uri || source.excerpt));
+}
+
+function noteForChatSource(source) {
+  if (!readerState.library?.notes) return readerState.note;
+  if (source.noteId) {
+    const byId = readerState.library.notes.find((note) => note.id === source.noteId);
+    if (byId) return byId;
+  }
+  const locator = source.s3Key || source.uri;
+  if (locator) {
+    const byKey = readerState.library.notes.find((note) => (
+      [note.kbPaperS3Key, note.kbNoteS3Key, note.kbAnnotationsS3Key, note.kbMetadataS3Key]
+        .some((key) => key && locator.includes(key))
+    ));
+    if (byKey) return byKey;
+  }
+  return readerState.note;
+}
+
+function annotationKindFromSource(source) {
+  const match = source.excerpt.match(/###\s+([A-Za-z]+)/);
+  return match ? match[1].toLowerCase() : "annotation";
+}
+
+function chatSourceLabel(source) {
+  if (source.label) return source.label;
+  const note = noteForChatSource(source);
+  const title = note?.title || "Paper";
+  const page = source.page ? ` page ${source.page}` : "";
+  if (source.type === "pdf") return `PDF: ${title}${page}`;
+  if (source.type === "note") return `Note: ${title} note.html`;
+  if (source.type === "annotation") return `Annotation:${page || ""} ${annotationKindFromSource(source)}`.replace("  ", " ").trim();
+  return source.uri || "Source";
+}
+
+function renderChatSources(sources) {
+  if (!sources.length) return "";
+  return `
+    <div class="ask-sources" aria-label="Sources">
+      ${sources.map((source) => `
+        <button
+          class="ask-source"
+          type="button"
+          data-source-type="${escapeHtml(source.type)}"
+          data-source-page="${source.page || ""}"
+          data-source-uri="${escapeHtml(encodeURIComponent(source.uri))}"
+          data-source-note-id="${escapeHtml(source.noteId)}"
+          title="${escapeHtml(source.excerpt || source.uri || chatSourceLabel(source))}"
+        >${escapeHtml(chatSourceLabel(source))}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderNoteEditDraft(noteEdit) {
+  if (!noteEdit) return "";
+  return `
+    <div class="ask-note-edit" data-note-edit-id="${escapeHtml(noteEdit.id)}">
+      <div class="ask-note-edit-copy">
+        <strong>Note edit draft</strong>
+        <span>${escapeHtml(noteEdit.summary)}</span>
+      </div>
+      <div class="ask-note-edit-actions">
+        <button class="ask-note-edit-apply" type="button" data-note-edit-apply="${escapeHtml(noteEdit.id)}"${noteEdit.applied ? " disabled" : ""}>${noteEdit.applied ? "Applied" : "Apply to note"}</button>
+        <button class="ask-note-edit-discard" type="button" data-note-edit-discard="${escapeHtml(noteEdit.id)}"${noteEdit.applied ? " hidden" : ""}>Discard</button>
+      </div>
+      <p class="ask-note-edit-hint">This only changes the local HTML note. Use Settings > Sync RAG after applying.</p>
+    </div>
+  `;
+}
+
+function normalizeChatProgress(progress) {
+  if (!progress || typeof progress !== "object") return null;
+  const events = Array.isArray(progress.events)
+    ? progress.events.map((event) => ({
+      stage: normalizeText(event?.stage),
+      detail: normalizeText(event?.detail),
+      at: normalizeText(event?.at)
+    })).filter((event) => event.detail)
+    : [];
+  return {
+    status: normalizeText(progress.status) || "running",
+    stage: normalizeText(progress.stage) || "working",
+    detail: normalizeText(progress.detail) || "Working...",
+    events
+  };
+}
+
+function renderChatProgress() {
+  const progress = normalizeChatProgress(readerState.chatProgress);
+  if (!readerState.chatPending || !progress) return "";
+  const events = progress.events.length ? progress.events : [{ stage: progress.stage, detail: progress.detail }];
+  return `
+    <div class="ask-message ask-message-assistant ask-message-progress">
+      <div class="ask-message-stack">
+        <div class="ask-progress-card" role="status" aria-live="polite">
+          <div class="ask-progress-header">
+            <span class="ask-progress-spinner" aria-hidden="true"></span>
+            <strong>${escapeHtml(progress.detail)}</strong>
+          </div>
+          <ol class="ask-progress-steps">
+            ${events.slice(-5).map((event, index, visibleEvents) => `
+              <li class="${index === visibleEvents.length - 1 ? "is-current" : "is-done"}">
+                <span>${escapeHtml(event.detail)}</span>
+              </li>
+            `).join("")}
+          </ol>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderReaderChatMessages() {
+  if (!elements.readerChatMessages) return;
+  if (!readerState.chatMessages.length && !readerState.chatPending) {
+    elements.readerChatMessages.innerHTML = "";
+    return;
+  }
+
+  const messagesHtml = readerState.chatMessages.map((rawMessage) => {
+    const message = normalizeChatMessage(rawMessage);
+    const sourcesHtml = message.role === "assistant" ? renderChatSources(message.sources) : "";
+    const noteEditHtml = message.role === "assistant" ? renderNoteEditDraft(message.noteEdit) : "";
+    return `
+    <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}">
+      <div class="ask-message-stack">
+        <div class="ask-bubble">${escapeHtml(message.text).replace(/\n/g, "<br>")}</div>
+        ${sourcesHtml}
+        ${noteEditHtml}
+      </div>
+    </div>
+  `;
+  }).join("");
+  elements.readerChatMessages.innerHTML = `${messagesHtml}${renderChatProgress()}`;
+  elements.readerChatMessages.scrollTop = elements.readerChatMessages.scrollHeight;
+}
+
+function findChatNoteEdit(editId) {
+  for (const message of readerState.chatMessages) {
+    const noteEdit = normalizeNoteEditDraft(message.noteEdit);
+    if (noteEdit?.id === editId) return message.noteEdit;
+  }
+  return null;
+}
+
+function markChatNoteEditApplied(editId) {
+  readerState.chatMessages.forEach((message) => {
+    if (message.noteEdit?.id === editId) {
+      message.noteEdit.applied = true;
+    }
+  });
+}
+
+function discardChatNoteEdit(editId) {
+  readerState.chatMessages.forEach((message) => {
+    if (message.noteEdit?.id === editId) {
+      message.noteEdit = null;
+    }
+  });
+  renderReaderChatMessages();
+}
+
+async function applyChatNoteEdit(editId) {
+  const noteEdit = normalizeNoteEditDraft(findChatNoteEdit(editId));
+  if (!noteEdit || noteEdit.applied) return;
+  setReaderChatError("");
+  try {
+    const response = await fetch(getApiUrl("/api/apply-note-edit"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        noteId: noteEdit.noteId,
+        replacementHtml: noteEdit.replacementHtml
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || `Could not apply note edit (${response.status})`);
+    }
+    const noteBody = elements.notePage?.querySelector(".note-body");
+    if (noteBody && typeof payload.noteBodyHtml === "string") {
+      noteBody.innerHTML = payload.noteBodyHtml;
+      if (typeof window.buildNoteMenu === "function") window.buildNoteMenu(elements.notePage);
+      mountReaderNoteMenu();
+    }
+    if (payload.note) updateCurrentNote(payload.note);
+    markChatNoteEditApplied(editId);
+    renderReaderChatMessages();
+  } catch (error) {
+    console.warn("Failed to apply note edit.", error);
+    setReaderChatError(error.message || "Could not apply note edit.");
+  }
+}
+
+function handleNoteEditDraftClick(event) {
+  const applyButton = event.target.closest("[data-note-edit-apply]");
+  if (applyButton) {
+    event.preventDefault();
+    applyChatNoteEdit(applyButton.dataset.noteEditApply);
+    return;
+  }
+  const discardButton = event.target.closest("[data-note-edit-discard]");
+  if (discardButton) {
+    event.preventDefault();
+    discardChatNoteEdit(discardButton.dataset.noteEditDiscard);
+  }
+}
+
+function activateChatSource(source) {
+  if (source.type === "note") {
+    setHtmlPaneVisible(true);
+    elements.notePane?.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  if (source.type === "pdf" || source.type === "annotation") {
+    if (source.type === "annotation") setAnnotationSidebarCollapsed(false);
+    if (source.page) scrollToPdfPage(source.page, "smooth");
+  }
+}
+
+function handleChatSourceClick(event) {
+  const button = event.target.closest(".ask-source");
+  if (!button) return;
+  event.preventDefault();
+  activateChatSource({
+    type: normalizeText(button.dataset.sourceType) || "source",
+    page: Number(button.dataset.sourcePage) || null,
+    uri: decodeURIComponent(button.dataset.sourceUri || ""),
+    noteId: normalizeText(button.dataset.sourceNoteId)
+  });
+}
+
+
+function setReaderChatError(message = "") {
+  if (!elements.readerChatError) return;
+  elements.readerChatError.textContent = message;
+  elements.readerChatError.hidden = !message;
+}
+
+function setReaderChatPending(pending) {
+  readerState.chatPending = pending;
+  if (elements.readerChatInput) elements.readerChatInput.disabled = pending;
+  if (elements.sendReaderChat) {
+    elements.sendReaderChat.disabled = pending;
+    elements.sendReaderChat.textContent = pending ? "Sending" : "Send";
+  }
+}
+
+function setReaderChatProgress(progress) {
+  readerState.chatProgress = normalizeChatProgress(progress);
+  renderReaderChatMessages();
+}
+
+function clearReaderChatProgress() {
+  readerState.chatProgress = null;
+  readerState.chatProgressRequestId = "";
+  if (readerState.chatProgressTimer) {
+    clearInterval(readerState.chatProgressTimer);
+    readerState.chatProgressTimer = 0;
+  }
+}
+
+async function fetchReaderChatProgress(requestId) {
+  if (!requestId || readerState.chatProgressRequestId !== requestId) return;
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-progress?requestId=${encodeURIComponent(requestId)}&t=${Date.now()}`), {
+      cache: "no-store"
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || payload.status === "unknown") return;
+    setReaderChatProgress(payload);
+    if (payload.status === "complete" || payload.status === "failed") {
+      if (readerState.chatProgressTimer) {
+        clearInterval(readerState.chatProgressTimer);
+        readerState.chatProgressTimer = 0;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to read chat progress.", error);
+  }
+}
+
+function startReaderChatProgress(requestId) {
+  clearReaderChatProgress();
+  readerState.chatProgressRequestId = requestId;
+  setReaderChatProgress({
+    requestId,
+    status: "running",
+    stage: "sending",
+    detail: "Sending your question to Paper Notes Agent.",
+    events: [{ stage: "sending", detail: "Sending your question to Paper Notes Agent." }]
+  });
+  readerState.chatProgressTimer = window.setInterval(() => {
+    fetchReaderChatProgress(requestId);
+  }, 850);
+}
+
+function readerChatContext() {
+  const note = readerState.note;
+  const position = currentPdfScrollPosition();
+  return {
+    selectedNoteId: note?.id || "",
+    selectedNoteTitle: note?.title || "",
+    selectedCategoryName: readerState.library && note ? getCollectionPath(readerState.library, note.categoryId) : "",
+    currentPdfPage: position?.page || ""
+  };
+}
+
+function formatChatSessionTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function chatSessionMatchesQuery(session) {
+  const query = normalizeText(readerState.chatSessionQuery).toLowerCase();
+  if (!query) return true;
+  return [
+    session.title,
+    session.lastMessagePreview,
+    formatChatSessionTime(session.updatedAt)
+  ].some((value) => normalizeText(value).toLowerCase().includes(query));
+}
+
+function renderChatSessionControls() {
+  if (elements.exportChatSession) {
+    elements.exportChatSession.disabled = !readerState.chatSessionId || readerState.chatSessionTrashOpen;
+  }
+  if (elements.newChatSession) elements.newChatSession.disabled = readerState.chatSessionTrashOpen;
+  if (elements.toggleChatSessionTrash) {
+    elements.toggleChatSessionTrash.classList.toggle("is-active", readerState.chatSessionTrashOpen);
+    elements.toggleChatSessionTrash.textContent = readerState.chatSessionTrashOpen ? "Back" : "Trash";
+    elements.toggleChatSessionTrash.setAttribute("aria-pressed", String(readerState.chatSessionTrashOpen));
+  }
+  if (elements.chatSessionSearch && elements.chatSessionSearch.value !== readerState.chatSessionQuery) {
+    elements.chatSessionSearch.value = readerState.chatSessionQuery;
+  }
+  if (elements.chatSessionSearch) {
+    elements.chatSessionSearch.placeholder = readerState.chatSessionTrashOpen ? "Search trash" : "Search sessions";
+  }
+}
+
+function renderChatSessionList() {
+  if (!elements.chatSessionList) return;
+  elements.chatSessionList.innerHTML = "";
+  renderChatSessionControls();
+
+  if (readerState.chatSessionsLoading) {
+    elements.chatSessionList.innerHTML = `<p class="ask-session-empty">Loading sessions...</p>`;
+    return;
+  }
+
+  if (!readerState.chatSessions.length) {
+    elements.chatSessionList.innerHTML = `<p class="ask-session-empty">${readerState.chatSessionTrashOpen ? "Trash is empty" : "No sessions yet"}</p>`;
+    return;
+  }
+
+  const visibleSessions = readerState.chatSessions.filter(chatSessionMatchesQuery);
+  if (!visibleSessions.length) {
+    elements.chatSessionList.innerHTML = `<p class="ask-session-empty">${readerState.chatSessionTrashOpen ? "No matching trashed sessions" : "No matching sessions"}</p>`;
+    return;
+  }
+
+  visibleSessions.forEach((session) => {
+    const row = document.createElement("div");
+    row.className = "ask-session-row";
+    row.classList.toggle("is-trashed", readerState.chatSessionTrashOpen);
+    row.classList.toggle("is-active", session.id === readerState.chatSessionId);
+    row.classList.toggle("is-delete-confirming", session.id === readerState.confirmingDeleteSessionId);
+
+    if (session.id === readerState.renamingSessionId) {
+      const form = document.createElement("form");
+      form.className = "ask-session-rename-form";
+      form.innerHTML = `
+        <input type="text" maxlength="80" value="${escapeHtml(session.title || "New chat")}" aria-label="Session name">
+        <div class="ask-session-row-actions">
+          <button class="ask-session-mini ask-session-save" type="submit">Save</button>
+          <button class="ask-session-mini" type="button" data-cancel-rename>Cancel</button>
+        </div>
+      `;
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        renameReaderChatSession(session.id, form.querySelector("input")?.value);
+      });
+      form.querySelector("[data-cancel-rename]")?.addEventListener("click", () => {
+        readerState.renamingSessionId = "";
+        renderChatSessionList();
+      });
+      row.appendChild(form);
+      elements.chatSessionList.appendChild(row);
+      form.querySelector("input")?.focus();
+      form.querySelector("input")?.select();
+      return;
+    }
+
+    const sessionButton = document.createElement("button");
+    sessionButton.className = "ask-session-item";
+    sessionButton.type = "button";
+    sessionButton.dataset.sessionId = session.id;
+    sessionButton.disabled = readerState.chatSessionTrashOpen;
+    sessionButton.innerHTML = `
+      <span class="ask-session-title">${escapeHtml(session.title || "New chat")}</span>
+      <span class="ask-session-meta">${escapeHtml(readerState.chatSessionTrashOpen ? `Moved ${formatChatSessionTime(session.trashedAt || session.updatedAt)}` : formatChatSessionTime(session.updatedAt))}</span>
+    `;
+    if (!readerState.chatSessionTrashOpen) {
+      sessionButton.addEventListener("click", () => loadReaderChatSession(session.id));
+    }
+
+    const rowActions = document.createElement("div");
+    rowActions.className = "ask-session-row-actions";
+
+    if (readerState.chatSessionTrashOpen) {
+      const restoreButton = document.createElement("button");
+      restoreButton.className = "ask-session-mini ask-session-restore";
+      restoreButton.type = "button";
+      restoreButton.textContent = "Restore";
+      restoreButton.setAttribute("aria-label", `Restore ${session.title || "chat session"}`);
+      restoreButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        restoreReaderChatSession(session.id);
+      });
+
+      const permanentDeleteButton = document.createElement("button");
+      permanentDeleteButton.className = "ask-session-mini ask-session-delete";
+      permanentDeleteButton.type = "button";
+      permanentDeleteButton.textContent = session.id === readerState.confirmingDeleteSessionId ? "Confirm" : "Delete";
+      permanentDeleteButton.setAttribute("aria-label", `Permanently delete ${session.title || "chat session"}`);
+      permanentDeleteButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (readerState.confirmingDeleteSessionId === session.id) {
+          permanentlyDeleteReaderChatSession(session.id);
+          return;
+        }
+        readerState.confirmingDeleteSessionId = session.id;
+        readerState.renamingSessionId = "";
+        renderChatSessionList();
+      });
+
+      rowActions.append(restoreButton, permanentDeleteButton);
+      row.append(sessionButton, rowActions);
+      elements.chatSessionList.appendChild(row);
+      return;
+    }
+
+    const renameButton = document.createElement("button");
+    renameButton.className = "ask-session-mini";
+    renameButton.type = "button";
+    renameButton.textContent = "Rename";
+    renameButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      readerState.renamingSessionId = session.id;
+      readerState.confirmingDeleteSessionId = "";
+      renderChatSessionList();
+    });
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "ask-session-mini ask-session-delete";
+    deleteButton.type = "button";
+    deleteButton.textContent = session.id === readerState.confirmingDeleteSessionId ? "Move" : "Trash";
+    deleteButton.setAttribute("aria-label", `Move ${session.title || "chat session"} to Trash`);
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (readerState.confirmingDeleteSessionId === session.id) {
+        trashReaderChatSession(session.id);
+        return;
+      }
+      readerState.confirmingDeleteSessionId = session.id;
+      readerState.renamingSessionId = "";
+      renderChatSessionList();
+    });
+
+    rowActions.append(renameButton, deleteButton);
+    row.append(sessionButton, rowActions);
+    elements.chatSessionList.appendChild(row);
+  });
+}
+
+function setChatSessionMenuOpen(open) {
+  readerState.chatSessionMenuOpen = open;
+  if (elements.chatSessionPopover) elements.chatSessionPopover.hidden = !open;
+  elements.chatSessionMenuButton?.setAttribute("aria-expanded", String(open));
+  if (open) {
+    renderChatSessionList();
+    requestAnimationFrame(() => elements.chatSessionSearch?.focus());
+  } else {
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+  }
+}
+
+async function fetchReaderChatSessions({ silent = false } = {}) {
+  const noteId = currentChatNoteId();
+  if (!noteId) {
+    readerState.chatSessions = [];
+    renderChatSessionList();
+    return [];
+  }
+
+  if (!silent) {
+    readerState.chatSessionsLoading = true;
+    renderChatSessionList();
+  }
+
+  try {
+    const trashParam = readerState.chatSessionTrashOpen ? "&trashed=1" : "";
+    const response = await fetch(getApiUrl(`/api/chat-sessions?noteId=${encodeURIComponent(noteId)}${trashParam}&t=${Date.now()}`), {
+      cache: "no-store"
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error || `Could not load sessions (${response.status})`);
+    readerState.chatSessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+    return readerState.chatSessions;
+  } catch (error) {
+    console.warn("Failed to load chat sessions.", error);
+    if (!silent) setReaderChatError(error.message || "Could not load chat sessions.");
+    readerState.chatSessions = [];
+    return [];
+  } finally {
+    readerState.chatSessionsLoading = false;
+    renderChatSessionList();
+  }
+}
+
+function clearCurrentReaderChatSession() {
+  readerState.chatMessages = [];
+  setCurrentChatSessionId("");
+  renderReaderChatMessages();
+  setReaderChatError("");
+}
+
+async function loadReaderChatSession(sessionId, { closeMenu = true, refreshList = false } = {}) {
+  const nextSessionId = normalizeText(sessionId);
+  if (!nextSessionId) {
+    clearCurrentReaderChatSession();
+    return;
+  }
+
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-sessions/${encodeURIComponent(nextSessionId)}?t=${Date.now()}`), {
+      cache: "no-store"
+    });
+    const session = await response.json().catch(() => null);
+    if (!response.ok || !session?.id) throw new Error(`Could not load session (${response.status})`);
+    setCurrentChatSessionId(session.id);
+    readerState.chatMessages = Array.isArray(session.messages) ? session.messages.map(normalizeChatMessage) : [];
+    setReaderChatError("");
+    renderReaderChatMessages();
+    if (closeMenu) setChatSessionMenuOpen(false);
+    if (refreshList) await fetchReaderChatSessions({ silent: true });
+  } catch (error) {
+    console.warn("Failed to load chat session.", error);
+    setReaderChatError(error.message || "Could not load chat session.");
+  }
+}
+
+async function createReaderChatSession() {
+  const noteId = currentChatNoteId();
+  if (!noteId) return;
+  try {
+    readerState.chatSessionTrashOpen = false;
+    const response = await fetch(getApiUrl("/api/chat-sessions"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ noteId })
+    });
+    const session = await response.json().catch(() => null);
+    if (!response.ok || !session?.id) throw new Error(`Could not create session (${response.status})`);
+    setCurrentChatSessionId(session.id);
+    readerState.chatMessages = [];
+    readerState.chatSessionQuery = "";
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    setReaderChatError("");
+    renderReaderChatMessages();
+    await fetchReaderChatSessions({ silent: true });
+    setChatSessionMenuOpen(false);
+    elements.readerChatInput?.focus();
+  } catch (error) {
+    console.warn("Failed to create chat session.", error);
+    setReaderChatError(error.message || "Could not create chat session.");
+  }
+}
+
+async function renameReaderChatSession(sessionId, title) {
+  const nextTitle = normalizeText(title);
+  if (!sessionId || !nextTitle) return;
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-sessions/${encodeURIComponent(sessionId)}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: nextTitle })
+    });
+    const session = await response.json().catch(() => null);
+    if (!response.ok || !session?.id) throw new Error(`Could not rename session (${response.status})`);
+    readerState.renamingSessionId = "";
+    readerState.confirmingDeleteSessionId = "";
+    await fetchReaderChatSessions({ silent: true });
+    renderChatSessionList();
+  } catch (error) {
+    console.warn("Failed to rename chat session.", error);
+    setReaderChatError(error.message || "Could not rename chat session.");
+  }
+}
+
+function exportCurrentReaderChatSession() {
+  const sessionId = getChatSessionId();
+  if (!sessionId) return;
+  const link = document.createElement("a");
+  link.href = getApiUrl(`/api/chat-sessions/${encodeURIComponent(sessionId)}/export`);
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setChatSessionMenuOpen(false);
+}
+
+async function trashReaderChatSession(sessionId) {
+  const deletingCurrentSession = sessionId === readerState.chatSessionId;
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-sessions/${encodeURIComponent(sessionId)}`), {
+      method: "DELETE"
+    });
+    if (!response.ok) throw new Error(`Could not move session to Trash (${response.status})`);
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    const sessions = await fetchReaderChatSessions({ silent: true });
+    if (deletingCurrentSession) {
+      if (sessions[0]?.id) {
+        await loadReaderChatSession(sessions[0].id, { closeMenu: false });
+      } else {
+        clearCurrentReaderChatSession();
+      }
+    }
+    renderChatSessionList();
+  } catch (error) {
+    console.warn("Failed to move chat session to Trash.", error);
+    setReaderChatError(error.message || "Could not move chat session to Trash.");
+  }
+}
+
+async function restoreReaderChatSession(sessionId) {
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-sessions/${encodeURIComponent(sessionId)}/restore`), {
+      method: "POST"
+    });
+    const session = await response.json().catch(() => null);
+    if (!response.ok || !session?.id) throw new Error(`Could not restore session (${response.status})`);
+    readerState.chatSessionTrashOpen = false;
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    await fetchReaderChatSessions({ silent: true });
+    await loadReaderChatSession(session.id, { closeMenu: false });
+    renderChatSessionList();
+  } catch (error) {
+    console.warn("Failed to restore chat session.", error);
+    setReaderChatError(error.message || "Could not restore chat session.");
+  }
+}
+
+async function permanentlyDeleteReaderChatSession(sessionId) {
+  try {
+    const response = await fetch(getApiUrl(`/api/chat-sessions/${encodeURIComponent(sessionId)}/permanent`), {
+      method: "DELETE"
+    });
+    if (!response.ok) throw new Error(`Could not permanently delete session (${response.status})`);
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    await fetchReaderChatSessions({ silent: true });
+    renderChatSessionList();
+  } catch (error) {
+    console.warn("Failed to permanently delete chat session.", error);
+    setReaderChatError(error.message || "Could not permanently delete chat session.");
+  }
+}
+
+async function initializeReaderChatSessions() {
+  const sessions = await fetchReaderChatSessions({ silent: true });
+  const latestSession = sessions[0];
+  if (latestSession?.id) {
+    await loadReaderChatSession(latestSession.id, { closeMenu: false });
+  } else {
+    clearCurrentReaderChatSession();
+  }
+}
+
+async function sendReaderChatMessage() {
+  const text = normalizeText(elements.readerChatInput?.value);
+  if (!text || readerState.chatPending) return;
+  const requestId = createRequestId();
+
+  elements.readerChatInput.value = "";
+  setReaderChatError("");
+  readerState.chatMessages.push({ role: "user", text });
+  renderReaderChatMessages();
+  setReaderChatPending(true);
+  startReaderChatProgress(requestId);
+
+  let payload = null;
+  try {
+    const response = await fetch(getApiUrl("/api/chat"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId,
+        message: text,
+        sessionId: getChatSessionId(),
+        context: readerChatContext()
+      })
+    });
+    payload = await response.json().catch(() => null);
+
+    if (payload?.sessionId) {
+      setCurrentChatSessionId(payload.sessionId);
+    }
+
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || `Agent request failed (${response.status})`);
+    }
+
+    readerState.chatMessages.push({
+      role: "assistant",
+      text: normalizeText(payload.answer) || "No answer returned.",
+      sources: normalizeChatSources(payload.sources),
+      noteEdit: normalizeNoteEditDraft(payload.noteEdit)
+    });
+    void fetchReaderChatSessions({ silent: true });
+  } catch (error) {
+    if (payload?.sessionId) setCurrentChatSessionId(payload.sessionId);
+    setReaderChatError(error.message || "Could not reach Paper Notes Agent.");
+    readerState.chatMessages.push({
+      role: "assistant",
+      text: "I could not reach the agent. Check that the local server is running and AWS SSO is logged in.",
+      error: true
+    });
+    void fetchReaderChatSessions({ silent: true });
+  } finally {
+    clearReaderChatProgress();
+    renderReaderChatMessages();
+    setReaderChatPending(false);
+    elements.readerChatInput?.focus();
+  }
+}
+
+function initializeReaderChat() {
+  renderReaderChatMessages();
+  elements.readerChatForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendReaderChatMessage();
+  });
+  elements.readerChatMessages?.addEventListener("click", handleChatSourceClick);
+  elements.readerChatMessages?.addEventListener("click", handleNoteEditDraftClick);
+  elements.chatSessionMenuButton?.addEventListener("click", () => {
+    setChatSessionMenuOpen(!readerState.chatSessionMenuOpen);
+  });
+  elements.newChatSession?.addEventListener("click", createReaderChatSession);
+  elements.exportChatSession?.addEventListener("click", exportCurrentReaderChatSession);
+  elements.toggleChatSessionTrash?.addEventListener("click", async () => {
+    readerState.chatSessionTrashOpen = !readerState.chatSessionTrashOpen;
+    readerState.chatSessionQuery = "";
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    await fetchReaderChatSessions({ silent: false });
+  });
+  elements.chatSessionSearch?.addEventListener("input", (event) => {
+    readerState.chatSessionQuery = event.target.value;
+    readerState.confirmingDeleteSessionId = "";
+    renderChatSessionList();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!readerState.chatSessionMenuOpen) return;
+    if (elements.chatSessionPopover?.contains(event.target) || elements.chatSessionMenuButton?.contains(event.target)) return;
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
+    setChatSessionMenuOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && readerState.chatSessionMenuOpen) setChatSessionMenuOpen(false);
   });
 }
 
@@ -320,21 +1393,74 @@ function readSplitPercent() {
   return clamp(value, 25, 75);
 }
 
+function readerDividerWidth() {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--reader-resizer-width"));
+  return Number.isFinite(value) ? value : 10;
+}
+
+function visibleAskPaneWidth() {
+  if (!elements.askPane || elements.layout?.classList.contains("is-ask-pane-hidden")) return 0;
+  return elements.askPane.getBoundingClientRect().width || 360;
+}
+
+function visibleAskDividerWidth() {
+  if (!elements.askResizer || elements.layout?.classList.contains("is-ask-pane-hidden")) return 0;
+  return readerDividerWidth();
+}
+
+function maxSplitPercentForLayout() {
+  const rect = elements.layout?.getBoundingClientRect();
+  if (!rect?.width || elements.layout?.classList.contains("is-html-pane-hidden")) return 75;
+  const reservedWidth = splitState.minNoteWidth + visibleAskPaneWidth() + readerDividerWidth() + visibleAskDividerWidth();
+  return clamp(((rect.width - reservedWidth) / rect.width) * 100, 25, 75);
+}
+
 function setSplitPercent(percent) {
-  const nextPercent = clamp(percent, 25, 75);
+  const nextPercent = clamp(percent, 25, maxSplitPercentForLayout());
   document.documentElement.style.setProperty("--pdf-pane-width", `${nextPercent}%`);
   localStorage.setItem(READER_SPLIT_KEY, String(nextPercent));
 }
 
 function updateSplitFromClientX(clientX) {
   const rect = elements.layout.getBoundingClientRect();
-  const maxPdfWidth = rect.width - splitState.minNoteWidth - 10;
+  const maxPdfWidth = rect.width - splitState.minNoteWidth - visibleAskPaneWidth() - readerDividerWidth() - visibleAskDividerWidth();
   const pdfWidth = clamp(clientX - rect.left, splitState.minPdfWidth, maxPdfWidth);
   setSplitPercent((pdfWidth / rect.width) * 100);
 }
 
+function readAskWidth() {
+  const value = Number(localStorage.getItem(ASK_WIDTH_KEY));
+  return Number.isFinite(value) ? value : 360;
+}
+
+function maxAskWidthForLayout() {
+  const rect = elements.layout?.getBoundingClientRect();
+  if (!rect?.width) return 560;
+  const dividerWidth = readerDividerWidth();
+  const htmlHidden = elements.layout?.classList.contains("is-html-pane-hidden");
+  if (htmlHidden) {
+    return Math.max(splitState.minAskWidth, rect.width - splitState.minPdfWidth - dividerWidth);
+  }
+
+  const pdfWidth = elements.pdfViewer?.closest(".pdf-pane")?.getBoundingClientRect().width
+    || (rect.width * readSplitPercent()) / 100;
+  return Math.max(splitState.minAskWidth, rect.width - pdfWidth - splitState.minNoteWidth - (dividerWidth * 2));
+}
+
+function setAskWidth(width) {
+  const nextWidth = Math.round(clamp(width, splitState.minAskWidth, maxAskWidthForLayout()));
+  document.documentElement.style.setProperty("--ask-pane-width", `${nextWidth}px`);
+  localStorage.setItem(ASK_WIDTH_KEY, String(nextWidth));
+}
+
+function updateAskWidthFromClientX(clientX) {
+  const rect = elements.layout.getBoundingClientRect();
+  setAskWidth(rect.right - clientX);
+}
+
 function initializeResizer() {
   setSplitPercent(readSplitPercent());
+  setAskWidth(readAskWidth());
   if (!elements.resizer) return;
 
   elements.resizer.addEventListener("pointerdown", (event) => {
@@ -361,6 +1487,36 @@ function initializeResizer() {
     event.preventDefault();
     const delta = event.key === "ArrowLeft" ? -2 : 2;
     setSplitPercent(readSplitPercent() + delta);
+  });
+
+  if (!elements.askResizer) return;
+
+  elements.askResizer.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    if (elements.layout?.classList.contains("is-ask-pane-hidden")) return;
+    splitState.askDragging = true;
+    elements.askResizer.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-resizing-reader");
+    updateAskWidthFromClientX(event.clientX);
+  });
+
+  elements.askResizer.addEventListener("pointermove", (event) => {
+    if (!splitState.askDragging) return;
+    updateAskWidthFromClientX(event.clientX);
+  });
+
+  elements.askResizer.addEventListener("pointerup", (event) => {
+    splitState.askDragging = false;
+    elements.askResizer.releasePointerCapture(event.pointerId);
+    document.body.classList.remove("is-resizing-reader");
+  });
+
+  elements.askResizer.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" ? 24 : -24;
+    setAskWidth(readAskWidth() + delta);
+    setSplitPercent(readSplitPercent());
   });
 }
 
@@ -701,13 +1857,20 @@ function initializeNoteScrollPersistence() {
 }
 
 function setPdfMode(mode) {
-  pdfState.mode = mode;
-  elements.pdfViewer?.classList.toggle("is-annotating", mode !== "pan");
-  elements.pdfViewer?.classList.toggle("is-text-annotating", ["highlight", "underline"].includes(mode));
-  elements.pdfViewer?.classList.toggle("is-note-annotating", mode === "note");
+  const nextMode = ["highlight", "underline", "note"].includes(mode) ? mode : "pan";
+  pdfState.mode = nextMode;
+  elements.pdfViewer?.classList.toggle("is-annotating", nextMode !== "pan");
+  elements.pdfViewer?.classList.toggle("is-text-annotating", ["highlight", "underline"].includes(nextMode));
+  elements.pdfViewer?.classList.toggle("is-note-annotating", nextMode === "note");
   elements.modeButtons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.pdfMode === mode);
+    const active = button.dataset.pdfMode === nextMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+}
+
+function togglePdfMode(mode) {
+  setPdfMode(pdfState.mode === mode ? "pan" : mode);
 }
 
 function setPdfColor(color) {
@@ -2064,7 +3227,7 @@ function initializePdfTools() {
     button.style.setProperty("--swatch", color.hex);
   });
   elements.modeButtons.forEach((button) => {
-    button.addEventListener("click", () => setPdfMode(button.dataset.pdfMode || "pan"));
+    button.addEventListener("click", () => togglePdfMode(button.dataset.pdfMode || "pan"));
   });
   elements.colorButtons.forEach((button) => {
     button.addEventListener("click", () => setPdfColor(button.dataset.pdfColor || "yellow"));
@@ -2143,6 +3306,8 @@ async function fetchGeneratedNoteBody(note) {
 }
 
 async function renderReader(library, note) {
+  readerState.library = library;
+  readerState.note = note;
   const collectionPath = getCollectionPath(library, note.categoryId);
   const notePositionToRestore = storedNoteScrollPosition(note.id);
   const storedFile = await readPaperFile(note.pdfStorageKey || note.id).catch((error) => {
@@ -2154,6 +3319,8 @@ async function renderReader(library, note) {
 
   elements.title.textContent = note.title;
   elements.kicker.textContent = collectionPath;
+  renderRagSyncStatus(note);
+  await initializeReaderChatSessions();
   await loadPdf(pdfHref, note.id);
   pdfState.suppressNoteScrollSave = true;
   elements.notePage.innerHTML = generatedNoteBody || `
@@ -2185,6 +3352,9 @@ async function initialize() {
   initializeResizer();
   initializeAnnotationSidebar();
   initializeHtmlPaneToggle();
+  initializeAskPaneToggle();
+  initializeRagSync();
+  initializeReaderChat();
   initializeHtmlZoom();
   initializePdfTools();
   initializePdfScrollPersistence();

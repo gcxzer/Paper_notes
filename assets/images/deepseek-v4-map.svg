@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeek-V4 note map</title>
+  <desc id="desc">Research-note style map of the DeepSeek-V4 paper argument.</desc>
+  <style>
+    .bg{fill:#fffdf8}.ink{fill:#23211d}.muted{fill:#6d655b}.card{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.warn{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:14}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.thin{stroke:#9a8f80;stroke-width:2;fill:none;stroke-dasharray:7 7}.k{font-size:17px;font-weight:800}.m{font-size:15px}.h{font-size:30px;font-weight:850}.q{font-size:15px;fill:#7a5a20}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker></defs>
+  <rect class="bg" width="1280" height="760"/>
+  <text class="h ink" x="54" y="64">DeepSeek-V4 论文笔记总图</text>
+  <text class="m muted" x="54" y="96">主线不是“大上下文窗口”，而是：长上下文成本曲线、训练稳定性、后训练合并、真实任务成本一起闭环。</text>
+
+  <rect class="warn" x="54" y="150" width="250" height="118"/><text class="k ink" x="80" y="187">起点：test-time scaling</text><text class="m muted" x="80" y="218">推理 token / 工具轨迹变长</text><text class="m muted" x="80" y="242">vanilla attention 成本爆炸</text>
+  <path class="line" d="M304 209 H385"/>
+
+  <rect class="hot" x="385" y="128" width="300" height="164"/><text class="k ink" x="415" y="166">2. Architecture</text><text class="m muted" x="415" y="198">CSA：压缩后 top-k 检索</text><text class="m muted" x="415" y="223">HCA：更粗的全局摘要</text><text class="m muted" x="415" y="248">mHC：残差多路混合但守恒</text><text class="m muted" x="415" y="273">Muon：大矩阵更新更稳</text>
+  <path class="line" d="M685 210 H772"/>
+
+  <rect class="card" x="772" y="128" width="350" height="164"/><text class="k ink" x="802" y="166">3. Infrastructure</text><text class="m muted" x="802" y="198">EP overlap：通信藏进计算</text><text class="m muted" x="802" y="223">TileLang / deterministic kernels</text><text class="m muted" x="802" y="248">FP4 QAT / contextual parallelism</text><text class="m muted" x="802" y="273">KV cache layout / on-disk cache</text>
+
+  <path class="line" d="M535 292 C510 355 455 389 395 420"/>
+  <rect class="card" x="185" y="420" width="330" height="142"/><text class="k ink" x="215" y="458">4. Pre-Training</text><text class="m muted" x="215" y="490">32T+ tokens；长序列 packing</text><text class="m muted" x="215" y="515">Flash / Pro 两套容量配置</text><text class="m muted" x="215" y="540">Anticipatory Routing 处理 spike</text>
+
+  <path class="line" d="M948 292 C900 365 846 394 785 420"/>
+  <rect class="card" x="690" y="420" width="350" height="142"/><text class="k ink" x="720" y="458">5. Post-Training</text><text class="m muted" x="720" y="490">Specialists：math / code / agent / IF</text><text class="m muted" x="720" y="515">OPD：student 轨迹上学 teacher 分布</text><text class="m muted" x="720" y="540">Sandbox / rollout / teacher scheduling</text>
+
+  <path class="line" d="M515 500 H690"/>
+  <rect class="hot" x="390" y="630" width="500" height="72"/><text class="k ink" x="420" y="674">5.3 / 5.4 / Appendix B：能力 + 成本 + 边界</text>
+  <path class="line" d="M350 562 C402 605 475 626 540 630"/><path class="line" d="M865 562 C822 604 742 626 660 630"/>
+  <line class="thin" x1="1125" y1="155" x2="1165" y2="260"/><text class="q" x="1138" y="286">读表时盯住：</text><text class="q" x="1138" y="310">相对基线、推理预算、</text><text class="q" x="1138" y="334">内部评测和真实成本</text>
+</svg>

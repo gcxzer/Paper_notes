@@ -2,6 +2,7 @@ const STORAGE_KEY = "paper-notes-library-v14";
 const EXPANDED_KEY = "paper-notes-expanded-v1";
 const LAYOUT_KEY = "paper-notes-layout-v1";
 const SORT_KEY = "paper-notes-sort-v1";
+const CHAT_SESSION_KEY = "paper-notes-agent-session-v1";
 const FILE_DB_NAME = "paper-notes-files-v1";
 const FILE_STORE_NAME = "paper-files";
 const ALL_CATEGORY_ID = "all";
@@ -39,7 +40,11 @@ const state = {
     sidebar: 320,
     details: 320
   },
-  dataSource: "default"
+  dataSource: "default",
+  chatSessionId: localStorage.getItem(CHAT_SESSION_KEY) || "",
+  chatMessages: [],
+  chatPending: false,
+  ragSyncPendingNoteId: ""
 };
 
 const summarySaveTimers = new Map();
@@ -63,6 +68,7 @@ const elements = {
   contentKicker: document.querySelector("#contentKicker"),
   addPdfButton: document.querySelector("#addPdfButton"),
   pdfInput: document.querySelector("#pdfInput"),
+  askAgentButton: document.querySelector("#askAgentButton"),
   sortButton: document.querySelector("#sortButton"),
   sortMenu: document.querySelector("#sortMenu"),
   contextMenu: document.querySelector("#contextMenu"),
@@ -86,6 +92,17 @@ const elements = {
   renameNoteError: document.querySelector("#renameNoteError"),
   closeRenameNoteDialog: document.querySelector("#closeRenameNoteDialog"),
   cancelRenameNoteDialog: document.querySelector("#cancelRenameNoteDialog"),
+  chatDialog: document.querySelector("#chatDialog"),
+  chatForm: document.querySelector("#chatForm"),
+  chatMessages: document.querySelector("#chatMessages"),
+  chatInput: document.querySelector("#chatInput"),
+  chatError: document.querySelector("#chatError"),
+  sendChatButton: document.querySelector("#sendChatButton"),
+  clearChatButton: document.querySelector("#clearChatButton"),
+  closeChatDialog: document.querySelector("#closeChatDialog"),
+  settingsButton: document.querySelector("#settingsButton"),
+  settingsMenu: document.querySelector("#settingsMenu"),
+  settingsSyncRagButton: document.querySelector("#settingsSyncRagButton"),
   messageDialog: document.querySelector("#messageDialog"),
   messageDialogEyebrow: document.querySelector("#messageDialogEyebrow"),
   messageDialogTitle: document.querySelector("#messageDialogTitle"),
@@ -100,6 +117,14 @@ function cloneLibrary(library) {
 
 function uniqueId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getChatSessionId() {
+  if (!state.chatSessionId) {
+    state.chatSessionId = crypto.randomUUID();
+    localStorage.setItem(CHAT_SESSION_KEY, state.chatSessionId);
+  }
+  return state.chatSessionId;
 }
 
 function normalizeText(value) {
@@ -236,6 +261,16 @@ function sanitizeLibrary(rawLibrary) {
       href: normalizeResourceHref(note.href) || "index.html",
       htmlHref: normalizeResourceHref(note.htmlHref),
       pdfStorageKey: normalizeText(note.pdfStorageKey),
+      pdfS3Key: normalizeText(note.pdfS3Key),
+      noteS3Key: normalizeText(note.noteS3Key),
+      annotationS3Key: normalizeText(note.annotationS3Key),
+      kbPaperS3Key: normalizeText(note.kbPaperS3Key),
+      kbNoteS3Key: normalizeText(note.kbNoteS3Key),
+      kbAnnotationsS3Key: normalizeText(note.kbAnnotationsS3Key),
+      kbMetadataS3Key: normalizeText(note.kbMetadataS3Key),
+      kbSyncStatus: normalizeText(note.kbSyncStatus),
+      kbIngestionJobId: normalizeText(note.kbIngestionJobId),
+      kbSyncError: normalizeText(note.kbSyncError),
       date: normalizeText(note.date) || "",
       order: Number.isFinite(Number(note.order)) ? Number(note.order) : index,
       categoryId: leafIds.has(requestedCategoryId) ? requestedCategoryId : UNCATEGORIZED_ID,
@@ -423,6 +458,25 @@ function getSortLabel() {
   if (state.sortMode === "date-asc") return "Oldest";
   if (state.sortMode === "title-asc") return "Title";
   return "Newest";
+}
+
+function getKnowledgeBaseStatus(note) {
+  if (!note.kbSyncStatus) return "";
+  const parts = [`KB sync: ${note.kbSyncStatus}`];
+  if (note.kbIngestionJobId) parts.push(`job ${note.kbIngestionJobId}`);
+  if (note.kbSyncError) parts.push(note.kbSyncError);
+  return parts.join(" · ");
+}
+
+function getKnowledgeBaseStatusLabel(note) {
+  if (state.ragSyncPendingNoteId === note.id) return "Syncing";
+  const status = normalizeText(note.kbSyncStatus).toUpperCase();
+  if (!status) return "Not synced";
+  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(status)) return "Syncing";
+  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(status)) return "Indexed";
+  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(status)) return "Failed";
+  if (status === "DISABLED") return "Disabled";
+  return note.kbSyncStatus;
 }
 
 function getTodayLabel() {
@@ -620,6 +674,7 @@ function renderNotes() {
 
 function renderDetails() {
   const note = getNoteById(state.selectedNoteId);
+  renderSettingsSyncButton();
   if (!note) {
     elements.detailsPanel.hidden = true;
     elements.rightResizer.hidden = true;
@@ -628,6 +683,7 @@ function renderDetails() {
   }
 
   const allAssignable = getAssignableCategories();
+  const kbStatus = getKnowledgeBaseStatus(note);
   elements.detailsPanel.hidden = false;
   elements.rightResizer.hidden = false;
   elements.detailsCard.innerHTML = `
@@ -644,6 +700,12 @@ function renderDetails() {
         <button class="toolbar-button toolbar-button-danger" type="button" data-delete-note-id="${note.id}">Delete</button>
       </div>
     </div>
+    ${kbStatus ? `
+      <div class="details-row">
+        <strong>Knowledge Base</strong>
+        <span>${escapeHtml(kbStatus)}</span>
+      </div>
+    ` : ""}
     <div class="details-row">
       <strong>Summary</strong>
       <textarea class="details-summary-input" data-summary-note-id="${note.id}" rows="6" placeholder="Write a short summary...">${escapeHtml(note.summary)}</textarea>
@@ -657,6 +719,58 @@ function renderDetails() {
       </select>
     </div>
   `;
+}
+
+function renderSettingsSyncButton() {
+  if (!elements.settingsSyncRagButton) return;
+  const note = getNoteById(state.selectedNoteId);
+  const isSyncing = note?.id && state.ragSyncPendingNoteId === note.id;
+  elements.settingsSyncRagButton.disabled = !note || Boolean(isSyncing);
+  elements.settingsSyncRagButton.textContent = isSyncing ? "Syncing" : "Sync RAG";
+  elements.settingsSyncRagButton.title = note
+    ? `Current RAG status: ${getKnowledgeBaseStatusLabel(note)}. Sync ${note.title}.`
+    : "Select a paper before syncing RAG.";
+}
+
+function updateNoteFromServer(nextNote) {
+  if (!nextNote?.id) return;
+  const index = state.library.notes.findIndex((note) => note.id === nextNote.id);
+  if (index < 0) return;
+  state.library.notes[index] = sanitizeLibrary({
+    ...state.library,
+    notes: [{ ...state.library.notes[index], ...nextNote }]
+  }).notes[0];
+  saveLibraryToStorage();
+}
+
+async function syncNoteRag(noteId) {
+  if (!noteId || state.ragSyncPendingNoteId) return;
+  const note = getNoteById(noteId);
+  if (!note) return;
+
+  state.ragSyncPendingNoteId = noteId;
+  renderDetails();
+  try {
+    const response = await fetch(getApiUrl("/api/sync-note-rag"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ noteId })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.id) {
+      throw new Error(payload?.error || `RAG sync failed (${response.status})`);
+    }
+    updateNoteFromServer(payload);
+  } catch (error) {
+    updateNoteFromServer({
+      ...note,
+      kbSyncStatus: "FAILED",
+      kbSyncError: error.message || "RAG sync failed."
+    });
+  } finally {
+    state.ragSyncPendingNoteId = "";
+    renderApp();
+  }
 }
 
 function renderApp() {
@@ -738,6 +852,116 @@ function showMessageDialog({ eyebrow = "Notice", title = "Message", body = "" })
 
 function closeMessageDialog() {
   elements.messageDialog.close();
+}
+
+function renderChatMessages() {
+  if (!elements.chatMessages) return;
+  if (!state.chatMessages.length) {
+    elements.chatMessages.innerHTML = `
+      <div class="chat-empty">
+        <strong>Paper Notes Agent</strong>
+        <span>DeepSeek V4 的核心主线是什么？</span>
+      </div>
+    `;
+    return;
+  }
+
+  elements.chatMessages.innerHTML = state.chatMessages.map((message) => `
+    <div class="chat-message chat-message-${message.role}">
+      <div class="chat-bubble">${escapeHtml(message.text).replace(/\n/g, "<br>")}</div>
+    </div>
+  `).join("");
+  elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+}
+
+function setChatError(message = "") {
+  elements.chatError.textContent = message;
+  elements.chatError.hidden = !message;
+}
+
+function setChatPending(pending) {
+  state.chatPending = pending;
+  elements.sendChatButton.disabled = pending;
+  elements.chatInput.disabled = pending;
+  elements.sendChatButton.textContent = pending ? "Sending" : "Send";
+}
+
+function openChatDialog() {
+  renderChatMessages();
+  setChatError("");
+  elements.chatDialog.showModal();
+  elements.chatInput.focus();
+}
+
+function closeChatDialog() {
+  elements.chatDialog.close();
+}
+
+function clearChat() {
+  state.chatMessages = [];
+  state.chatSessionId = crypto.randomUUID();
+  localStorage.setItem(CHAT_SESSION_KEY, state.chatSessionId);
+  renderChatMessages();
+  setChatError("");
+}
+
+function getChatContext() {
+  const note = getNoteById(state.selectedNoteId);
+  const category = getSelectedCategory();
+  return {
+    selectedNoteId: note?.id || "",
+    selectedNoteTitle: note?.title || "",
+    selectedCategoryName: category?.name || ""
+  };
+}
+
+async function sendChatMessage() {
+  const text = normalizeText(elements.chatInput.value);
+  if (!text || state.chatPending) return;
+
+  elements.chatInput.value = "";
+  setChatError("");
+  state.chatMessages.push({ role: "user", text });
+  renderChatMessages();
+  setChatPending(true);
+
+  try {
+    const response = await fetch(getApiUrl("/api/chat"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        sessionId: getChatSessionId(),
+        context: getChatContext()
+      })
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || `Agent request failed (${response.status})`);
+    }
+
+    if (payload.sessionId) {
+      state.chatSessionId = payload.sessionId;
+      localStorage.setItem(CHAT_SESSION_KEY, payload.sessionId);
+    }
+
+    state.chatMessages.push({
+      role: "assistant",
+      text: normalizeText(payload.answer) || "No answer returned."
+    });
+    renderChatMessages();
+  } catch (error) {
+    setChatError(error.message || "Could not reach Paper Notes Agent.");
+    state.chatMessages.push({
+      role: "assistant",
+      text: "I could not reach the agent. Check that the local server is running and AWS SSO is logged in."
+    });
+    renderChatMessages();
+  } finally {
+    setChatPending(false);
+    elements.chatInput.focus();
+  }
 }
 
 function openRenameNoteDialog(noteId) {
@@ -995,6 +1219,19 @@ function closeContextMenu() {
   elements.contextMenu.innerHTML = "";
 }
 
+function closeSettingsMenu() {
+  if (!elements.settingsMenu || !elements.settingsButton) return;
+  elements.settingsMenu.hidden = true;
+  elements.settingsButton.setAttribute("aria-expanded", "false");
+}
+
+function toggleSettingsMenu() {
+  if (!elements.settingsMenu || !elements.settingsButton) return;
+  const nextOpen = elements.settingsMenu.hidden;
+  elements.settingsMenu.hidden = !nextOpen;
+  elements.settingsButton.setAttribute("aria-expanded", String(nextOpen));
+}
+
 function openContextMenu(categoryId, anchor) {
   const category = getCategoryById(categoryId);
   if (!category) return;
@@ -1197,6 +1434,9 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".context-menu") && !event.target.closest("[data-menu-category-id]")) {
     closeContextMenu();
   }
+  if (!event.target.closest(".settings-control")) {
+    closeSettingsMenu();
+  }
   if (!event.target.closest(".sort-control")) {
     elements.sortMenu.hidden = true;
     elements.sortButton.setAttribute("aria-expanded", "false");
@@ -1217,6 +1457,27 @@ elements.newCategoryButton.addEventListener("click", () => {
 
 elements.addPdfButton.addEventListener("click", () => {
   elements.pdfInput.click();
+});
+
+elements.settingsButton.addEventListener("click", toggleSettingsMenu);
+elements.settingsMenu.addEventListener("click", (event) => {
+  const syncButton = event.target.closest("#settingsSyncRagButton");
+  if (syncButton) {
+    event.preventDefault();
+    syncNoteRag(state.selectedNoteId);
+    closeSettingsMenu();
+    return;
+  }
+
+  if (event.target.closest("[data-theme-option]")) closeSettingsMenu();
+});
+
+elements.askAgentButton?.addEventListener("click", openChatDialog);
+elements.closeChatDialog.addEventListener("click", closeChatDialog);
+elements.clearChatButton.addEventListener("click", clearChat);
+elements.chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await sendChatMessage();
 });
 
 elements.pdfInput.addEventListener("change", async (event) => {

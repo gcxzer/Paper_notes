@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Infrastructure note diagram</title>
+  <desc id="desc">Infrastructure map organized by bottleneck and mechanism.</desc>
+  <style>
+    .bg{fill:#fffdf8}.card{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.warn{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:14}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:850}.m{font-size:15px}.tiny{font-size:13px}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker></defs>
+  <rect class="bg" width="1280" height="760"/>
+  <text class="h ink" x="54" y="64">3. Infrastructure：每个系统组件对应一个瓶颈</text>
+  <text class="m muted" x="54" y="96">读这一章不要按工具名背，按“瓶颈 → 机制 → 收益”记录。</text>
+
+  <rect class="warn" x="85" y="160" width="250" height="120"/><text class="k ink" x="115" y="198">MoE 通信</text><text class="m muted" x="115" y="228">Dispatch / Combine 跨节点</text><text class="m muted" x="115" y="252">带宽和延迟可能卡吞吐</text>
+  <path class="line" d="M335 220 H430"/><rect class="hot" x="430" y="160" width="260" height="120"/><text class="k ink" x="460" y="198">EP overlap</text><text class="m muted" x="460" y="228">通信藏进 GEMM / activation</text><text class="m muted" x="460" y="252">mega-kernel 流水线</text>
+
+  <rect class="warn" x="85" y="330" width="250" height="120"/><text class="k ink" x="115" y="368">Kernel 迭代慢</text><text class="m muted" x="115" y="398">CSA/HCA、FP4、MoE 都特化</text><text class="m muted" x="115" y="422">手写 CUDA 成本高</text>
+  <path class="line" d="M335 390 H430"/><rect class="hot" x="430" y="330" width="260" height="120"/><text class="k ink" x="460" y="368">TileLang</text><text class="m muted" x="460" y="398">表达 layout / rounding / lowering</text><text class="m muted" x="460" y="422">性能和数值语义一起管</text>
+
+  <rect class="warn" x="85" y="500" width="250" height="120"/><text class="k ink" x="115" y="538">异常不可复现</text><text class="m muted" x="115" y="568">atomicAdd / split-k 改累加顺序</text><text class="m muted" x="115" y="592">loss spike 难定位</text>
+  <path class="line" d="M335 560 H430"/><rect class="hot" x="430" y="500" width="260" height="120"/><text class="k ink" x="460" y="538">Deterministic kernels</text><text class="m muted" x="460" y="568">batch-invariant / bitwise aligned</text><text class="m muted" x="460" y="592">训练和推理行为可对齐</text>
+
+  <rect class="card" x="790" y="160" width="340" height="120"/><text class="k ink" x="820" y="198">FP4 QAT</text><text class="m muted" x="820" y="228">routed experts 降存储和带宽</text><text class="m muted" x="820" y="252">后训练 rollout / teacher forward 也受益</text>
+  <rect class="card" x="790" y="330" width="340" height="120"/><text class="k ink" x="820" y="368">Contextual Parallelism</text><text class="m muted" x="820" y="398">1M 序列沿 context 维拆分</text><text class="m muted" x="820" y="422">配合 CSA/HCA 而不是替代它</text>
+  <rect class="card" x="790" y="500" width="340" height="120"/><text class="k ink" x="820" y="538">KV cache management</text><text class="m muted" x="820" y="568">压缩 KV / window KV / on-disk cache</text><text class="m muted" x="820" y="592">服务长会话和恢复</text>
+</svg>

@@ -1,9 +1,7 @@
 (function () {
   const STORAGE_KEY = "paper-notes-theme";
-  const DOCUMENT_STORAGE_KEY = "paper-notes-document-theme";
   const MODES = new Set(["light", "dark"]);
   const DEFAULT_MODE = "dark";
-  const DEFAULT_DOCUMENT_MODE = "light";
 
   function readStoredMode(key, fallback) {
     const value = localStorage.getItem(key) || fallback;
@@ -15,7 +13,7 @@
   }
 
   function readDocumentMode() {
-    return readStoredMode(DOCUMENT_STORAGE_KEY, DEFAULT_DOCUMENT_MODE);
+    return resolvedMode();
   }
 
   function resolvedMode(mode = readMode()) {
@@ -35,16 +33,24 @@
       button.setAttribute("aria-label", `Theme: ${label}. Click to switch theme.`);
       button.setAttribute("aria-pressed", String(mode === "dark"));
     });
-
-    const documentMode = readDocumentMode();
-    document.documentElement.dataset.documentTheme = documentMode;
-    document.querySelectorAll("[data-document-theme-toggle]").forEach((button) => {
-      const label = documentMode === "dark" ? "Paper Dark" : "Paper Light";
-      button.textContent = label;
-      button.dataset.documentThemeState = documentMode;
-      button.setAttribute("aria-label", `${label}. Click to switch PDF and HTML theme.`);
-      button.setAttribute("aria-pressed", String(documentMode === "dark"));
+    document.querySelectorAll("[data-theme-option]").forEach((button) => {
+      const selected = button.dataset.themeOption === mode;
+      button.dataset.themeState = selected ? "selected" : "";
+      button.setAttribute("aria-checked", String(selected));
     });
+    document.querySelectorAll("[data-theme-switch]").forEach((button) => {
+      const isDark = mode === "dark";
+      const label = isDark ? "Dark" : "Light";
+      button.dataset.themeState = mode;
+      button.setAttribute("aria-checked", String(isDark));
+      button.setAttribute("aria-label", `Theme: ${label}. Click to switch theme.`);
+      button.querySelectorAll("[data-theme-switch-label]").forEach((labelNode) => {
+        labelNode.textContent = label;
+      });
+    });
+
+    const documentMode = resolved;
+    document.documentElement.dataset.documentTheme = documentMode;
   }
 
   function setMode(mode) {
@@ -56,11 +62,7 @@
   }
 
   function setDocumentMode(mode) {
-    localStorage.setItem(DOCUMENT_STORAGE_KEY, MODES.has(mode) ? mode : DEFAULT_DOCUMENT_MODE);
-    applyTheme();
-    window.dispatchEvent(new CustomEvent("paper-document-theme-change", {
-      detail: { mode: readDocumentMode() }
-    }));
+    setMode(mode);
   }
 
   window.paperTheme = {
@@ -83,9 +85,15 @@
         return;
       }
 
-      const documentButton = event.target.closest("[data-document-theme-toggle]");
-      if (documentButton) {
-        setDocumentMode(readDocumentMode() === "dark" ? "light" : "dark");
+      const option = event.target.closest("[data-theme-option]");
+      if (option) {
+        setMode(option.dataset.themeOption);
+        return;
+      }
+
+      const themeSwitch = event.target.closest("[data-theme-switch]");
+      if (themeSwitch) {
+        setMode(readMode() === "dark" ? "light" : "dark");
       }
     });
   });

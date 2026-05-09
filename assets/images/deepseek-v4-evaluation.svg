@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 740" role="img" aria-labelledby="title desc">
+  <title id="title">Evaluation note diagram</title>
+  <desc id="desc">Evaluation notes separating leaderboard, real-world tasks, and appendix cost evidence.</desc>
+  <style>
+    .bg{fill:#fffdf8}.card{fill:#fffdf8;stroke:#d9d0c2;stroke-width:2;rx:14}.hot{fill:#e7f3ef;stroke:#1d6f6a;stroke-width:3;rx:14}.warn{fill:#fbf0de;stroke:#c49a55;stroke-width:2;rx:14}.line{stroke:#1d6f6a;stroke-width:3;fill:none;marker-end:url(#a)}.ink{fill:#23211d}.muted{fill:#6d655b}.h{font-size:30px;font-weight:850}.k{font-size:17px;font-weight:850}.m{font-size:15px}.tiny{font-size:13px}text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  </style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#1d6f6a"/></marker></defs>
+  <rect class="bg" width="1280" height="740"/>
+  <text class="h ink" x="54" y="64">评测笔记：榜单、真实任务、成本表分开看</text>
+  <rect class="hot" x="455" y="130" width="370" height="90"/><text class="k ink" x="640" y="166" text-anchor="middle">DeepSeek-V4-Pro-Max / Flash-Max</text><text class="m muted" x="640" y="193" text-anchor="middle">结果依赖 reasoning effort 和任务类型</text>
+
+  <path class="line" d="M535 220 C420 270 310 300 230 340"/>
+  <rect class="card" x="80" y="340" width="300" height="165"/><text class="k ink" x="110" y="378">5.3 Standard Benchmarks</text><text class="m muted" x="110" y="410">MMLU-Pro / GPQA / HLE</text><text class="m muted" x="110" y="435">LiveCodeBench / Codeforces</text><text class="m muted" x="110" y="460">MRCR 1M / CorpusQA 1M</text><text class="tiny muted" x="110" y="488">用途：看能力上限和横向竞争</text>
+
+  <path class="line" d="M640 220 V340"/>
+  <rect class="card" x="490" y="340" width="300" height="165"/><text class="k ink" x="520" y="378">5.4 Real-World Tasks</text><text class="m muted" x="520" y="410">Chinese writing</text><text class="m muted" x="520" y="435">Search / white-collar</text><text class="m muted" x="520" y="460">Code agent</text><text class="tiny muted" x="520" y="488">用途：看产品体验和长任务能力</text>
+
+  <path class="line" d="M745 220 C860 270 970 300 1050 340"/>
+  <rect class="warn" x="900" y="340" width="300" height="165"/><text class="k ink" x="930" y="378">Appendix B</text><text class="m muted" x="930" y="410">Agentic Search vs RAG</text><text class="m muted" x="930" y="435">tool calls / token cost</text><text class="m muted" x="930" y="460">writing / office task details</text><text class="tiny muted" x="930" y="488">用途：看收益是否值得成本</text>
+
+  <rect class="hot" x="190" y="600" width="900" height="74"/><text class="k ink" x="225" y="632">读表规则</text><text class="m muted" x="225" y="658">同一 benchmark 下比模型；跨 benchmark 看任务类别；真实部署还要加 latency、tool calls、output tokens、cache 成本。</text>
+</svg>
