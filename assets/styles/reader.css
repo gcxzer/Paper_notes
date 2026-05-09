@@ -178,53 +178,6 @@ a {
   gap: 8px;
 }
 
-.reader-settings-control {
-  position: relative;
-}
-
-.reader-settings-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  display: grid;
-  min-width: 148px;
-  padding: 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-
-.reader-settings-menu[hidden] {
-  display: none;
-}
-
-.reader-settings-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--panel-soft);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  padding: 0 12px;
-}
-
-.reader-settings-action:hover,
-.reader-settings-action:focus-visible {
-  border-color: var(--accent);
-  background: var(--panel-hover);
-}
-
-.reader-settings-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
-}
-
 .reader-side-toggle {
   min-width: 72px;
   color: var(--muted);

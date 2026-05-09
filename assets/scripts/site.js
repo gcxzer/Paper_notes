@@ -43,8 +43,7 @@ const state = {
   dataSource: "default",
   chatSessionId: localStorage.getItem(CHAT_SESSION_KEY) || "",
   chatMessages: [],
-  chatPending: false,
-  ragSyncPendingNoteId: ""
+  chatPending: false
 };
 
 const summarySaveTimers = new Map();
@@ -102,7 +101,6 @@ const elements = {
   closeChatDialog: document.querySelector("#closeChatDialog"),
   settingsButton: document.querySelector("#settingsButton"),
   settingsMenu: document.querySelector("#settingsMenu"),
-  settingsSyncRagButton: document.querySelector("#settingsSyncRagButton"),
   messageDialog: document.querySelector("#messageDialog"),
   messageDialogEyebrow: document.querySelector("#messageDialogEyebrow"),
   messageDialogTitle: document.querySelector("#messageDialogTitle"),
@@ -460,25 +458,6 @@ function getSortLabel() {
   return "Newest";
 }
 
-function getKnowledgeBaseStatus(note) {
-  if (!note.kbSyncStatus) return "";
-  const parts = [`KB sync: ${note.kbSyncStatus}`];
-  if (note.kbIngestionJobId) parts.push(`job ${note.kbIngestionJobId}`);
-  if (note.kbSyncError) parts.push(note.kbSyncError);
-  return parts.join(" · ");
-}
-
-function getKnowledgeBaseStatusLabel(note) {
-  if (state.ragSyncPendingNoteId === note.id) return "Syncing";
-  const status = normalizeText(note.kbSyncStatus).toUpperCase();
-  if (!status) return "Not synced";
-  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(status)) return "Syncing";
-  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(status)) return "Indexed";
-  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(status)) return "Failed";
-  if (status === "DISABLED") return "Disabled";
-  return note.kbSyncStatus;
-}
-
 function getTodayLabel() {
   const now = new Date();
   const year = now.getFullYear();
@@ -674,7 +653,6 @@ function renderNotes() {
 
 function renderDetails() {
   const note = getNoteById(state.selectedNoteId);
-  renderSettingsSyncButton();
   if (!note) {
     elements.detailsPanel.hidden = true;
     elements.rightResizer.hidden = true;
@@ -683,7 +661,6 @@ function renderDetails() {
   }
 
   const allAssignable = getAssignableCategories();
-  const kbStatus = getKnowledgeBaseStatus(note);
   elements.detailsPanel.hidden = false;
   elements.rightResizer.hidden = false;
   elements.detailsCard.innerHTML = `
@@ -700,12 +677,6 @@ function renderDetails() {
         <button class="toolbar-button toolbar-button-danger" type="button" data-delete-note-id="${note.id}">Delete</button>
       </div>
     </div>
-    ${kbStatus ? `
-      <div class="details-row">
-        <strong>Knowledge Base</strong>
-        <span>${escapeHtml(kbStatus)}</span>
-      </div>
-    ` : ""}
     <div class="details-row">
       <strong>Summary</strong>
       <textarea class="details-summary-input" data-summary-note-id="${note.id}" rows="6" placeholder="Write a short summary...">${escapeHtml(note.summary)}</textarea>
@@ -719,58 +690,6 @@ function renderDetails() {
       </select>
     </div>
   `;
-}
-
-function renderSettingsSyncButton() {
-  if (!elements.settingsSyncRagButton) return;
-  const note = getNoteById(state.selectedNoteId);
-  const isSyncing = note?.id && state.ragSyncPendingNoteId === note.id;
-  elements.settingsSyncRagButton.disabled = !note || Boolean(isSyncing);
-  elements.settingsSyncRagButton.textContent = isSyncing ? "Syncing" : "Sync RAG";
-  elements.settingsSyncRagButton.title = note
-    ? `Current RAG status: ${getKnowledgeBaseStatusLabel(note)}. Sync ${note.title}.`
-    : "Select a paper before syncing RAG.";
-}
-
-function updateNoteFromServer(nextNote) {
-  if (!nextNote?.id) return;
-  const index = state.library.notes.findIndex((note) => note.id === nextNote.id);
-  if (index < 0) return;
-  state.library.notes[index] = sanitizeLibrary({
-    ...state.library,
-    notes: [{ ...state.library.notes[index], ...nextNote }]
-  }).notes[0];
-  saveLibraryToStorage();
-}
-
-async function syncNoteRag(noteId) {
-  if (!noteId || state.ragSyncPendingNoteId) return;
-  const note = getNoteById(noteId);
-  if (!note) return;
-
-  state.ragSyncPendingNoteId = noteId;
-  renderDetails();
-  try {
-    const response = await fetch(getApiUrl("/api/sync-note-rag"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ noteId })
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.id) {
-      throw new Error(payload?.error || `RAG sync failed (${response.status})`);
-    }
-    updateNoteFromServer(payload);
-  } catch (error) {
-    updateNoteFromServer({
-      ...note,
-      kbSyncStatus: "FAILED",
-      kbSyncError: error.message || "RAG sync failed."
-    });
-  } finally {
-    state.ragSyncPendingNoteId = "";
-    renderApp();
-  }
 }
 
 function renderApp() {
@@ -1461,14 +1380,6 @@ elements.addPdfButton.addEventListener("click", () => {
 
 elements.settingsButton.addEventListener("click", toggleSettingsMenu);
 elements.settingsMenu.addEventListener("click", (event) => {
-  const syncButton = event.target.closest("#settingsSyncRagButton");
-  if (syncButton) {
-    event.preventDefault();
-    syncNoteRag(state.selectedNoteId);
-    closeSettingsMenu();
-    return;
-  }
-
   if (event.target.closest("[data-theme-option]")) closeSettingsMenu();
 });
 

@@ -41,10 +41,6 @@ const elements = {
   pdfBody: document.querySelector(".pdf-body"),
   htmlPaneToggle: document.querySelector("#htmlPaneToggle"),
   askPaneToggle: document.querySelector("#askPaneToggle"),
-  readerSettingsButton: document.querySelector("#readerSettingsButton"),
-  readerSettingsMenu: document.querySelector("#readerSettingsMenu"),
-  syncRagButton: document.querySelector("#syncRagButton"),
-  ragSyncStatus: document.querySelector("#ragSyncStatus"),
   closeAskPane: document.querySelector("#closeAskPane"),
   chatSessionMenuButton: document.querySelector("#chatSessionMenuButton"),
   chatSessionPopover: document.querySelector("#chatSessionPopover"),
@@ -117,13 +113,11 @@ const readerState = {
   chatSessionQuery: "",
   confirmingDeleteSessionId: "",
   renamingSessionId: "",
-  settingsMenuOpen: false,
   chatMessages: [],
   chatProgress: null,
   chatProgressTimer: 0,
   chatProgressRequestId: "",
-  chatPending: false,
-  ragSyncPending: false
+  chatPending: false
 };
 
 const PDF_ANNOTATION_TYPES = new Set(["highlight", "underline", "area", "note"]);
@@ -311,48 +305,6 @@ function getCollectionPath(library, categoryId) {
   return parent ? `${parent.name} / ${category.name}` : category.name;
 }
 
-function ragSyncStatusLabel(status) {
-  const normalized = normalizeText(status).toUpperCase();
-  if (!normalized) return "Not synced";
-  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(normalized)) return "Syncing";
-  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(normalized)) return "Indexed";
-  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(normalized)) return "Failed";
-  if (normalized === "DISABLED") return "Disabled";
-  return status;
-}
-
-function ragSyncStatusTone(status) {
-  const normalized = normalizeText(status).toUpperCase();
-  if (["COMPLETE", "COMPLETED", "INDEXED"].includes(normalized)) return "ok";
-  if (["FAILED", "SYNC_START_FAILED", "METADATA_WRITE_FAILED"].includes(normalized)) return "failed";
-  if (["STARTING", "IN_PROGRESS", "STARTED", "SYNCING", "SYNC_ALREADY_RUNNING"].includes(normalized)) return "syncing";
-  if (normalized === "DISABLED") return "muted";
-  return "idle";
-}
-
-function renderRagSyncStatus(note = readerState.note) {
-  const status = normalizeText(note?.kbSyncStatus);
-  const error = normalizeText(note?.kbSyncError);
-  const label = readerState.ragSyncPending ? "Syncing" : ragSyncStatusLabel(status);
-  const tone = readerState.ragSyncPending ? "syncing" : ragSyncStatusTone(status);
-  if (elements.ragSyncStatus) {
-    elements.ragSyncStatus.textContent = `RAG: ${label}`;
-    elements.ragSyncStatus.dataset.status = tone;
-    elements.ragSyncStatus.title = error || `Knowledge Base sync status: ${label}`;
-  }
-  if (elements.syncRagButton) {
-    elements.syncRagButton.disabled = readerState.ragSyncPending || !note?.id;
-    elements.syncRagButton.textContent = readerState.ragSyncPending ? "Syncing" : "Sync RAG";
-    elements.syncRagButton.title = error || `Knowledge Base sync status: ${label}`;
-  }
-}
-
-function setReaderSettingsMenuOpen(open) {
-  readerState.settingsMenuOpen = open;
-  if (elements.readerSettingsMenu) elements.readerSettingsMenu.hidden = !open;
-  elements.readerSettingsButton?.setAttribute("aria-expanded", String(open));
-}
-
 function updateCurrentNote(nextNote) {
   if (!nextNote?.id) return;
   readerState.note = { ...(readerState.note || {}), ...nextNote };
@@ -362,53 +314,6 @@ function updateCurrentNote(nextNote) {
       readerState.library.notes[index] = { ...readerState.library.notes[index], ...nextNote };
     }
   }
-  renderRagSyncStatus(readerState.note);
-}
-
-async function syncCurrentNoteRag() {
-  const note = readerState.note;
-  if (!note?.id || readerState.ragSyncPending) return;
-
-  readerState.ragSyncPending = true;
-  renderRagSyncStatus(note);
-  try {
-    const response = await fetch(getApiUrl("/api/sync-note-rag"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ noteId: note.id })
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.id) {
-      throw new Error(payload?.error || `RAG sync failed (${response.status})`);
-    }
-    updateCurrentNote(payload);
-    setReaderSettingsMenuOpen(false);
-  } catch (error) {
-    updateCurrentNote({
-      ...note,
-      kbSyncStatus: "FAILED",
-      kbSyncError: error.message || "RAG sync failed."
-    });
-  } finally {
-    readerState.ragSyncPending = false;
-    renderRagSyncStatus(readerState.note);
-  }
-}
-
-function initializeRagSync() {
-  renderRagSyncStatus();
-  elements.syncRagButton?.addEventListener("click", syncCurrentNoteRag);
-  elements.readerSettingsButton?.addEventListener("click", () => {
-    setReaderSettingsMenuOpen(!readerState.settingsMenuOpen);
-  });
-  document.addEventListener("pointerdown", (event) => {
-    if (!readerState.settingsMenuOpen) return;
-    if (elements.readerSettingsMenu?.contains(event.target) || elements.readerSettingsButton?.contains(event.target)) return;
-    setReaderSettingsMenuOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && readerState.settingsMenuOpen) setReaderSettingsMenuOpen(false);
-  });
 }
 
 function showError() {
@@ -620,7 +525,7 @@ function renderNoteEditDraft(noteEdit) {
         <button class="ask-note-edit-apply" type="button" data-note-edit-apply="${escapeHtml(noteEdit.id)}"${noteEdit.applied ? " disabled" : ""}>${noteEdit.applied ? "Applied" : "Apply to note"}</button>
         <button class="ask-note-edit-discard" type="button" data-note-edit-discard="${escapeHtml(noteEdit.id)}"${noteEdit.applied ? " hidden" : ""}>Discard</button>
       </div>
-      <p class="ask-note-edit-hint">This only changes the local HTML note. Use Settings > Sync RAG after applying.</p>
+      <p class="ask-note-edit-hint">This only changes the local HTML note.</p>
     </div>
   `;
 }
@@ -3319,7 +3224,6 @@ async function renderReader(library, note) {
 
   elements.title.textContent = note.title;
   elements.kicker.textContent = collectionPath;
-  renderRagSyncStatus(note);
   await initializeReaderChatSessions();
   await loadPdf(pdfHref, note.id);
   pdfState.suppressNoteScrollSave = true;
@@ -3353,7 +3257,6 @@ async function initialize() {
   initializeAnnotationSidebar();
   initializeHtmlPaneToggle();
   initializeAskPaneToggle();
-  initializeRagSync();
   initializeReaderChat();
   initializeHtmlZoom();
   initializePdfTools();
