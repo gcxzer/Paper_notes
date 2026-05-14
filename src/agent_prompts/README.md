@@ -1,4 +1,4 @@
-# Agent Prompts
+# agent_prompts
 
 This package builds the model-facing instructions for Paper Notes agent runs.
 Keep prompt composition centralized here, but keep request-specific runtime
@@ -6,24 +6,10 @@ facts in `agent_runtime.service`.
 
 ## Files
 
-- `defaults.py`
-  - Static, reusable instruction blocks.
-  - Tool-specific guidance belongs in `TOOL_GUIDANCE_BY_NAME`.
-  - Avoid putting request/session-specific values here.
-
-- `context.py`
-  - Normalizes Reader context into `AgentPromptContext`.
-  - Renders the `# Current Reading Context` section from note metadata, current
-    page, selected text, and visible annotations.
-
-- `builder.py`
-  - Composes the final instructions string with identity, response discipline,
-    memory/todo guidance, available-tool guidance, and reading context.
-  - Uses the actual tool schemas for the current run to decide which tool
-    guidance should appear.
-
-- `__init__.py`
-  - Public package exports only.
+- `__init__.py`: Public exports for prompt context and instruction builders.
+- `builder.py`: Composes the final instructions string from identity, response discipline, memory/todo guidance, available tools, and reading context.
+- `context.py`: Normalizes Reader context and renders current paper, page, selected text, and visible annotation context.
+- `defaults.py`: Static instruction blocks and per-tool guidance used by the prompt builder.
 
 ## Prompt Flow
 

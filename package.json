@@ -1,6 +1,6 @@
 {
   "name": "paper-notes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "license": "MIT",
   "description": "A local research workspace for reading PDFs, annotating papers, and building HTML notes with an AI assistant.",
