@@ -1127,7 +1127,7 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
             text = _work_trace_tool_result_detail(name, data)
             item_type = "skill" if _is_skill_tool(name) else "tool"
         elif event_type == "tool_error":
-            text = f"Tool failed: {str(data.get('name') or 'tool')}"
+            text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
             item_type = "status"
         elif event_type in {"cancelled", "halted", "tool_halted", "tool_approval_requested"}:
             text = str(event.get("message") or "").strip()
@@ -1195,6 +1195,13 @@ def _work_trace_tool_result_detail(name: str, data: dict[str, Any]) -> str:
         suffix = "s" if len(changed_files) != 1 else ""
         return f"Saved {len(changed_files)} file{suffix}."
     return ""
+
+
+def _work_trace_tool_error_detail(name: str, data: dict[str, Any]) -> str:
+    error = _work_trace_clean_text(data.get("error") or data.get("message"))
+    code = _work_trace_clean_text(data.get("code"))
+    detail = error or code
+    return f"Tool failed: {name}{f' - {detail}' if detail else ''}"
 
 
 def _work_trace_tool_args(value: Any) -> dict[str, Any]:

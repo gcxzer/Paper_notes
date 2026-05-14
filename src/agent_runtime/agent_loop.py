@@ -1303,6 +1303,8 @@ def _tool_result_data(tool_result: ToolResult) -> dict[str, Any]:
         for key in (
             "success",
             "changed",
+            "error",
+            "code",
             "note_id",
             "message",
             "summary",

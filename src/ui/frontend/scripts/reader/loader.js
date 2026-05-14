@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "pdf-cross-page-drag-select-v1";
+const READER_SCRIPT_VERSION = "note-drag-persist-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/note/app.js?v=annotations-v6",
@@ -6,6 +6,7 @@ const READER_CLASSIC_SCRIPTS = [
   `scripts/reader/core.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/panes.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/render.js?v=${READER_SCRIPT_VERSION}`,
+  `scripts/reader/chat/prompts.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/tools.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/composer.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/models.js?v=${READER_SCRIPT_VERSION}`,

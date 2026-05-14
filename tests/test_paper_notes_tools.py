@@ -821,6 +821,55 @@ def test_paper_notes_edit_creates_annotation_by_locating_pdf_quote(tmp_path):
     assert saved["h"] > 0
 
 
+def test_paper_notes_edit_locates_annotation_across_spacing_and_line_breaks(tmp_path):
+    import pymupdf
+
+    library_path = tmp_path / "notes.json"
+    papers_dir = tmp_path / "Papers"
+    annotations_dir = tmp_path / "annotations"
+    papers_dir.mkdir()
+    pdf_path = papers_dir / "paper.pdf"
+    document = pymupdf.open()
+    page = document.new_page(width=500, height=240)
+    page.insert_text((40, 80), "Compressed Sparse Attention (CSA)")
+    page.insert_text((40, 100), "and Heavily Compressed Attention (HCA) to improve long-context efficiency")
+    document.save(str(pdf_path))
+    document.close()
+    write_library({
+        "notes": [{
+            "id": "note-1",
+            "title": "Paper",
+            "href": "resources/Papers/paper.pdf",
+        }],
+    }, library_path)
+    registry = create_paper_notes_registry(
+        library_path=library_path,
+        papers_dir=papers_dir,
+        annotations_dir=annotations_dir,
+    )
+
+    result = registry.dispatch("paper_notes_edit", {
+        "action": "create_annotation",
+        "note_id": "note-1",
+        "annotation_id": "flexible-annotation",
+        "annotation_type": "underline",
+        "quote": "Compressed Sparse Attention (CSA)and Heavily Compressed Attention (HCA) to improve long-context efficiency",
+        "comment": "Found despite missing space.",
+        "color": "yellow",
+        "page": 1,
+    })
+    payload = json.loads(result.content)
+    saved = json.loads((annotations_dir / "note-1.json").read_text(encoding="utf-8"))["annotations"][0]
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert saved["id"] == "flexible-annotation"
+    assert saved["page"] == 1
+    assert len(saved["rects"]) == 2
+    assert saved["quote"] == "Compressed Sparse Attention (CSA) and Heavily Compressed Attention (HCA) to improve long-context efficiency"
+    assert saved["comment"] == "Found despite missing space."
+
+
 def test_paper_note_write_tools_are_marked_mutating(tmp_path):
     registry, _, _ = _paper_note_fixture(tmp_path)
 

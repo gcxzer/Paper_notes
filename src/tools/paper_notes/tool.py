@@ -1911,10 +1911,13 @@ def create_annotation(
     if not _has_annotation_geometry(annotation_args):
         located = _locate_annotation_target(annotation_args, library_path=library_path, papers_dir=papers_dir)
         if located.get("success"):
+            current_quote = normalize_text(annotation_args.get("quote"))
+            located_quote = normalize_text(located.get("quote"))
+            next_quote = located_quote if not current_quote or _annotation_match_text(current_quote) == _annotation_match_text(located_quote) else current_quote
             annotation_args.update({
                 "page": located["page"],
                 "rects": located["rects"],
-                "quote": normalize_text(annotation_args.get("quote")) or located.get("quote", ""),
+                "quote": next_quote,
             })
         elif normalize_text(annotation_args.get("quote") or annotation_args.get("query")):
             return {**located, "note_id": note_id}
@@ -2078,7 +2081,7 @@ def _locate_annotation_target(
         return note_result
     note = note_result["note"]
     note_id = normalize_text(note.get("id"))
-    target_text = normalize_text(args.get("quote") or args.get("query"))
+    target_text = normalize_text(args.get("query") or args.get("quote"))
     if not target_text:
         return _tool_error("annotation_target_required", "Provide quote/query or normalized coordinates for create_annotation.", note_id=note_id)
     pdf_path = _resolved_pdf_path_for_note(note, papers_dir=papers_dir)
@@ -2105,24 +2108,18 @@ def _search_pdf_text_rects(*, note_id: str, pdf_path: Path, target_text: str, pa
             if page_number and (page_number < 1 or page_number > page_count):
                 return _tool_error("page_out_of_range", f"page must be between 1 and {page_count}.", note_id=note_id, page_count=page_count)
             page_indices = [page_number - 1] if page_number else range(page_count)
+            target_candidates = _annotation_target_candidates(target_text)
             for page_index in page_indices:
                 page = document.load_page(page_index)
-                rects = page.search_for(target_text)
-                if not rects:
-                    continue
-                page_rect = page.rect
-                width = float(page_rect.width) or 1.0
-                height = float(page_rect.height) or 1.0
-                normalized_rects = [_rect_to_unit(rect, width=width, height=height) for rect in rects]
-                normalized_rects = [rect for rect in normalized_rects if rect is not None]
-                if normalized_rects:
+                located = _search_page_text_rects(page, target_candidates)
+                if located:
                     return {
                         "success": True,
                         "note_id": note_id,
                         "page": page_index + 1,
-                        "rects": normalized_rects,
-                        "quote": target_text,
-                        "match_count": len(normalized_rects),
+                        "rects": located["rects"],
+                        "quote": located["quote"],
+                        "match_count": len(located["rects"]),
                         "source_pdf": _relative_project_path(pdf_path),
                     }
         finally:
@@ -2133,11 +2130,119 @@ def _search_pdf_text_rects(*, note_id: str, pdf_path: Path, target_text: str, pa
     return _tool_error("annotation_target_not_found", f"Could not find quote/query in PDF{scope}: {target_text}", note_id=note_id)
 
 
+def _annotation_target_candidates(target_text: str) -> list[str]:
+    candidates = [
+        target_text,
+        re.sub(r"\s+", " ", target_text).strip(),
+    ]
+    seen: set[str] = set()
+    unique = []
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        unique.append(candidate)
+    return unique
+
+
+def _search_page_text_rects(page: Any, target_candidates: list[str]) -> dict[str, Any] | None:
+    page_rect = page.rect
+    width = float(page_rect.width) or 1.0
+    height = float(page_rect.height) or 1.0
+    for candidate in target_candidates:
+        rects = page.search_for(candidate)
+        normalized_rects = [_rect_to_unit(rect, width=width, height=height) for rect in rects]
+        normalized_rects = [rect for rect in normalized_rects if rect is not None]
+        if normalized_rects:
+            return {"rects": normalized_rects, "quote": candidate}
+    return _search_page_words_flexible(page, target_candidates, width=width, height=height)
+
+
+def _annotation_match_text(value: str) -> str:
+    return re.sub(r"\s+", "", normalize_text(value)).casefold()
+
+
+def _search_page_words_flexible(page: Any, target_candidates: list[str], *, width: float, height: float) -> dict[str, Any] | None:
+    words = page.get_text("words") or []
+    entries = []
+    for raw_word in words:
+        if not isinstance(raw_word, (list, tuple)) or len(raw_word) < 5:
+            continue
+        text = normalize_text(raw_word[4])
+        if not text:
+            continue
+        block = int(raw_word[5]) if len(raw_word) > 5 else 0
+        line = int(raw_word[6]) if len(raw_word) > 6 else 0
+        word_index = int(raw_word[7]) if len(raw_word) > 7 else len(entries)
+        entries.append({
+            "rect": raw_word,
+            "text": text,
+            "block": block,
+            "line": line,
+            "word": word_index,
+            "order": len(entries),
+        })
+    entries.sort(key=lambda item: (item["block"], item["line"], item["word"], item["order"]))
+
+    stream = []
+    stream_word_indices: list[int] = []
+    for index, entry in enumerate(entries):
+        normalized = _annotation_match_text(entry["text"])
+        if not normalized:
+            continue
+        stream.append(normalized)
+        stream_word_indices.extend([index] * len(normalized))
+    haystack = "".join(stream)
+    if not haystack:
+        return None
+
+    for candidate in target_candidates:
+        needle = _annotation_match_text(candidate)
+        if not needle:
+            continue
+        start = haystack.find(needle)
+        if start < 0:
+            continue
+        end = start + len(needle) - 1
+        matched_indices = stream_word_indices[start:end + 1]
+        if not matched_indices:
+            continue
+        selected = entries[min(matched_indices):max(matched_indices) + 1]
+        rects = _word_entries_to_unit_rects(selected, width=width, height=height)
+        if rects:
+            return {
+                "rects": rects,
+                "quote": " ".join(entry["text"] for entry in selected),
+            }
+    return None
+
+
+def _word_entries_to_unit_rects(entries: list[dict[str, Any]], *, width: float, height: float) -> list[dict[str, float]]:
+    by_line: dict[tuple[int, int], list[Any]] = {}
+    for entry in entries:
+        by_line.setdefault((entry["block"], entry["line"]), []).append(entry["rect"])
+    rects = []
+    for line_rects in by_line.values():
+        x0 = min(float(rect[0]) for rect in line_rects)
+        y0 = min(float(rect[1]) for rect in line_rects)
+        x1 = max(float(rect[2]) for rect in line_rects)
+        y1 = max(float(rect[3]) for rect in line_rects)
+        rect = _rect_tuple_to_unit((x0, y0, x1, y1), width=width, height=height)
+        if rect is not None:
+            rects.append(rect)
+    rects.sort(key=lambda rect: (rect["y"], rect["x"]))
+    return rects
+
+
 def _rect_to_unit(rect: Any, *, width: float, height: float) -> dict[str, float] | None:
-    x = max(0.0, min(1.0, float(rect.x0) / width))
-    y = max(0.0, min(1.0, float(rect.y0) / height))
-    right = max(0.0, min(1.0, float(rect.x1) / width))
-    bottom = max(0.0, min(1.0, float(rect.y1) / height))
+    return _rect_tuple_to_unit((rect.x0, rect.y0, rect.x1, rect.y1), width=width, height=height)
+
+
+def _rect_tuple_to_unit(rect: tuple[float, float, float, float], *, width: float, height: float) -> dict[str, float] | None:
+    x = max(0.0, min(1.0, float(rect[0]) / width))
+    y = max(0.0, min(1.0, float(rect[1]) / height))
+    right = max(0.0, min(1.0, float(rect[2]) / width))
+    bottom = max(0.0, min(1.0, float(rect[3]) / height))
     w = right - x
     h = bottom - y
     if w <= 0 or h <= 0:

@@ -830,7 +830,7 @@ function workTraceItemLabel(type) {
   if (normalized === "tool") return "Tool";
   if (normalized === "status") return "Status";
   if (normalized === "commentary") return "Update";
-  return "Work";
+  return "Think";
 }
 
 function runTraceFromPayload(payload, startedAtMs) {

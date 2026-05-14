@@ -6,8 +6,10 @@ SERVICE_NAME="${SERVICE_NAME:-paper-notes.service}"
 PORT="${PORT:-4173}"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+NPM_BIN="${NPM_BIN:-$(command -v npm || true)}"
 VENV_DIR="${VENV_DIR:-$APP_DIR/.venv}"
 LOG_DIR="$APP_DIR/tmp"
+SKIP_NPM_INSTALL="${SKIP_NPM_INSTALL:-0}"
 
 if [[ -z "$UV_BIN" || ! -x "$UV_BIN" ]]; then
   echo "Could not find uv. Install uv first: https://docs.astral.sh/uv/getting-started/installation/" >&2
@@ -43,6 +45,35 @@ systemd_quote() {
   printf '"%s"' "$value"
 }
 
+usage() {
+  cat <<USAGE
+Usage: scripts/install-autostart.sh
+
+Environment overrides:
+  LABEL               macOS launchd label (default: com.paper-notes.local)
+  SERVICE_NAME        Linux systemd user service name (default: paper-notes.service)
+  PORT                Local server port (default: 4173)
+  UV_BIN              Path to uv
+  NPM_BIN             Path to npm
+  VENV_DIR            Python virtual environment path (default: .venv)
+  SKIP_NPM_INSTALL=1  Skip automatic npm install for frontend dependencies
+USAGE
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 prepare_python_environment() {
   echo "Preparing Paper Notes Python environment in $VENV_DIR"
   (
@@ -53,6 +84,26 @@ prepare_python_environment() {
     echo "uv sync finished, but no Python executable was found in $VENV_DIR." >&2
     exit 1
   }
+}
+
+prepare_frontend_environment() {
+  if [[ "$SKIP_NPM_INSTALL" == "1" ]]; then
+    echo "Skipping frontend dependency install because SKIP_NPM_INSTALL=1."
+    return 0
+  fi
+  if [[ -d "$APP_DIR/node_modules/pdfjs-dist" ]]; then
+    return 0
+  fi
+  if [[ -z "$NPM_BIN" || ! -x "$NPM_BIN" ]]; then
+    echo "Could not find npm, and node_modules/pdfjs-dist is missing." >&2
+    echo "Install Node.js/npm first, then run: npm install" >&2
+    exit 1
+  fi
+  echo "Installing Paper Notes frontend dependencies with npm"
+  (
+    cd "$APP_DIR"
+    "$NPM_BIN" install
+  )
 }
 
 check_port_available() {
@@ -84,6 +135,16 @@ wait_for_port_available() {
   return 1
 }
 
+print_port_in_use_help() {
+  echo "Port $PORT is already in use." >&2
+  echo "Stop the existing Paper Notes server first, then run this again." >&2
+  if command -v lsof >/dev/null 2>&1; then
+    echo "To inspect the process, run: lsof -nP -iTCP:$PORT -sTCP:LISTEN" >&2
+  elif command -v ss >/dev/null 2>&1; then
+    echo "To inspect the process, run: ss -ltnp 'sport = :$PORT'" >&2
+  fi
+}
+
 install_macos_launch_agent() {
   local launch_agents_dir="$HOME/Library/LaunchAgents"
   local plist_path="$launch_agents_dir/$LABEL.plist"
@@ -92,13 +153,13 @@ install_macos_launch_agent() {
   launchctl bootout "gui/$(id -u)" "$plist_path" >/dev/null 2>&1 || true
 
   if ! wait_for_port_available; then
-    echo "Port $PORT is already in use." >&2
-    echo "Stop the existing server first, then run this again." >&2
+    print_port_in_use_help
     exit 1
   fi
 
-  local python_xml app_xml port_xml venv_xml stdout_xml stderr_xml
+  local python_xml main_xml app_xml port_xml venv_xml stdout_xml stderr_xml
   python_xml="$(xml_escape "$PYTHON_BIN")"
+  main_xml="$(xml_escape "$APP_DIR/main.py")"
   app_xml="$(xml_escape "$APP_DIR")"
   port_xml="$(xml_escape "$PORT")"
   venv_xml="$(xml_escape "$VENV_DIR")"
@@ -115,7 +176,7 @@ install_macos_launch_agent() {
   <key>ProgramArguments</key>
   <array>
     <string>$python_xml</string>
-    <string>main.py</string>
+    <string>$main_xml</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$app_xml</string>
@@ -167,8 +228,7 @@ install_linux_systemd_user_service() {
   systemctl --user disable "$SERVICE_NAME" >/dev/null 2>&1 || true
 
   if ! wait_for_port_available; then
-    echo "Port $PORT is already in use." >&2
-    echo "Stop the existing server first, then run this again." >&2
+    print_port_in_use_help
     exit 1
   fi
 
@@ -180,10 +240,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$(systemd_quote "$APP_DIR")
-Environment="PORT=$PORT"
-Environment="UV_PROJECT_ENVIRONMENT=$VENV_DIR"
-Environment="PYTHONUNBUFFERED=1"
-ExecStart=$(systemd_quote "$PYTHON_BIN") main.py
+Environment=$(systemd_quote "PORT=$PORT")
+Environment=$(systemd_quote "UV_PROJECT_ENVIRONMENT=$VENV_DIR")
+Environment=$(systemd_quote "PYTHONUNBUFFERED=1")
+ExecStart=$(systemd_quote "$PYTHON_BIN") $(systemd_quote "$APP_DIR/main.py")
 Restart=always
 RestartSec=2
 
@@ -197,6 +257,7 @@ SERVICE
   echo "Paper Notes systemd user service installed."
 }
 
+prepare_frontend_environment
 prepare_python_environment
 
 case "$(uname -s)" in

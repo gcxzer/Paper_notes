@@ -397,6 +397,7 @@ async function sendReaderChatMessage(options = {}) {
 }
 
 function initializeReaderChat() {
+  initializeSavedPrompts();
   renderReaderChatMessages({ preserveScrollTop: true });
   renderReaderModelControls();
   renderReaderContextControls();
@@ -450,6 +451,22 @@ function initializeReaderChat() {
     setReaderToolMenuOpen(!readerState.toolMenuOpen);
   });
   elements.readerToolPopover?.addEventListener("click", handleReaderToolPopoverClick);
+  elements.savedPromptForm?.addEventListener("submit", handleSavedPromptSubmit);
+  elements.savedPromptTitleInput?.addEventListener("input", updateSavedPromptSubmitState);
+  elements.savedPromptContentInput?.addEventListener("input", updateSavedPromptSubmitState);
+  elements.savedPromptIconButton?.addEventListener("click", toggleSavedPromptIconPanel);
+  elements.savedPromptIconGrid?.addEventListener("click", handleSavedPromptIconGridClick);
+  elements.savedPromptIconSearch?.addEventListener("input", handleSavedPromptIconSearch);
+  elements.savedPromptIconPanel?.addEventListener("click", handleSavedPromptIconPanelClick);
+  elements.savedPromptToolButton?.addEventListener("click", toggleSavedPromptToolPanel);
+  elements.savedPromptToolChip?.addEventListener("click", clearSavedPromptToolSelection);
+  elements.savedPromptToolPanel?.addEventListener("click", handleSavedPromptToolPanelClick);
+  elements.closeSavedPromptDialog?.addEventListener("click", closeSavedPromptDialog);
+  elements.cancelSavedPromptDialog?.addEventListener("click", closeSavedPromptDialog);
+  elements.closeSavedPromptManageDialog?.addEventListener("click", closeSavedPromptManageDialog);
+  elements.cancelSavedPromptDelete?.addEventListener("click", closeSavedPromptDeleteDialog);
+  elements.confirmSavedPromptDelete?.addEventListener("click", confirmSavedPromptDelete);
+  elements.savedPromptManageList?.addEventListener("click", handleSavedPromptManageClick);
   elements.readerAttachmentInput?.addEventListener("change", (event) => {
     closeReaderToolMenu();
     handleReaderAttachmentFiles(event.target?.files);
