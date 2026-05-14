@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper Reader</title>
   <script src="scripts/shared/theme.js"></script>
+  <script src="scripts/shared/button-feedback.js?v=button-press-v1"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/reader.css?v=no-aws-ui-v1">
+  <link rel="stylesheet" href="styles/reader/index.css?v=button-press-v1">
 </head>
 <body>
   <div class="reader-shell">
@@ -17,7 +18,7 @@
         <strong id="readerTitle">Loading...</strong>
       </div>
       <div class="reader-header-actions" role="group" aria-label="Reader side panes">
-        <button class="toolbar-button reader-side-toggle pdf-html-tool is-active" type="button" id="htmlPaneToggle" aria-label="Toggle HTML note">HTML</button>
+        <a class="toolbar-button reader-side-toggle pdf-html-tool is-active" href="#" id="htmlPaneToggle" aria-label="Toggle HTML note">HTML</a>
         <button class="toolbar-button reader-side-toggle pdf-ask-tool" type="button" id="askPaneToggle" aria-label="Toggle Ask panel">Ask</button>
       </div>
     </header>
@@ -64,7 +65,15 @@
             </div>
             <div class="annotation-list" id="annotationList"></div>
           </aside>
+          <div class="reader-resizer annotation-sidebar-resizer" id="annotationSidebarResizer" role="separator" aria-label="Resize annotations panel" aria-orientation="vertical" tabindex="0" title="Resize annotations panel"></div>
           <div class="pdf-viewer" id="pdfViewer" aria-label="PDF pages"></div>
+        </div>
+        <div class="pdf-search-control" id="pdfSearchControl" role="search" aria-label="Search PDF text" hidden>
+          <input class="pdf-search-input" id="pdfSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search in PDF" aria-label="Search PDF text">
+          <span class="pdf-search-count" id="pdfSearchCount">0/0</span>
+          <button class="pdf-tool pdf-search-nav" type="button" id="pdfSearchPrev" aria-label="Previous PDF search result" title="Previous result" disabled>↑</button>
+          <button class="pdf-tool pdf-search-nav" type="button" id="pdfSearchNext" aria-label="Next PDF search result" title="Next result" disabled>↓</button>
+          <button class="pdf-tool pdf-search-close" type="button" id="pdfSearchClose" aria-label="Close PDF search" title="Close search">×</button>
         </div>
         <div class="pdf-link-return" id="pdfLinkReturn" hidden>
           <button class="pdf-link-back" type="button" id="pdfLinkBack" aria-label="Return to previous PDF position">↩ Back</button>
@@ -87,15 +96,19 @@
 
       <aside class="ask-pane" id="askPane" aria-label="Ask Paper Notes Agent">
         <header class="ask-pane-header">
-          <button class="ask-icon-button" type="button" id="chatSessionMenuButton" aria-label="Switch session" aria-haspopup="dialog" aria-expanded="false">◫</button>
+          <button class="ask-icon-button" type="button" id="chatSessionMenuButton" aria-label="Switch session" aria-haspopup="dialog" aria-expanded="false">☰</button>
+          <button class="ask-icon-button ask-context-button" type="button" id="readerContextButton" aria-label="Show context window" aria-haspopup="dialog" aria-expanded="false">
+            <span class="ask-context-ring" aria-hidden="true"></span>
+          </button>
+          <button class="ask-icon-button ask-model-button" type="button" id="readerModelMenuButton" aria-label="Switch model" aria-haspopup="dialog" aria-expanded="false">Model</button>
           <button class="ask-icon-button ask-pane-close" type="button" id="closeAskPane" aria-label="Close Ask panel">×</button>
         </header>
+        <div class="ask-context-popover" id="readerContextPopover" role="dialog" aria-label="Context window" hidden></div>
         <div class="ask-session-popover" id="chatSessionPopover" role="dialog" aria-label="Ask sessions" hidden>
           <div class="ask-session-popover-header">
             <strong>Sessions</strong>
             <div class="ask-session-header-actions">
               <button class="ask-session-trash-toggle" type="button" id="toggleChatSessionTrash" aria-pressed="false">Trash</button>
-              <button class="ask-session-export" type="button" id="exportChatSession">Export</button>
               <button class="ask-session-new" type="button" id="newChatSession">New chat</button>
             </div>
           </div>
@@ -105,12 +118,105 @@
           </label>
           <div class="ask-session-list" id="chatSessionList"></div>
         </div>
+        <div class="ask-model-popover" id="readerModelPopover" role="dialog" aria-label="Ask model" hidden>
+          <div class="ask-model-popover-header">
+            <button class="ask-model-back" type="button" id="readerModelBack" aria-label="Back to providers" hidden>‹</button>
+            <strong id="readerModelTitle">Model</strong>
+            <span id="readerModelProvider">Provider</span>
+          </div>
+          <div class="ask-provider-list" id="readerProviderList"></div>
+          <div class="ask-model-list" id="readerModelList"></div>
+          <p class="ask-model-status" id="readerModelStatus" hidden></p>
+        </div>
+        <div class="ask-tool-popover" id="readerToolPopover" role="dialog" aria-label="Tool settings" hidden>
+          <button class="ask-tool-back" type="button" id="readerToolBack" aria-label="Back to Ask tools" hidden>‹</button>
+          <div class="ask-tool-menu" id="readerToolRoot"></div>
+          <div class="ask-tool-section" id="readerToolNoteWriting" hidden>
+            <div class="ask-tool-mode" role="group" aria-label="Write tool mode">
+              <button type="button" data-tool-mode="auto">
+                <span>
+                  <strong>Auto</strong>
+                  <small>Allow local note writes</small>
+                </span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button type="button" data-tool-mode="warn">
+                <span>
+                  <strong>Warn</strong>
+                  <small>Show write warnings</small>
+                </span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button type="button" data-tool-mode="ask">
+                <span>
+                  <strong>Ask</strong>
+                  <small>Approve each write</small>
+                </span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button type="button" data-tool-mode="readonly">
+                <span>
+                  <strong>Read-only</strong>
+                  <small>Hide note-writing tools</small>
+                </span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+            </div>
+          </div>
+          <div class="ask-tool-section ask-tool-snapshot-section" id="readerToolSnapshots" hidden>
+            <div class="ask-tool-actions">
+              <button type="button" data-tool-action="refresh">
+                <span>
+                  <strong>Refresh</strong>
+                  <small>Reload snapshots</small>
+                </span>
+              </button>
+              <button type="button" data-tool-action="cleanup">
+                <span>
+                  <strong>Clean old</strong>
+                  <small>Keep recent snapshots</small>
+                </span>
+              </button>
+            </div>
+            <div class="ask-snapshot-list" id="readerSnapshotList"></div>
+          </div>
+          <div class="ask-tool-section" id="readerToolFileGeneration" hidden>
+            <div class="ask-tool-menu" role="group" aria-label="File format">
+              <button class="ask-tool-menu-option" type="button" data-file-generation-format="markdown">
+                <span><strong>Markdown</strong></span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button class="ask-tool-menu-option" type="button" data-file-generation-format="text">
+                <span><strong>Text</strong></span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button class="ask-tool-menu-option" type="button" data-file-generation-format="json">
+                <span><strong>JSON</strong></span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button class="ask-tool-menu-option" type="button" data-file-generation-format="csv">
+                <span><strong>CSV</strong></span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+              <button class="ask-tool-menu-option" type="button" data-file-generation-format="html">
+                <span><strong>HTML</strong></span>
+                <span class="ask-tool-check" aria-hidden="true">✓</span>
+              </button>
+            </div>
+          </div>
+          <p class="ask-tool-status" id="readerToolStatus" hidden></p>
+        </div>
         <div class="ask-messages" id="readerChatMessages" aria-live="polite"></div>
         <p class="ask-error" id="readerChatError" hidden></p>
         <form class="ask-composer" id="readerChatForm">
-          <div class="ask-input-row">
-            <textarea id="readerChatInput" rows="1" placeholder="Ask anything"></textarea>
-            <button class="ask-send" type="submit" id="sendReaderChat">Send</button>
+          <input id="readerAttachmentInput" type="file" multiple hidden>
+          <div class="ask-composer-box">
+            <div class="ask-attachment-tray" id="readerAttachmentTray" hidden></div>
+            <div class="ask-input-row">
+              <button class="ask-composer-tool-button" type="button" id="readerToolMenuButton" aria-label="Open Ask tools" aria-haspopup="dialog" aria-expanded="false">+</button>
+              <textarea id="readerChatInput" rows="1" placeholder="Ask anything"></textarea>
+              <button class="ask-send" type="submit" id="sendReaderChat">Send</button>
+            </div>
           </div>
         </form>
       </aside>
@@ -123,9 +229,36 @@
     </main>
   </div>
 
-  <script src="node_modules/pdfjs-dist/build/pdf.js?v=pdfjs3"></script>
-  <script src="scripts/note/app.js?v=annotations-v6"></script>
-  <script src="scripts/reader/state.js?v=state-v1"></script>
-  <script src="scripts/reader/app.js?v=shared-model-v1"></script>
+  <dialog class="debug-modal" id="readerDebugDialog">
+    <div class="debug-card">
+      <div class="debug-header">
+        <div>
+          <div class="debug-eyebrow">Agent</div>
+          <h3>Debug</h3>
+        </div>
+        <button class="icon-button" type="button" id="readerCloseDebugDialog" aria-label="Close debug">x</button>
+      </div>
+      <div class="debug-toolbar">
+        <button type="button" id="readerRefreshDebugRuns">Refresh</button>
+        <div class="debug-cleanup-control">
+          <button type="button" id="readerCleanupDebugRuns" aria-haspopup="menu" aria-expanded="false">Clean old</button>
+          <div class="debug-cleanup-menu" id="readerCleanupDebugMenu" role="menu" hidden>
+            <button type="button" data-debug-cleanup-days="7" role="menuitem">Older than 7 days</button>
+            <button type="button" data-debug-cleanup-days="30" role="menuitem">Older than 30 days</button>
+            <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
+            <button type="button" data-debug-cleanup-days="180" role="menuitem">Older than 180 days</button>
+          </div>
+        </div>
+        <button type="button" id="readerCopyDebugRun">Copy JSON</button>
+      </div>
+      <p class="debug-error" id="readerDebugError" hidden></p>
+      <div class="debug-layout">
+        <div class="debug-run-list" id="readerDebugRunList" aria-live="polite"></div>
+        <div class="debug-run-detail" id="readerDebugRunDetail"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="scripts/reader/loader.js?v=pdf-cross-page-drag-select-v1"></script>
 </body>
 </html>

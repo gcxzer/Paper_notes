@@ -1,0 +1,212 @@
+.debug-modal {
+  width: min(1120px, calc(100vw - 48px));
+  height: min(840px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.debug-modal::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.debug-card {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 22px;
+  overflow: hidden;
+}
+
+.debug-header,
+.debug-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.debug-header h3 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.debug-eyebrow {
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.debug-toolbar {
+  justify-content: flex-end;
+}
+
+.debug-cleanup-control {
+  position: relative;
+}
+
+.debug-toolbar button {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel-alt);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0 12px;
+}
+
+.debug-cleanup-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+}
+
+.debug-cleanup-menu[hidden] {
+  display: none;
+}
+
+.debug-cleanup-menu button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.debug-cleanup-menu button:hover,
+.debug-cleanup-menu button:focus-visible {
+  background: var(--panel-alt);
+}
+
+.debug-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.4fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.debug-run-list,
+.debug-run-detail {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-alt);
+}
+
+.debug-run-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.debug-run-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.debug-run-row.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.debug-run-row span,
+.debug-run-row small,
+.debug-empty,
+.debug-detail-section p,
+.debug-kv dd {
+  color: var(--muted);
+}
+
+.debug-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.debug-run-detail {
+  padding: 14px;
+}
+
+.debug-detail-section {
+  display: grid;
+  gap: 12px;
+}
+
+.debug-detail-section h4 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.debug-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.debug-kv dt {
+  color: var(--muted-strong);
+  font-weight: 700;
+}
+
+.debug-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.debug-events {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.debug-events strong,
+.debug-events span,
+.debug-events code {
+  display: block;
+}
+
+.debug-events code,
+.debug-error-block {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  padding: 8px;
+}
+
+.debug-preview {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 10px;
+}
+

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from backend.storage import atomic_write_json, atomic_write_text
+from app_infra.storage import atomic_write_json, atomic_write_text
 
 
 def test_atomic_write_json_round_trips(tmp_path):

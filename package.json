@@ -1,10 +1,19 @@
 {
+  "name": "paper-notes",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "A local research workspace for reading PDFs, annotating papers, and building HTML notes with an AI assistant.",
   "scripts": {
     "start": "uv run python main.py",
     "test": "uv run --group dev pytest",
+    "test:e2e": "playwright test",
     "lint": "uv run --group dev ruff check src tests"
   },
   "dependencies": {
-    "pdfjs-dist": "^3.11.174"
+    "pdfjs-dist": "^5.7.284"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
   }
 }

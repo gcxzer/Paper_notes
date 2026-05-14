@@ -2,11 +2,14 @@ import sys
 from pathlib import Path
 
 
-SRC_DIR = Path(__file__).resolve().parent / "src" / "ui"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parent
+SRC_DIR = PROJECT_ROOT / "src"
+UI_SRC_DIR = SRC_DIR / "ui"
+for path in (SRC_DIR, UI_SRC_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from backend.server import main  # noqa: E402
+from src.ui.backend.server import main  # noqa: E402
 
 
 if __name__ == "__main__":

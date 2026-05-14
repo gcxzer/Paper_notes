@@ -1,46 +1,98 @@
 # Paper Notes
 
-Paper Notes turns a folder of PDFs into a clean, local research workspace: read the paper on the left, build a beautiful HTML note on the right.
+Paper Notes is a local research workspace for reading PDFs, annotating papers,
+building HTML notes, and using an agent to work with your paper library.
 
-The HTML notes are designed to be generated or refined with an LLM, then kept as plain editable files you can version, customize, and reopen anytime.
+The main reading view keeps the PDF on the left, the note on the right, and the
+agent chat beside your work. Notes stay as normal HTML files that you can edit,
+version, and move around without a hosted service.
 
 ## Preview
 
 Paper Notes opens a PDF and its matching HTML note side by side:
 
-![Paper Notes split reader preview](assets/images/paper-notes-reader-preview.png)
+![Paper Notes split reader preview](assets/paper-notes-reader-preview.png)
 
-The library view keeps imported papers, summaries, collections, and paper actions in one place:
+The library view keeps imported papers, summaries, tags, collections, and paper
+actions in one place:
 
-![Paper Notes library preview](assets/images/paper-notes-library-preview.png)
+![Paper Notes library preview](assets/paper-notes-library-preview.png)
+
+## Requirements
+
+- Python 3.12+ runtime.
+- [uv](https://docs.astral.sh/uv/) used to install Python dependencies and run
+  local commands.
+- Node.js and npm, used to install browser dependencies such as PDF.js.
+
+On macOS, install `uv`, Node.js, and npm with Homebrew:
+
+```bash
+brew install uv
+brew install node
+```
+
+Or install them separately:
+
+- `uv`: use the official installer:
+
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
+- Node.js/npm: install the LTS release from [nodejs.org](https://nodejs.org/).
+
+Check that the commands are available:
+
+```bash
+uv --version
+node --version
+npm --version
+```
+
+After cloning, install the frontend dependencies once:
+
+```bash
+npm install
+```
+
+This creates `node_modules/` for browser packages. It does not start the Paper
+Notes server.
 
 ## Quick Start
 
-Recommended macOS setup: install the local background service once.
+Recommended setup: install the local background service once.
 
 ```bash
 scripts/install-autostart.sh
 ```
 
-Then bookmark and open:
+The installer runs `uv sync`, creates `.venv`, then registers:
+
+- macOS: a launchd LaunchAgent named `com.paper-notes.local`
+- Linux: a user systemd service named `paper-notes.service`
+
+On unsupported platforms, the script still prepares the Python environment and
+prints the manual start command.
+
+Open:
 
 ```text
 http://127.0.0.1:4173
 ```
 
-After that, Paper Notes starts automatically when you log in. You can open the bookmark directly without running the local server manually.
-
 Manual fallback:
 
 ```bash
+uv sync
 uv run python main.py
 ```
 
-Then open `http://localhost:4173`.
+Then open `http://127.0.0.1:4173`.
 
-On macOS, you can also double-click `Open-Paper-Notes.command`.
-
-The local server is required because the browser cannot write PDFs, HTML notes, annotations, or `notes.json` updates into this folder when `index.html` is opened directly.
+The local server is required because the browser cannot write PDFs, HTML notes,
+annotations, generated media, sessions, settings, or `notes.json` updates when
+`index.html` is opened directly.
 
 To remove the background service:
 
@@ -48,45 +100,50 @@ To remove the background service:
 scripts/uninstall-autostart.sh
 ```
 
+To also remove the generated Python environment:
+
+```bash
+scripts/uninstall-autostart.sh --remove-venv
+```
+
 ## Import PDFs
 
-1. Open `http://localhost:4173`.
-2. Click the `+` button in the main toolbar.
+1. Open `http://127.0.0.1:4173`.
+2. Click the `+` button in the library toolbar.
 3. Choose one or more PDF files.
 
-For each imported PDF, the app creates:
+For each imported PDF, Paper Notes creates:
 
 - `resources/Papers/<same name>.pdf`
 - `resources/Paper-html/<same name>.html`
-- `resources/Paper-annotations/<note id>.json` after you create annotations
+- `resources/Paper-annotations/<note id>.json` after annotations exist
 - one note entry in `notes.json`
 
-These files are local workspace data and are ignored by Git. A fresh clone starts
-with an empty library; importing PDFs recreates the folders as needed.
+The generated HTML note starts with the paper title and metadata, then seeds
+`.note-body` with the PDF outline when one is available. If the PDF has no
+embedded outline, Paper Notes tries to infer common section headings from the
+first pages.
 
-The generated HTML note starts with the paper title and metadata, then an empty note body:
+No fake summary, placeholder prose, or default section text is inserted.
 
-```html
-<section class="note-body"></section>
-```
-
-No default summary, fake sections, or placeholder text is inserted.
-
-## Read And Edit Notes
+## Reader And Notes
 
 Click a paper card or `Open Note` to open the split reader.
 
-- Left pane: the PDF.
-- Right pane: the rendered HTML note.
-- Drag the middle divider to resize the PDF and note panes.
-- The PDF pane and HTML note pane scroll independently on desktop.
-- The PDF pane supports Zotero-style local annotations: highlights, underlines, and sticky notes.
-- The PDF toolbar supports page number jumping, internal PDF links, larger zoom levels, undo/redo for annotation changes, and a temporary back button after PDF link jumps.
-- Refresh the reader after editing `resources/Paper-html/<paper>.html`; the app reloads the latest HTML with caching disabled.
+- Left pane: PDF.js paper reader.
+- Middle pane: rendered HTML note.
+- Right pane: agent chat.
+- PDF and note panes scroll independently on desktop.
+- The dividers resize the PDF, note, and chat panes.
+- The PDF toolbar supports page jumping, zoom, internal PDF links, highlights,
+  underlines, sticky notes, annotation undo/redo, and PDF text copy.
+- Existing sticky note markers can be dragged to reposition them in any PDF
+  annotation mode.
+- HTML notes include an automatic contents menu from `h2`, `h3`, and `h4`
+  headings inside `.note-body`.
 
-To edit a note, open the matching file in `resources/Paper-html/` and write normal HTML inside `.note-body`.
-
-Example:
+To edit a note manually, open the matching file in `resources/Paper-html/` and
+write normal HTML inside `.note-body`.
 
 ```html
 <section class="note-body">
@@ -99,118 +156,165 @@ Example:
 </section>
 ```
 
+Refresh the reader after editing the file. Static files are served with
+`Cache-Control: no-store`, so local note edits show up after refresh.
+
 ## PDF Annotations
 
-The split reader uses PDF.js instead of the browser's read-only PDF iframe. Use the PDF toolbar to switch modes:
+The split reader uses PDF.js instead of the browser's read-only PDF iframe.
+Use the PDF toolbar to switch modes:
 
 - `Browse`: normal reading and scrolling.
-- `Highlight`: drag a rectangle on a PDF page to create a color highlight.
+- `Highlight`: drag across PDF text to create a color highlight.
 - `Underline`: drag across text to add a colored underline.
 - `Note`: click a PDF page to add a sticky note.
 
-Choose a color from the toolbar before creating an annotation. The annotation sidebar lists every annotation by page; click an item to jump back to its position, edit its comment, or delete it.
+Existing sticky note markers can be dragged in any annotation mode. Annotation
+undo/redo covers created, deleted, edited, and repositioned annotations.
 
-Annotations are saved as JSON files in `resources/Paper-annotations/`. The original PDF is not modified.
+Annotations are saved as JSON in `resources/Paper-annotations/`. The original
+PDF is not modified.
 
-## Themes
+## Agent Assistant
 
-Paper Notes uses a single app theme control in the library settings menu.
+The Reader `Ask` panel is backed by the local agent runtime. It can use local
+tools to search papers, read PDF text, inspect note HTML, render or extract PDF
+images, review safe note edits, generate image/file artifacts, search past
+sessions, maintain session todos, read/write curated memory, load skills, and
+run bounded Python code.
 
-Theme choices are stored locally in the browser and do not change `notes.json`.
+AI provider setup lives in Settings > AI Provider:
 
-## Note Menu
+- OpenAI API key mode stores local settings and secrets under `.paper-notes/`.
+- Codex OAuth mode stores local OAuth state under `.paper-notes/auth/`.
+- The model picker in the reader can override provider/model per session.
 
-HTML notes include a left-side contents menu. The menu is generated automatically from headings inside `.note-body`.
+Tool settings live in Settings > Tools. Built-in tools are enabled by default
+and currently default to full access unless you change the global or per-tool
+mode. You can switch tools to ask, read-only, block, or disabled from the UI.
 
-- `h2` becomes a top-level menu item.
-- `h3` becomes an indented menu item.
-- `h4` becomes a deeper indented menu item.
-- A small floating menu button appears over the note without taking layout space.
-- `h2`, `h3`, and `h4` sections can be collapsed from the heading.
-- Clicking a menu item jumps to that section.
-- If the note has no `h2`, `h3`, or `h4`, the menu button stays minimal and no placeholder text is shown.
+Visible tool groups are ordered as:
 
-This works both when opening the HTML file directly and inside the split reader.
+1. Paper Notes
+2. Native Web Search
+3. Code Execution
+4. Persistent Memory
+5. Session Search
+6. Todo
+7. Skills
+8. Custom Web Search
 
-## Images In Notes
+The Debug link under a completed answer opens the saved run log for model
+requests, tool calls, progress events, and work trace details. Tool activity
+cards can show changed note files and support undo/redo for saved write
+snapshots.
 
-Use normal relative paths when adding images to a note:
+## Local Data
 
-```html
-<section class="note-body">
-  <h2>Overview</h2>
-  <img src="/assets/images/your-image.png" alt="Describe this image">
-</section>
-```
+Paper Notes keeps user data local:
 
-When a note is rendered inside `reader.html`, root-relative image and media paths are served from `src/ui/frontend/`.
+Core library data:
 
-## Library Actions
+- `notes.json`: paper library metadata
+- `resources/Papers/`: imported PDFs
+- `resources/Paper-html/`: editable HTML notes
+- `resources/Paper-annotations/`: PDF annotation JSON
 
-The library page supports:
+Derived paper caches:
 
-- Importing PDFs with the `+` button.
-- Opening a note, PDF, or HTML from the details panel.
-- Renaming a paper from the paper card.
-- Deleting a paper from the website list. This removes the note entry from `notes.json`; it does not delete the local PDF or HTML file.
-- Writing a short summary in the details panel.
-- Moving a paper between collections from the details panel.
-- Creating, renaming, reordering, and deleting collections from the sidebar.
+- `resources/Paper-text/`: extracted PDF text cache
+- `resources/Paper-pages/`: rendered PDF page image cache
+- `resources/Paper-images/`: extracted PDF image cache
 
-Renaming a paper updates `notes.json`. If the note HTML exists, the app also updates the HTML `<title>` and first `<h1>`.
+Agent and app runtime state:
 
-Collection changes are also written back to `notes.json` when the local server is running, so a refresh keeps newly created collections, renamed collections, drag order, and paper moves.
+- `.paper-notes/sessions/`: chat sessions and transcripts
+- `.paper-notes/compression/`: context compression checkpoints
+- `.paper-notes/snapshots/`: write snapshots used for undo/redo
+- `.paper-notes/approvals/`: local tool approval history
+- `.paper-notes/logs/`: debug logs and tool result records
+- `.paper-notes/memory/`: curated user/project memory
+- `.paper-notes/media/`: uploads and generated artifacts
+- `.paper-notes/skills/`: user-installed or user-authored skills
+- `.paper-notes/tool-settings.json`: local tool permissions
+- `.paper-notes/secrets.env` and `.paper-notes/auth/`: local provider secrets/auth
+
+These runtime folders are ignored by Git.
 
 ## File Structure
 
 ```text
 .
-├── notes.json                 # Local library metadata, generated at runtime
-├── package.json               # Frontend dependency metadata for PDF.js
-├── pyproject.toml             # uv/Python project metadata
-├── scripts/                   # macOS auto-start install/uninstall helpers
+├── main.py                     # Local server entry point
+├── notes.json                  # Local library metadata, generated at runtime
+├── package.json                # Frontend scripts and PDF.js dependency
+├── pyproject.toml              # Python runtime dependencies
+├── scripts/                    # install/uninstall service helpers
 ├── src/
+│   ├── agent_memory/           # Curated local memory
+│   ├── agent_prompts/          # System prompt and context builder
+│   ├── agent_runtime/          # Agent service, loop, runner, control
+│   ├── agent_sessions/         # Chat session metadata and transcripts
+│   ├── app_config/             # AI settings and local secrets
+│   ├── app_infra/              # Paths, storage, shared formatting
+│   ├── context_compression/    # Context pruning and summaries
+│   ├── library/                # Library, note HTML, annotations
+│   ├── media/                  # Upload and generated media store
+│   ├── model_providers/        # OpenAI/Codex provider boundary
+│   ├── skills/                 # Local Paper Notes skills
+│   ├── telemetry/              # Progress, debug, and run records
+│   ├── tool_safety/            # Approvals, guardrails, snapshots
+│   ├── tools/                  # Tool registry and built-in tools
 │   └── ui/
-│       ├── backend/
-│       │   ├── server.py      # Thin Python HTTP/static routing layer
-│       │   ├── library.py     # notes.json schema, import, rename, summaries
-│       │   ├── annotations.py # PDF annotation JSON storage
-│       │   ├── storage.py     # Atomic local file writes
-│       │   ├── note_html.py   # Generated note HTML helpers
-│       │   ├── core.py        # Shared backend normalization helpers
-│       │   └── paths.py       # Project paths and server constants
+│       ├── backend/            # HTTP API and static server routes
 │       └── frontend/
-│           ├── index.html         # Library page
-│           ├── reader.html        # Split PDF / HTML reader
-│           ├── note-template.html # Manual note template
-│           ├── scripts/           # Browser JavaScript
-│           │   ├── shared/        # Shared browser model/schema helpers
-│           │   ├── site/          # Library page state and app code
-│           │   ├── reader/        # Reader page state and app code
-│           │   └── note/          # Generated/manual note page behavior
-│           └── styles/            # CSS
-├── assets/                    # Local image/media assets served at /assets
-├── resources/                 # Local paper workspace data, ignored by Git
-│   ├── Papers/                # Imported PDFs
-│   ├── Paper-html/            # HTML note files
-│   └── Paper-annotations/     # PDF highlight and sticky-note JSON files
+│           ├── index.html
+│           ├── reader.html
+│           ├── note-template.html
+│           ├── scripts/
+│           │   ├── reader/     # Reader, PDF, chat, debug modules
+│           │   ├── site/       # Library page and settings modules
+│           │   ├── shared/     # Shared browser helpers
+│           │   └── note/       # Standalone note behavior
+│           └── styles/
+│               ├── reader/     # Reader CSS modules
+│               └── site/       # Library/settings CSS modules
+├── assets/                     # README/static image assets
+└── resources/                  # Local paper workspace data, ignored by Git
 ```
 
-## Development Notes
+## Development
 
-- The app has no build step.
-- The local backend is Python and can be started with `uv run python main.py`.
-- `npm start` is kept as a convenience wrapper for the same Python server.
-- Run backend tests with `npm test` or `uv run --group dev pytest`.
-- Run lint checks with `npm run lint`.
-- Agent/chat backend endpoints are intentionally not included in this structure yet.
-- `scripts/install-autostart.sh` registers a macOS LaunchAgent named `com.paper-notes.local`.
-- PDF rendering uses `pdfjs-dist`.
-- Default port: `4173`.
-- Static files are served with `Cache-Control: no-store` so note edits show up after refresh.
-- `notes.json` and `resources/` are local user data and are ignored by Git.
-- `.env`, `.venv/`, `.paper-notes-local/`, `node_modules/`, and temporary/cache folders are also ignored.
+Start the local server:
+
+```bash
+uv run python main.py
+```
+
+or:
+
+```bash
+npm start
+```
+
+Useful checks:
+
+```bash
+uv run --group dev pytest
+npm run lint
+npm run test:e2e
+```
+
+Focused syntax checks:
+
+```bash
+uv run python -m py_compile $(find src -name '*.py' -not -path '*/__pycache__/*') main.py
+find src/ui/frontend/scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+```
+
+Default port: `4173`.
 
 ## License
 
-MIT License. If you use or redistribute this project, keep the copyright and license notice.
+MIT License. If you use or redistribute this project, keep the copyright and
+license notice.

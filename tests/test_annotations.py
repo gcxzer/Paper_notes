@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.annotations import annotation_path_for, read_annotations, write_annotations
+from library.annotations import annotation_path_for, read_annotations, write_annotations
 
 
 def test_annotation_path_sanitizes_note_id(tmp_path):

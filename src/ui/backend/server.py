@@ -8,10 +8,44 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from backend.annotations import read_annotations, write_annotations
-from backend.core import normalize_text
-from backend.library import import_pdf, read_library, rename_note, sanitize_library, update_note_summary, write_library
-from backend.paths import (
+from ui.backend.agent_api import (
+    AgentAPIError,
+    archive_chat_session,
+    branch_chat_session,
+    cancel_chat_request,
+    cleanup_debug_runs,
+    cleanup_chat_tool_snapshots,
+    compact_chat_session,
+    create_chat_session,
+    delete_chat_session,
+    error_response,
+    get_chat_context_status,
+    get_chat_progress,
+    get_chat_session,
+    get_debug_run,
+    handle_chat_request,
+    handle_chat_stream_request,
+    get_agent_service,
+    list_chat_tool_snapshots,
+    list_chat_sessions,
+    list_debug_runs,
+    rename_chat_session,
+    redo_chat_tool_snapshot,
+    list_chat_tool_approvals,
+    preview_chat_tool_snapshot,
+    respond_chat_tool_approval,
+    undo_chat_session,
+    undo_chat_tool_snapshot,
+    update_chat_session_model,
+    upload_chat_attachment,
+)
+from media import MediaStoreError
+from library.annotations import read_annotations, write_annotations
+from app_infra.formatting import normalize_text
+from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
+from ui.backend.memory_api import list_memory, update_memory
+from ui.backend.model_providers_api import get_model_providers
+from app_infra.paths import (
     HOST,
     MAX_BODY_SIZE,
     PORT,
@@ -19,6 +53,18 @@ from backend.paths import (
     PUBLIC_DIR,
     is_relative_to,
 )
+from ui.backend.settings_api import (
+    delete_ai_api_key,
+    get_ai_settings,
+    get_codex_auth_status,
+    get_tool_settings,
+    logout_codex_auth,
+    poll_codex_auth,
+    start_codex_auth,
+    update_ai_settings,
+    update_tool_settings,
+)
+from ui.backend.skills_api import list_skills, update_skill, update_skill_settings, view_skill
 
 
 MIME_TYPES = {
@@ -31,17 +77,19 @@ MIME_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
     ".svg": "image/svg+xml",
 }
 
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
-    server_version = "PaperNotesPython/0.1"
+    server_version = "PaperNotesPython/1.0.0"
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,POST,DELETE,OPTIONS")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -60,6 +108,25 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
     def send_json(self, status: int, body: Any) -> None:
         self.send_text(status, json.dumps(body, ensure_ascii=False, indent=2), "application/json; charset=utf-8")
 
+    def send_bytes(
+        self,
+        status: int,
+        body: bytes,
+        *,
+        content_type: str,
+        file_name: str = "",
+        download: bool = False,
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if download:
+            safe_name = file_name.replace('"', "") or "image"
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
     def read_json_body(self) -> Any:
         content_length = int(self.headers.get("Content-Length") or "0")
         if content_length > MAX_BODY_SIZE:
@@ -76,21 +143,98 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/media/"):
+            self._run_api_handler(lambda: self.handle_get_media(parsed.path))
+            return
         if parsed.path == "/api/library":
             self.handle_read_library()
             return
         if parsed.path == "/api/annotations":
             self.handle_read_annotations(parsed.query)
             return
+        if parsed.path == "/api/chat/sessions":
+            self._run_api_handler(lambda: self.handle_list_chat_sessions(parsed.query))
+            return
+        if parsed.path == "/api/chat/progress":
+            self._run_api_handler(lambda: self.handle_get_chat_progress(parsed.query))
+            return
+        if parsed.path == "/api/chat/context":
+            self._run_api_handler(lambda: self.handle_get_chat_context_status(parsed.query))
+            return
+        if parsed.path == "/api/chat/session":
+            self._run_api_handler(lambda: self.handle_get_chat_session(parsed.query))
+            return
+        if parsed.path == "/api/chat/tool-snapshots":
+            self._run_api_handler(lambda: self.handle_list_chat_tool_snapshots(parsed.query))
+            return
+        if parsed.path == "/api/chat/tool-snapshot-diff":
+            self._run_api_handler(lambda: self.handle_preview_chat_tool_snapshot(parsed.query))
+            return
+        if parsed.path == "/api/chat/tool-approvals":
+            self._run_api_handler(lambda: self.handle_list_chat_tool_approvals(parsed.query))
+            return
+        if parsed.path == "/api/debug/runs":
+            self._run_api_handler(lambda: self.handle_list_debug_runs(parsed.query))
+            return
+        if parsed.path.startswith("/api/debug/runs/"):
+            self._run_api_handler(lambda: self.handle_get_debug_run(parsed.path))
+            return
+        if parsed.path == "/api/memory":
+            self._run_api_handler(self.handle_list_memory)
+            return
+        if parsed.path == "/api/settings/ai":
+            self._run_api_handler(self.handle_get_ai_settings)
+            return
+        if parsed.path == "/api/settings/tools":
+            self._run_api_handler(self.handle_get_tool_settings)
+            return
+        if parsed.path == "/api/skills":
+            self._run_api_handler(lambda: self.handle_list_skills(parsed.query))
+            return
+        if parsed.path == "/api/skills/view":
+            self._run_api_handler(lambda: self.handle_view_skill(parsed.query))
+            return
+        if parsed.path == "/api/model/providers":
+            self._run_api_handler(self.handle_get_model_providers)
+            return
+        if parsed.path == "/api/auth/codex/status":
+            self._run_api_handler(self.handle_get_codex_auth_status)
+            return
         self.serve_static()
 
     def do_POST(self) -> None:
         routes = {
             "/api/import-pdf": self.handle_import_pdf,
+            "/api/import-paper-url": self.handle_import_paper_url,
             "/api/rename-note": self.handle_rename_note,
             "/api/update-note-summary": self.handle_update_note_summary,
             "/api/library": self.handle_write_library,
             "/api/annotations": self.handle_write_annotations,
+            "/api/chat": self.handle_chat,
+            "/api/chat/stream": self.handle_chat_stream,
+            "/api/chat/attachments": self.handle_upload_chat_attachment,
+            "/api/chat/cancel": self.handle_cancel_chat,
+            "/api/chat/compress": self.handle_compact_chat_session,
+            "/api/chat/session": self.handle_create_chat_session,
+            "/api/chat/session/rename": self.handle_rename_chat_session,
+            "/api/chat/session/archive": self.handle_archive_chat_session,
+            "/api/chat/session/delete": self.handle_delete_chat_session,
+            "/api/chat/session/branch": self.handle_branch_chat_session,
+            "/api/chat/session/undo": self.handle_undo_chat_session,
+            "/api/chat/tool-undo": self.handle_undo_chat_tool_snapshot,
+            "/api/chat/tool-redo": self.handle_redo_chat_tool_snapshot,
+            "/api/chat/tool-snapshots/cleanup": self.handle_cleanup_chat_tool_snapshots,
+            "/api/chat/tool-approvals/respond": self.handle_respond_chat_tool_approval,
+            "/api/chat/session/model": self.handle_update_chat_session_model,
+            "/api/memory": self.handle_update_memory,
+            "/api/settings/ai": self.handle_update_ai_settings,
+            "/api/settings/tools": self.handle_update_tool_settings,
+            "/api/skills/update": self.handle_update_skill,
+            "/api/skills/settings": self.handle_update_skill_settings,
+            "/api/auth/codex/start": self.handle_start_codex_auth,
+            "/api/auth/codex/poll": self.handle_poll_codex_auth,
+            "/api/auth/codex/logout": self.handle_logout_codex_auth,
+            "/api/debug/runs/cleanup": self.handle_cleanup_debug_runs,
         }
         parsed = urlparse(self.path)
         handler = routes.get(parsed.path)
@@ -103,11 +247,21 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
 
     def do_DELETE(self) -> None:
-        self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+        routes = {
+            "/api/settings/ai/key": self.handle_delete_ai_api_key,
+        }
+        parsed = urlparse(self.path)
+        handler = routes.get(parsed.path)
+        if handler is None:
+            self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+            return
+        self._run_api_handler(handler)
 
     def _run_api_handler(self, handler: Any) -> None:
         try:
             handler()
+        except AgentAPIError as error:
+            self.send_json(error.status, error_response(error))
         except ValueError as error:
             self.send_text(HTTPStatus.BAD_REQUEST, str(error) or "Bad request")
         except Exception as error:
@@ -119,6 +273,10 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_import_pdf(self) -> None:
         note = import_pdf(self.read_json_body())
+        self.send_json(HTTPStatus.CREATED, note)
+
+    def handle_import_paper_url(self) -> None:
+        note = import_pdf_from_url(self.read_json_body())
         self.send_json(HTTPStatus.CREATED, note)
 
     def handle_rename_note(self) -> None:
@@ -168,6 +326,189 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             return
         self.send_json(HTTPStatus.OK, payload)
 
+    def handle_chat(self) -> None:
+        self.send_json(HTTPStatus.OK, handle_chat_request(self.read_json_body()))
+
+    def handle_chat_stream(self) -> None:
+        body = self.read_json_body()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+        closed = False
+
+        def send_event(event: str, payload: dict[str, Any]) -> bool:
+            nonlocal closed
+            if closed:
+                return False
+            try:
+                self.wfile.write(_sse_frame(event, payload))
+                self.wfile.flush()
+                return True
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                closed = True
+                return False
+
+        try:
+            handle_chat_stream_request(body, send_event=send_event)
+        except Exception as error:
+            print(error, file=sys.stderr)
+            send_event("error", {"code": "stream_failed", "error": str(error) or "Chat stream failed."})
+            send_event("done", {})
+        finally:
+            self.close_connection = True
+
+    def handle_upload_chat_attachment(self) -> None:
+        self.send_json(HTTPStatus.CREATED, upload_chat_attachment(self.read_json_body()))
+
+    def handle_cancel_chat(self) -> None:
+        self.send_json(HTTPStatus.OK, cancel_chat_request(self.read_json_body()))
+
+    def handle_cleanup_debug_runs(self) -> None:
+        self.send_json(HTTPStatus.OK, cleanup_debug_runs(self.read_json_body()))
+
+    def handle_compact_chat_session(self) -> None:
+        self.send_json(HTTPStatus.OK, compact_chat_session(self.read_json_body()))
+
+    def handle_create_chat_session(self) -> None:
+        self.send_json(HTTPStatus.CREATED, create_chat_session(self.read_json_body()))
+
+    def handle_rename_chat_session(self) -> None:
+        self.send_json(HTTPStatus.OK, rename_chat_session(self.read_json_body()))
+
+    def handle_archive_chat_session(self) -> None:
+        self.send_json(HTTPStatus.OK, archive_chat_session(self.read_json_body()))
+
+    def handle_delete_chat_session(self) -> None:
+        self.send_json(HTTPStatus.OK, delete_chat_session(self.read_json_body()))
+
+    def handle_branch_chat_session(self) -> None:
+        self.send_json(HTTPStatus.CREATED, branch_chat_session(self.read_json_body()))
+
+    def handle_undo_chat_session(self) -> None:
+        self.send_json(HTTPStatus.OK, undo_chat_session(self.read_json_body()))
+
+    def handle_undo_chat_tool_snapshot(self) -> None:
+        self.send_json(HTTPStatus.OK, undo_chat_tool_snapshot(self.read_json_body()))
+
+    def handle_redo_chat_tool_snapshot(self) -> None:
+        self.send_json(HTTPStatus.OK, redo_chat_tool_snapshot(self.read_json_body()))
+
+    def handle_cleanup_chat_tool_snapshots(self) -> None:
+        self.send_json(HTTPStatus.OK, cleanup_chat_tool_snapshots(self.read_json_body()))
+
+    def handle_respond_chat_tool_approval(self) -> None:
+        self.send_json(HTTPStatus.OK, respond_chat_tool_approval(self.read_json_body()))
+
+    def handle_update_chat_session_model(self) -> None:
+        self.send_json(HTTPStatus.OK, update_chat_session_model(self.read_json_body()))
+
+    def handle_list_chat_sessions(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, list_chat_sessions(parse_qs(query)))
+
+    def handle_get_chat_session(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, get_chat_session(parse_qs(query)))
+
+    def handle_list_chat_tool_snapshots(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, list_chat_tool_snapshots(parse_qs(query)))
+
+    def handle_preview_chat_tool_snapshot(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, preview_chat_tool_snapshot(parse_qs(query)))
+
+    def handle_list_chat_tool_approvals(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, list_chat_tool_approvals(parse_qs(query)))
+
+    def handle_list_debug_runs(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, list_debug_runs(parse_qs(query)))
+
+    def handle_get_debug_run(self, path: str) -> None:
+        request_id = unquote(path.rsplit("/", 1)[-1])
+        self.send_json(HTTPStatus.OK, get_debug_run(request_id))
+
+    def handle_get_chat_progress(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, get_chat_progress(parse_qs(query)))
+
+    def handle_get_chat_context_status(self, query: str) -> None:
+        self.send_json(HTTPStatus.OK, get_chat_context_status(parse_qs(query)))
+
+    def handle_list_memory(self) -> None:
+        self.send_json(HTTPStatus.OK, list_memory())
+
+    def handle_update_memory(self) -> None:
+        self.send_json(HTTPStatus.OK, update_memory(self.read_json_body()))
+
+    def handle_get_ai_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, get_ai_settings())
+
+    def handle_get_tool_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, get_tool_settings())
+
+    def handle_list_skills(self, query: str) -> None:
+        params = parse_qs(query)
+        category = params.get("category", [""])[0]
+        self.send_json(HTTPStatus.OK, list_skills(category=category))
+
+    def handle_view_skill(self, query: str) -> None:
+        params = parse_qs(query)
+        name = params.get("name", [""])[0]
+        file_path = params.get("filePath", params.get("file_path", [""]))[0]
+        self.send_json(HTTPStatus.OK, view_skill(name=name, file_path=file_path))
+
+    def handle_update_skill_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, update_skill_settings(self.read_json_body()))
+
+    def handle_update_skill(self) -> None:
+        self.send_json(HTTPStatus.OK, update_skill(self.read_json_body()))
+
+    def handle_get_model_providers(self) -> None:
+        self.send_json(HTTPStatus.OK, get_model_providers())
+
+    def handle_get_media(self, path: str) -> None:
+        parts = [part for part in path.split("/") if part]
+        if len(parts) not in {3, 4} or parts[0] != "api" or parts[1] != "media":
+            self.send_text(HTTPStatus.NOT_FOUND, "Media not found.")
+            return
+        artifact_id = unquote(parts[2])
+        download = len(parts) == 4 and parts[3] == "download"
+        if len(parts) == 4 and not download:
+            self.send_text(HTTPStatus.NOT_FOUND, "Media not found.")
+            return
+        try:
+            media_store = get_agent_service().media_store
+            artifact = media_store.require_artifact(artifact_id)
+            body = media_store.read_bytes(artifact.id)
+        except MediaStoreError as error:
+            raise AgentAPIError(HTTPStatus.NOT_FOUND, "media_not_found", str(error)) from error
+        self.send_bytes(
+            HTTPStatus.OK,
+            body,
+            content_type=artifact.mime_type,
+            file_name=artifact.file_name,
+            download=download,
+        )
+
+    def handle_update_ai_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, update_ai_settings(self.read_json_body()))
+
+    def handle_update_tool_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, update_tool_settings(self.read_json_body()))
+
+    def handle_delete_ai_api_key(self) -> None:
+        self.send_json(HTTPStatus.OK, delete_ai_api_key())
+
+    def handle_get_codex_auth_status(self) -> None:
+        self.send_json(HTTPStatus.OK, get_codex_auth_status())
+
+    def handle_start_codex_auth(self) -> None:
+        self.send_json(HTTPStatus.OK, start_codex_auth())
+
+    def handle_poll_codex_auth(self) -> None:
+        self.send_json(HTTPStatus.OK, poll_codex_auth(self.read_json_body()))
+
+    def handle_logout_codex_auth(self) -> None:
+        self.send_json(HTTPStatus.OK, logout_codex_auth())
+
     def serve_static(self) -> None:
         parsed = urlparse(self.path)
         pathname = unquote(parsed.path)
@@ -209,6 +550,13 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+
+def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    lines = [f"event: {event}"]
+    lines.extend(f"data: {line}" for line in body.splitlines() or ["{}"])
+    return ("\n".join(lines) + "\n\n").encode("utf-8")
 
 
 def main() -> None:

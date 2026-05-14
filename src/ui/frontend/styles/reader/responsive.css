@@ -1,0 +1,74 @@
+@media (max-width: 900px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .reader-shell {
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .reader-toolbar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .reader-header-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .reader-title {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .reader-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+  }
+
+  .reader-layout > .reader-resizer {
+    display: none;
+  }
+
+  .pdf-pane {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .pdf-viewer {
+    height: 62vh;
+  }
+
+  .note-pane {
+    height: auto;
+    overflow: visible;
+    padding: 14px;
+  }
+
+  .ask-pane {
+    min-height: 480px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .note-page {
+    min-height: auto;
+    padding: 22px;
+  }
+
+  .note-workspace {
+    position: relative;
+  }
+
+  .note-menu {
+    top: 12px;
+    width: min(240px, calc(100% - 24px));
+  }
+}

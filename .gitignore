@@ -15,6 +15,8 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .pyright/
+test-results/
+playwright-report/
 .coverage
 .coverage.*
 htmlcov/
@@ -32,14 +34,15 @@ pnpm-debug.log*
 # Local environment and runtime state
 .env
 .env.*
-.paper-notes-local/
+.paper-notes/
 
 # Local reference repositories
-.reference-repos/
+hermes-agent/
 
 # Editor and tooling
 .vscode/
 .idea/
+.codex/
 
 # Temporary files
 tmp/

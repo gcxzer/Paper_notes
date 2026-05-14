@@ -111,6 +111,7 @@
         href: normalizeResourceHref(note.href),
         htmlHref: normalizeResourceHref(note.htmlHref),
         pdfStorageKey: normalizeText(note.pdfStorageKey),
+        sourceUrl: normalizeText(note.sourceUrl),
         date: normalizeText(note.date),
         order: finiteNumber(note.order, index),
         categoryId: leafIds.has(requestedCategoryId) ? requestedCategoryId : UNCATEGORIZED_ID,

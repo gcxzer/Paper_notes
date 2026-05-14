@@ -1,0 +1,76 @@
+.modal {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal-card {
+  width: min(420px, calc(100vw - 24px));
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--modal-bg);
+  border: 1px solid var(--line);
+}
+
+.modal-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.field textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 10px 12px;
+}
+
+.field textarea:focus {
+  outline: 2px solid rgba(92, 109, 248, 0.24);
+  border-color: var(--accent);
+}
+
+.field-error {
+  margin: 10px 0 0;
+}
+
+.settings-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
