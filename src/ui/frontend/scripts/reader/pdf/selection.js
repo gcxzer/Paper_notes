@@ -876,7 +876,6 @@ function addNoteAnnotation(event, pageElement) {
   pdfState.annotations.push(annotation);
   scheduleSaveAnnotations();
   renderAnnotationsForPage(pageElement);
-  openAnnotationEditor(annotation, pageElement, { focusComment: true });
 }
 
 function finishSelectionAnnotation(pageElement, type) {

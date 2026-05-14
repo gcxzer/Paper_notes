@@ -1565,7 +1565,7 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
         elif event_type == "tool_result":
             text = _work_trace_tool_result_detail(str(data.get("name") or "tool"), data)
         elif event_type == "tool_error":
-            text = f"Tool failed: {str(data.get('name') or 'tool')}"
+            text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
         elif event_type in {"tool_approval_requested", "tool_calls_pending", "halted", "tool_halted", "cancelled"}:
             text = event.message
         else:
@@ -1628,6 +1628,13 @@ def _work_trace_tool_result_detail(name: str, data: dict[str, Any]) -> str:
         count = len(changed_files)
         return f"Saved {count} file{'s' if count != 1 else ''}."
     return ""
+
+
+def _work_trace_tool_error_detail(name: str, data: dict[str, Any]) -> str:
+    error = str(data.get("error") or data.get("message") or "").strip()
+    code = str(data.get("code") or "").strip()
+    detail = error or code
+    return f"Tool failed: {name}{f' - {detail}' if detail else ''}"
 
 
 def _json_args(value: Any) -> dict[str, Any]:

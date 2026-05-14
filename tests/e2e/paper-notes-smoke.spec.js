@@ -1181,8 +1181,8 @@ test("reader ask tools send generation modes and render generated file cards", a
   await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 
   await page.locator("#readerToolMenuButton").click();
-  await page.getByRole("button", { name: /Generate file/ }).click();
-  await page.getByRole("button", { name: /Markdown/ }).click();
+  await page.getByRole("button", { name: /Generate file/ }).hover();
+  await page.getByRole("menuitemradio", { name: /Markdown/ }).click();
   await expect(page.locator("#readerAttachmentTray")).toContainText("Markdown file");
   await askInput.fill("生成 markdown 总结文件");
   await page.getByRole("button", { name: "Send" }).click();
@@ -1203,8 +1203,8 @@ test("reader ask tools send generation modes and render generated file cards", a
   await expect(page.getByText("Generate file · Markdown file")).toBeVisible();
 
   await page.locator("#readerToolMenuButton").click();
-  await page.getByRole("button", { name: /Generate file/ }).click();
-  await page.getByRole("button", { name: /Markdown/ }).click();
+  await page.getByRole("button", { name: /Generate file/ }).hover();
+  await page.getByRole("menuitemradio", { name: /Markdown/ }).click();
   await page.locator("[data-generation-mode-remove]").click();
   await askInput.fill("普通聊天");
   await page.getByRole("button", { name: "Send" }).click();

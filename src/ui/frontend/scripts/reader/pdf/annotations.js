@@ -28,12 +28,11 @@ function normalizeAnnotation(annotation) {
   const comment = normalizeText(annotation.comment);
   const quote = normalizeText(annotation.quote);
   const rects = normalizeAnnotationRects(annotation);
-  const bounds = rects.length ? annotationBounds(rects) : {
-    x: Number(annotation.x) || 0,
-    y: Number(annotation.y) || 0,
-    w: Number(annotation.w) || 0,
-    h: Number(annotation.h) || 0
-  };
+  const rawBounds = annotationBoxFromFields(annotation);
+  const rectBounds = rects.length ? annotationBounds(rects) : null;
+  const bounds = type === "note"
+    ? rawBounds || rectBounds || emptyAnnotationBox()
+    : rectBounds || rawBounds || emptyAnnotationBox();
   return {
     id: normalizeText(annotation.id) || `annotation-${Date.now().toString(36)}`,
     type,
@@ -163,6 +162,25 @@ function normalizeAnnotationRects(annotation) {
   return fallback.w >= 0.001 && fallback.h >= 0.001 ? [fallback] : [];
 }
 
+function finiteAnnotationNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function emptyAnnotationBox() {
+  return { x: 0, y: 0, w: 0, h: 0 };
+}
+
+function annotationBoxFromFields(annotation) {
+  const x = finiteAnnotationNumber(annotation?.x);
+  const y = finiteAnnotationNumber(annotation?.y);
+  const w = finiteAnnotationNumber(annotation?.w);
+  const h = finiteAnnotationNumber(annotation?.h);
+  if (x == null || y == null || w == null || h == null) return null;
+  const box = normalizeAnnotationRect({ x, y, w, h });
+  return box.w >= 0.001 && box.h >= 0.001 ? box : null;
+}
+
 function annotationBounds(rects) {
   const left = Math.min(...rects.map((rect) => rect.x));
   const top = Math.min(...rects.map((rect) => rect.y));
@@ -226,6 +244,7 @@ async function saveAnnotations() {
   try {
     const response = await fetch("/api/annotations", {
       method: "POST",
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         noteId: pdfState.noteId,
@@ -360,8 +379,26 @@ function clampAnnotationPosition(value, size) {
   return clamp(value, 0, Math.max(0, 1 - size));
 }
 
+function noteAnnotationMarkerRect(annotation, box) {
+  const markerWidth = PDF_NOTE_MARKER_SIZE / Math.max(1, box.width);
+  const markerHeight = PDF_NOTE_MARKER_SIZE / Math.max(1, box.height);
+  return {
+    x: clampAnnotationPosition(Number(annotation.x) || 0, markerWidth),
+    y: clampAnnotationPosition(Number(annotation.y) || 0, markerHeight),
+    w: markerWidth,
+    h: markerHeight
+  };
+}
+
 function moveAnnotationTo(annotation, startRects, nextX, nextY) {
   const startBounds = annotationBounds(startRects);
+  if (annotation.type === "note") {
+    annotation.x = clampAnnotationPosition(nextX, startBounds.w);
+    annotation.y = clampAnnotationPosition(nextY, startBounds.h);
+    annotation.w = startBounds.w;
+    annotation.h = startBounds.h;
+    return;
+  }
   const deltaX = nextX - startBounds.x;
   const deltaY = nextY - startBounds.y;
   annotation.rects = startRects.map((rect) => ({
@@ -388,8 +425,10 @@ function finishNoteAnnotationDrag(event) {
 
   if (!drag.moved) return;
   pdfState.noteDragSuppressClick = true;
-  scheduleSaveAnnotations();
+  window.clearTimeout(pdfState.saveTimer);
+  setAnnotationStatus("Saving annotations...");
   renderAnnotationList();
+  void saveAnnotations();
   window.setTimeout(() => {
     pdfState.noteDragSuppressClick = false;
   }, 0);
@@ -423,7 +462,10 @@ function handleNoteAnnotationDragMove(event) {
     drag.startBounds.h
   );
   moveAnnotationTo(annotation, drag.startRects, nextX, nextY);
-  applyRectStyle(drag.item, annotationBounds(annotation.rects), { width: box.width, height: box.height });
+  const nextRect = annotation.type === "note"
+    ? noteAnnotationMarkerRect(annotation, box)
+    : annotationBounds(annotation.rects);
+  applyRectStyle(drag.item, nextRect, { width: box.width, height: box.height });
 }
 
 function startNoteAnnotationDrag(event, annotation, pageElement, item) {
@@ -435,7 +477,10 @@ function startNoteAnnotationDrag(event, annotation, pageElement, item) {
   closeNoteEditor();
   cancelPendingAnnotationClick();
   pdfState.selectedAnnotationId = annotation.id;
-  const startRects = (annotation.rects?.length ? annotation.rects : [annotation]).map((rect) => ({ ...rect }));
+  const box = pageViewportBox(pageElement);
+  const startRects = annotation.type === "note"
+    ? [noteAnnotationMarkerRect(annotation, box)]
+    : (annotation.rects?.length ? annotation.rects : [annotation]).map((rect) => ({ ...rect }));
   pdfState.noteDrag = {
     pointerId: event.pointerId,
     annotationId: annotation.id,
@@ -465,7 +510,8 @@ function renderAnnotationsForPage(pageElement) {
   overlay.innerHTML = "";
   pdfState.annotations.filter((annotation) => annotation.page === page).forEach((annotation) => {
     const rects = annotation.rects?.length ? annotation.rects : [annotation];
-    rects.forEach((rect) => {
+    const displayRects = annotation.type === "note" ? [noteAnnotationMarkerRect(annotation, box)] : rects;
+    displayRects.forEach((rect) => {
       const item = document.createElement("button");
       item.type = "button";
       item.className = `pdf-annotation pdf-annotation-${annotation.type}`;
@@ -496,7 +542,7 @@ function renderAnnotationsForPage(pageElement) {
 }
 
 function annotationAtPagePoint(pageElement, event) {
-  if (!pageElement || pdfState.mode !== "pan") return null;
+  if (!pageElement || !canOpenAnnotationEditorInCurrentMode()) return null;
   const page = Number(pageElement.dataset.page);
   const canvas = pageElement.querySelector(".pdf-page-canvas");
   if (!canvas) return null;
@@ -507,7 +553,9 @@ function annotationAtPagePoint(pageElement, event) {
   const annotations = pdfState.annotations.filter((annotation) => annotation.page === page);
   for (let index = annotations.length - 1; index >= 0; index -= 1) {
     const annotation = annotations[index];
-    const rects = annotation.rects?.length ? annotation.rects : [annotation];
+    const rects = annotation.type === "note"
+      ? [noteAnnotationMarkerRect(annotation, box)]
+      : annotation.rects?.length ? annotation.rects : [annotation];
     if (rects.some((rect) => annotationRectContainsPoint(annotation, rect, x, y, box))) return annotation;
   }
   return null;
@@ -534,9 +582,13 @@ function cancelPendingAnnotationClick() {
   pdfState.annotationClickTimer = 0;
 }
 
+function canOpenAnnotationEditorInCurrentMode() {
+  return ["pan", "highlight", "underline"].includes(pdfState.mode);
+}
+
 function handlePdfAnnotationClick(event, pageElement) {
   if (event.paperNotesAnnotationClickHandled) return;
-  if (event.defaultPrevented || event.button !== 0 || pdfState.mode !== "pan") return;
+  if (event.defaultPrevented || event.button !== 0 || !canOpenAnnotationEditorInCurrentMode()) return;
   const targetElement = event.target?.nodeType === Node.ELEMENT_NODE
     ? event.target
     : event.target?.parentElement;
@@ -604,7 +656,9 @@ function positionAnnotationEditor(editor, annotation, pageElement) {
   const gap = 12;
   const editorWidth = Math.min(editor.offsetWidth || 380, Math.max(1, box.width - margin * 2));
   const editorHeight = Math.min(editor.offsetHeight || 360, Math.max(1, box.height - margin * 2));
-  const rects = annotation.rects?.length ? annotation.rects : [annotation];
+  const rects = annotation.type === "note"
+    ? [noteAnnotationMarkerRect(annotation, box)]
+    : annotation.rects?.length ? annotation.rects : [annotation];
   const bounds = annotationBounds(rects);
   const annotationLeft = bounds.x * box.width;
   const annotationTop = bounds.y * box.height;

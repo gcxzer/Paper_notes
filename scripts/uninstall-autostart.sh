@@ -7,9 +7,37 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${VENV_DIR:-$APP_DIR/.venv}"
 REMOVE_VENV="${REMOVE_VENV:-0}"
 
-if [[ "${1:-}" == "--remove-venv" ]]; then
-  REMOVE_VENV=1
-fi
+usage() {
+  cat <<USAGE
+Usage: scripts/uninstall-autostart.sh [--remove-venv]
+
+Options:
+  --remove-venv  Also delete the project Python virtual environment
+  -h, --help     Show this help
+
+Environment overrides:
+  LABEL         macOS launchd label (default: com.paper-notes.local)
+  SERVICE_NAME  Linux systemd user service name (default: paper-notes.service)
+  VENV_DIR      Python virtual environment path (default: .venv)
+USAGE
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --remove-venv)
+      REMOVE_VENV=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 uninstall_macos_launch_agent() {
   local plist_path="$HOME/Library/LaunchAgents/$LABEL.plist"

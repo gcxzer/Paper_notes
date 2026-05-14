@@ -39,6 +39,12 @@ function renderReaderToolControls() {
   if (elements.readerToolFileGeneration) {
     elements.readerToolFileGeneration.hidden = level !== "file_generation";
   }
+  if (elements.readerToolSavedPrompts) {
+    elements.readerToolSavedPrompts.hidden = level !== "saved_prompts";
+    if (level === "saved_prompts") {
+      elements.readerToolSavedPrompts.innerHTML = renderSavedPromptToolSection();
+    }
+  }
 
   elements.readerToolPopover?.querySelectorAll("[data-tool-mode]").forEach((button) => {
     const active = normalizeWriteToolMode(button.dataset.toolMode) === normalizeWriteToolMode(readerState.writeToolMode);
@@ -72,7 +78,7 @@ function renderReaderToolControls() {
 
 function normalizeToolMenuLevel(value) {
   const level = normalizeText(value);
-  return ["root", "snapshots", "file_generation"].includes(level) ? level : "root";
+  return ["root", "snapshots", "file_generation", "saved_prompts"].includes(level) ? level : "root";
 }
 
 function normalizeFileGenerationFormat(value) {
@@ -93,12 +99,14 @@ function fileGenerationFormatLabel(value) {
 function toolMenuTitle(level) {
   if (level === "snapshots") return "Snapshots";
   if (level === "file_generation") return "Generate file";
+  if (level === "saved_prompts") return "Saved Prompts";
   return "Ask tools";
 }
 
 function toolMenuSubtitle(level) {
   if (level === "snapshots") return "Undo note writes";
   if (level === "file_generation") return "Choose file format";
+  if (level === "saved_prompts") return "Reuse your prompts";
   return "More actions";
 }
 
@@ -110,23 +118,101 @@ function renderToolRootMenu() {
   return `
     <div class="ask-tool-menu-section">
       <button class="ask-tool-menu-option" type="button" data-tool-action="attach-image">
+        ${renderAskToolMenuIcon("attach")}
         <span>
           <strong>Add Images & Files</strong>
         </span>
       </button>
+      <div class="ask-tool-submenu-shell">
+        <button class="ask-tool-menu-option" type="button" aria-haspopup="menu" aria-expanded="false">
+          ${renderAskToolMenuIcon("bookmark")}
+          <span>
+            <strong>Saved Prompts</strong>
+          </span>
+        <span class="ask-tool-menu-arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="ask-tool-submenu" role="menu" aria-label="Saved Prompts">
+          ${renderSavedPromptSubmenuContent()}
+        </div>
+      </div>
     </div>
     <div class="ask-tool-menu-section">
       <button class="ask-tool-menu-option" type="button" data-tool-action="generate-image"${imageGenerationSupported ? "" : " disabled"} title="${escapeHtml(imageGenerationTitle)}">
+        ${renderAskToolMenuIcon("image")}
         <span>
           <strong>Generate image</strong>
         </span>
       </button>
-      <button class="ask-tool-menu-option" type="button" data-tool-section="file_generation">
-        <span>
-          <strong>Generate file</strong>
-        </span>
-      </button>
+      <div class="ask-tool-submenu-shell">
+        <button class="ask-tool-menu-option" type="button" aria-haspopup="menu" aria-expanded="false">
+          ${renderAskToolMenuIcon("file")}
+          <span>
+            <strong>Generate file</strong>
+          </span>
+          <span class="ask-tool-menu-arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="ask-tool-submenu" role="menu" aria-label="Generate file">
+          ${renderFileGenerationFormatMenuContent()}
+        </div>
+      </div>
     </div>
+  `;
+}
+
+function renderFileGenerationFormatMenuContent() {
+  const formats = [
+    ["markdown", "markdown", "Markdown"],
+    ["text", "text", "Text"],
+    ["json", "json", "JSON"],
+    ["csv", "csv", "CSV"],
+    ["html", "html", "HTML"]
+  ];
+  return `
+    <div class="ask-tool-menu-section">
+      ${formats.map(([format, icon, label]) => `
+        <button class="ask-tool-menu-option" type="button" data-file-generation-format="${format}" aria-pressed="false" role="menuitemradio">
+          ${renderAskToolMenuIcon(icon)}
+          <span><strong>${label}</strong></span>
+          <span class="ask-tool-check" aria-hidden="true">✓</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+const ASK_TOOL_ICON_PATHS = {
+  attach: `<path d="M6 12.5v3.25A3.25 3.25 0 0 0 9.25 19h5.5A3.25 3.25 0 0 0 18 15.75v-7.5A3.25 3.25 0 0 0 14.75 5h-5.5A3.25 3.25 0 0 0 6 8.25v.25"/><path d="M9 12.25 12 15l4-5"/><path d="M4 8.5h6"/>`,
+  bookmark: `<path d="M7 4.75A2.75 2.75 0 0 1 9.75 2h4.5A2.75 2.75 0 0 1 17 4.75v16l-5-3.25-5 3.25v-16Z"/>`,
+  image: `<rect x="4" y="6" width="14" height="12" rx="2.5"/><path d="m6.5 15 2.8-2.8a1.2 1.2 0 0 1 1.7 0l1.1 1.1 1.8-2a1.2 1.2 0 0 1 1.8.1L18 14"/><path d="M8 4.5 18.5 2.6a2 2 0 0 1 2.3 1.6l1.4 8.1"/>`,
+  file: `<path d="M7 3.75h6.5L18 8.25v12H7a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/><path d="M13.5 4v4.25H18M8.5 12h6M8.5 15.5h5"/>`,
+  edit: `<path d="m5 16.8-.7 3 3-.7L18.5 7.9a2.1 2.1 0 0 0-3-3L5 16.8Z"/><path d="m14 6.3 3.2 3.2"/>`,
+  settings: `<path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7.5 7.5 0 0 0-1.8-1L14.4 3h-4.8l-.3 3.1a7.5 7.5 0 0 0-1.8 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.5 7.5 0 0 0 1.8 1l.3 3.1h4.8l.3-3.1a7.5 7.5 0 0 0 1.8-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/>`,
+  prompt: `<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h9A2.5 2.5 0 0 1 19 5.5v7A2.5 2.5 0 0 1 16.5 15H11l-4.5 4v-4A2.5 2.5 0 0 1 4 12.5v-7Z"/><path d="M8 7h8M8 10.5h5"/>`,
+  markdown: `<path d="M5 16V8l3 4 3-4v8"/><path d="M15 8v6"/><path d="m12.8 12 2.2 2.2 2.2-2.2"/>`,
+  text: `<path d="M4 6h16"/><path d="M12 6v12"/><path d="M8 18h8"/>`,
+  json: `<path d="M8.5 7 5 12l3.5 5"/><path d="M15.5 7 19 12l-3.5 5"/><path d="m13.5 6-3 12"/>`,
+  csv: `<path d="M4.5 5.5h15v13h-15z"/><path d="M4.5 10h15"/><path d="M4.5 14h15"/><path d="M9.5 5.5v13"/><path d="M14.5 5.5v13"/>`,
+  html: `<path d="m9 8-4 4 4 4"/><path d="m15 8 4 4-4 4"/><path d="m13 6-2 12"/>`,
+  search: `<path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="7"/>`,
+  globe: `<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9S14.5 18.4 12 21c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/>`,
+  book: `<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/>`,
+  code: `<path d="m9 8-4 4 4 4M15 8l4 4-4 4"/>`,
+  lab: `<path d="M9 3h6M10 3v5l-5 9a3 3 0 0 0 2.6 4.5h8.8A3 3 0 0 0 19 17l-5-9V3"/><path d="M7 15h10"/>`
+};
+
+function renderAskToolSvg(name, size = 18) {
+  return `
+    <svg viewBox="0 0 24 24" width="${Number(size) || 18}" height="${Number(size) || 18}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      ${ASK_TOOL_ICON_PATHS[name] || ASK_TOOL_ICON_PATHS.prompt}
+    </svg>
+  `;
+}
+
+function renderAskToolMenuIcon(name) {
+  return `
+    <span class="ask-tool-option-icon" aria-hidden="true">
+      ${renderAskToolSvg(name, 18)}
+    </span>
   `;
 }
 
@@ -422,6 +508,25 @@ function handleReaderToolPopoverClick(event) {
     return;
   }
 
+  const savedPromptInsert = event.target.closest("[data-saved-prompt-insert]");
+  if (savedPromptInsert) {
+    event.preventDefault();
+    insertSavedPrompt(savedPromptInsert.dataset.savedPromptInsert);
+    return;
+  }
+
+  const savedPromptAction = event.target.closest("[data-saved-prompt-action]")?.dataset?.savedPromptAction;
+  if (savedPromptAction === "create") {
+    event.preventDefault();
+    openSavedPromptDialog();
+    return;
+  }
+  if (savedPromptAction === "manage") {
+    event.preventDefault();
+    openSavedPromptManageDialog();
+    return;
+  }
+
   const action = event.target.closest("[data-tool-action]")?.dataset?.toolAction;
   if (action === "refresh") {
     event.preventDefault();
@@ -462,4 +567,3 @@ function setReaderChatError(message = "") {
   elements.readerChatError.textContent = message ? sanitizeVisibleAgentError(message) : "";
   elements.readerChatError.hidden = !message;
 }
-

@@ -371,6 +371,28 @@ def test_runner_returns_pending_tool_calls_without_executor():
     assert result.events[-1].type == "tool_calls_pending"
 
 
+def test_runner_tool_error_events_include_structured_error_details():
+    tool_call = ToolCall(id="call_1", name="lookup", arguments='{"query": "missing"}')
+    provider = FakeProvider([
+        ModelResponse(content=None, tool_calls=[tool_call], finish_reason="tool_calls"),
+        ModelResponse(content="Recovered.", finish_reason="stop"),
+    ])
+    executor = FixedToolExecutor(ToolResult(
+        call_id="call_1",
+        name="lookup",
+        content='{"success": false, "error": "Could not find target text.", "code": "target_not_found"}',
+        is_error=True,
+    ))
+    runner = AgentRunner(provider, tool_executor=executor)
+
+    result = runner.run(AgentRunRequest(model="test-model", messages=[], max_turns=3))
+    tool_error = [event for event in result.events if event.type == "tool_error"][0]
+
+    assert result.completed is True
+    assert tool_error.data["error"] == "Could not find target text."
+    assert tool_error.data["code"] == "target_not_found"
+
+
 def test_runner_retries_invalid_json_tool_arguments_before_executing():
     bad_call = ToolCall(id="call_bad", name="lookup", arguments='{"query": unquoted}')
     good_call = ToolCall(id="call_good", name="lookup", arguments='{"query": "fixed"}')

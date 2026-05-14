@@ -289,14 +289,14 @@
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 6px;
-  width: min(218px, calc(100% - 24px));
+  gap: 8px;
+  width: min(250px, calc(100% - 24px));
   max-height: min(430px, calc(100% - 120px));
-  padding: 6px;
+  padding: 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 98%, transparent);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 82%, var(--panel-alt));
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18), 0 1px 0 color-mix(in srgb, var(--panel-hover) 55%, transparent) inset;
   backdrop-filter: blur(16px);
 }
 
@@ -383,7 +383,7 @@
 }
 
 #readerToolFileGeneration .ask-tool-menu-option {
-  min-height: 34px;
+  min-height: 40px;
   border-radius: 8px;
 }
 
@@ -393,35 +393,100 @@
 
 .ask-tool-menu-section {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
+.ask-tool-submenu-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.ask-tool-submenu-shell::after {
+  content: "";
+  position: absolute;
+  top: -36px;
+  right: -14px;
+  bottom: -18px;
+  width: 18px;
+}
+
+.ask-tool-submenu {
+  position: absolute;
+  left: calc(100% + 4px);
+  bottom: 0;
+  z-index: 75;
+  display: grid;
+  gap: 6px;
+  width: min(220px, calc(100vw - 48px));
+  max-height: min(360px, calc(100dvh - 96px));
+  overflow: auto;
+  padding: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 82%, var(--panel-alt));
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18), 0 1px 0 color-mix(in srgb, var(--panel-hover) 55%, transparent) inset;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ask-tool-submenu .ask-tool-menu-option {
+  grid-template-columns: 24px minmax(0, 1fr) 10px;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 8px;
+}
+
+.ask-tool-submenu .ask-tool-option-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.ask-tool-submenu-shell:hover .ask-tool-submenu,
+.ask-tool-submenu-shell:focus-within .ask-tool-submenu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.ask-tool-submenu-shell:hover > .ask-tool-menu-option,
+.ask-tool-submenu-shell:focus-within > .ask-tool-menu-option {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--text) 10%, var(--panel-alt));
+}
+
 .ask-tool-menu-section + .ask-tool-menu-section {
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 18%, var(--line));
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 28%, var(--line));
 }
 
 .ask-tool-menu-option {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) 14px;
   align-items: center;
+  width: 100%;
   min-width: 0;
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 42px;
+  gap: 10px;
+  padding: 7px 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
   font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
   text-align: left;
 }
 
 .ask-tool-menu-option:hover,
 .ask-tool-menu-option:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--panel-alt));
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--text) 10%, var(--panel-alt));
 }
 
 .ask-tool-menu-option:disabled {
@@ -449,7 +514,20 @@
   opacity: 1;
 }
 
-.ask-tool-menu-option span:first-child {
+.ask-tool-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+}
+
+.ask-tool-option-icon svg {
+  display: block;
+}
+
+.ask-tool-menu-option > span:not(.ask-tool-option-icon):not(.ask-tool-check) {
   display: grid;
   min-width: 0;
 }
@@ -463,19 +541,33 @@
 
 .ask-tool-menu-option strong {
   color: var(--text);
-  font-size: 0.74rem;
-  line-height: 1.2;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.ask-tool-menu-arrow {
+  justify-self: end;
+  color: var(--muted);
 }
 
 .ask-tool-menu-option small,
 .ask-tool-menu-option span:last-child {
   color: var(--text);
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .ask-tool-menu-option span:last-child {
   font-size: 1rem;
+  font-weight: 500;
+}
+
+.saved-prompts-empty {
+  margin: 4px 10px 2px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
 
 .ask-tool-section {
