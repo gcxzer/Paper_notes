@@ -514,6 +514,19 @@ function generationRequestLabel(generation, attachments = []) {
   return "";
 }
 
+function normalizeSelectedTextContext(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const text = normalizeText(raw.text || raw.selectionText || raw.selection_text).slice(0, 4000);
+  if (!text) return null;
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return {
+    type: "selected_text",
+    text,
+    page: normalizeText(raw.page || raw.currentPage || raw.current_page),
+    wordCount: Number(raw.wordCount || raw.word_count || words || 0) || 0
+  };
+}
+
 function normalizeToolApproval(rawApproval) {
   if (!rawApproval || typeof rawApproval !== "object") return null;
   const approvalId = normalizeText(rawApproval.approvalId || rawApproval.approval_id || rawApproval.id);
@@ -759,6 +772,7 @@ function normalizeApiChatMessage(rawMessage) {
   const artifacts = normalizeImageArtifacts(rawMessage?.artifacts);
   const toolActivity = normalizeToolActivity(rawMessage?.toolActivity);
   const generation = normalizeGenerationRequest(rawMessage?.metadata?.generation);
+  const selectedTextContext = normalizeSelectedTextContext(rawMessage?.metadata?.selectedTextContext || rawMessage?.selectedTextContext);
   const runTrace = normalizeRunTrace(rawMessage?.runTrace);
   const workTrace = normalizeWorkTrace(rawMessage?.workTrace);
   if (role === "divider") {
@@ -776,6 +790,7 @@ function normalizeApiChatMessage(rawMessage) {
     text,
     error: Boolean(rawMessage?.error),
     generation,
+    selectedTextContext,
     attachments,
     artifacts,
     sources: rawMessage?.sources,
@@ -1101,6 +1116,7 @@ function gptReasoningOffSupported(provider, model = currentReaderModel()) {
 function activeProviderSupportsImageArtifacts() {
   const provider = currentReaderProvider();
   const profile = providerProfileFor(provider);
+  const model = currentReaderModel();
   const capabilities = modelCapabilitiesFor(provider, currentReaderModel());
   const settings = readerState.aiSettings || normalizeReaderAiSettings({});
   const configured = Boolean(
@@ -1108,8 +1124,18 @@ function activeProviderSupportsImageArtifacts() {
     || (normalizeProviderName(settings.provider) === provider && settings.configured)
   );
   if (!configured) return false;
-  if (provider === "codex-oauth") return true;
+  if (provider === "codex-oauth") {
+    return normalizeText(model).toLowerCase() !== "gpt-5.3-codex-spark";
+  }
   return Boolean(capabilities.supportsImageGeneration);
+}
+
+function activeProviderImageGenerationUnsupportedMessage() {
+  if (normalizeProviderName(currentReaderProvider()) === "codex-oauth") {
+    const label = modelDisplayLabel(currentReaderModel(), currentReaderProvider(), "label") || currentReaderModel();
+    return `${label || "This Codex model"} does not support image generation.`;
+  }
+  return "Image generation needs a connected Codex OAuth or OpenAI API key provider.";
 }
 
 function activeProviderSupportsImageInput() {

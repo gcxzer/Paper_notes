@@ -87,7 +87,7 @@ MIME_TYPES = {
 
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
-    server_version = "PaperNotesPython/1.1.0"
+    server_version = "PaperNotesPython/1.1.2"
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")

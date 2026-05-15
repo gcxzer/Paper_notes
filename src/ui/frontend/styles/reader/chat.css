@@ -77,6 +77,90 @@
   font-weight: 850;
 }
 
+.ask-selected-text-chip {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: min(100%, 220px);
+  min-height: 36px;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-soft));
+  color: var(--text);
+}
+
+.ask-selected-text-main {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-selected-text-chip::after {
+  content: attr(data-selected-text-preview);
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  z-index: 85;
+  width: max-content;
+  max-width: min(360px, 72vw);
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.35;
+  opacity: 0;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+  visibility: hidden;
+  white-space: normal;
+}
+
+.ask-selected-text-chip:hover::after,
+.ask-selected-text-chip:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.ask-selected-text-chip button {
+  align-self: center;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ask-selected-text-chip button:hover,
+.ask-selected-text-chip button:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
 .ask-message-assistant {
   justify-content: stretch;
 }

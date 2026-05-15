@@ -114,13 +114,23 @@ function renderToolRootMenu() {
   const imageGenerationSupported = activeProviderSupportsImageArtifacts();
   const imageGenerationTitle = imageGenerationSupported
     ? "Generate image"
-    : "Image generation needs a connected Codex OAuth or OpenAI API key provider.";
+    : activeProviderImageGenerationUnsupportedMessage();
+  const screenshotSupported = activeProviderSupportsImageInput();
+  const screenshotTitle = screenshotSupported
+    ? "Add page"
+    : activeProviderImageInputUnsupportedMessage();
   return `
     <div class="ask-tool-menu-section">
       <button class="ask-tool-menu-option" type="button" data-tool-action="attach-image">
         ${renderAskToolMenuIcon("attach")}
         <span>
           <strong>Add Images & Files</strong>
+        </span>
+      </button>
+      <button class="ask-tool-menu-option" type="button" data-tool-action="add-screenshot"${screenshotSupported ? "" : " disabled"} title="${escapeHtml(screenshotTitle)}">
+        ${renderAskToolMenuIcon("page_add")}
+        <span>
+          <strong>Add page</strong>
         </span>
       </button>
       <div class="ask-tool-submenu-shell">
@@ -192,6 +202,8 @@ const ASK_TOOL_ICON_PATHS = {
   attach: `<path d="M6 12.5v3.25A3.25 3.25 0 0 0 9.25 19h5.5A3.25 3.25 0 0 0 18 15.75v-7.5A3.25 3.25 0 0 0 14.75 5h-5.5A3.25 3.25 0 0 0 6 8.25v.25"/><path d="M9 12.25 12 15l4-5"/><path d="M4 8.5h6"/>`,
   bookmark: `<path d="M7 4.75A2.75 2.75 0 0 1 9.75 2h4.5A2.75 2.75 0 0 1 17 4.75v16l-5-3.25-5 3.25v-16Z"/>`,
   image: `<rect x="4" y="6" width="14" height="12" rx="2.5"/><path d="m6.5 15 2.8-2.8a1.2 1.2 0 0 1 1.7 0l1.1 1.1 1.8-2a1.2 1.2 0 0 1 1.8.1L18 14"/><path d="M8 4.5 18.5 2.6a2 2 0 0 1 2.3 1.6l1.4 8.1"/>`,
+  screenshot: `<rect x="4" y="5" width="16" height="13" rx="2.5"/><path d="M8 21h8"/><path d="M12 18v3"/><path d="M8 9h2.5l1-1.5h1l1 1.5H16a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2Z"/><circle cx="12" cy="12.5" r="2"/>`,
+  page_add: `<path d="M7 3.75h6.5L18 8.25v11.5A2.25 2.25 0 0 1 15.75 22H7a2.25 2.25 0 0 1-2.25-2.25V6A2.25 2.25 0 0 1 7 3.75Z"/><path d="M13.5 4v4.25H18"/><path d="M9 13h5.5"/><path d="M11.75 10.25v5.5"/>`,
   file: `<path d="M7 3.75h6.5L18 8.25v12H7a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/><path d="M13.5 4v4.25H18M8.5 12h6M8.5 15.5h5"/>`,
   new_chat: `<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h8.5A2.5 2.5 0 0 1 18.5 5.5v6A2.5 2.5 0 0 1 16 14H11l-4.5 4v-4A2.5 2.5 0 0 1 4 11.5v-6Z"/><path d="M11.25 6.75v4.5M9 9h4.5"/>`,
   edit: `<path d="m5 16.8-.7 3 3-.7L18.5 7.9a2.1 2.1 0 0 0-3-3L5 16.8Z"/><path d="m14 6.3 3.2 3.2"/>`,
@@ -300,7 +312,7 @@ function showReaderToolSection(section) {
 function setReaderGenerationMode(mode, options = {}) {
   const nextMode = ["image", "file"].includes(normalizeText(mode)) ? normalizeText(mode) : "";
   if (nextMode === "image" && !activeProviderSupportsImageArtifacts()) {
-    setReaderChatError("Image generation needs a connected Codex OAuth or OpenAI API key provider.");
+    setReaderChatError(activeProviderImageGenerationUnsupportedMessage());
     closeReaderToolMenu();
     return;
   }
@@ -558,6 +570,13 @@ function handleReaderToolPopoverClick(event) {
   if (action === "attach-image") {
     event.preventDefault();
     elements.readerAttachmentInput?.click();
+    return;
+  }
+  if (action === "add-screenshot") {
+    event.preventDefault();
+    addCurrentPdfPageScreenshot().catch((error) => {
+      setReaderChatError(error.message || "Could not add page.");
+    });
     return;
   }
   if (action === "generate-image") {

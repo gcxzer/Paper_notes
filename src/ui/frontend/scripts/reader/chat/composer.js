@@ -141,7 +141,58 @@ function handleReaderImageFiles(files) {
   return handleReaderAttachmentFiles(files);
 }
 
+function currentPdfPageCanvasForScreenshot() {
+  const page = Number(currentPdfScrollPosition()?.page) || 1;
+  const pageElement = elements.pdfViewer?.querySelector(`.pdf-page[data-page="${page}"]`)
+    || elements.pdfViewer?.querySelector(".pdf-page");
+  const canvas = pageElement?.querySelector(".pdf-page-canvas");
+  return { page: Number(pageElement?.dataset?.page) || page, canvas };
+}
+
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    if (!canvas || !canvas.width || !canvas.height) {
+      reject(new Error("No rendered PDF page is available to capture."));
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Could not capture the current PDF page."));
+    }, "image/png");
+  });
+}
+
+function screenshotFileName(page) {
+  const title = normalizeText(readerState.note?.title || "paper")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "paper";
+  return `${title}-page-${Number(page) || 1}.png`;
+}
+
+async function addCurrentPdfPageScreenshot() {
+  if (!activeProviderSupportsImageInput()) {
+    setReaderChatError(activeProviderImageInputUnsupportedMessage());
+    closeReaderToolMenu();
+    return;
+  }
+  const { page, canvas } = currentPdfPageCanvasForScreenshot();
+  const blob = await canvasToPngBlob(canvas);
+  const file = new File([blob], screenshotFileName(page), { type: "image/png" });
+  closeReaderToolMenu();
+  await handleReaderAttachmentFiles([file]);
+  elements.readerChatInput?.focus();
+}
+
 function handleAttachmentTrayClick(event) {
+  const selectedTextRemove = event.target.closest("[data-selected-text-remove]");
+  if (selectedTextRemove) {
+    event.preventDefault();
+    clearReaderSelectedPdfText({ clearNativeSelection: true });
+    return;
+  }
+
   const generationRemove = event.target.closest("[data-generation-mode-remove]");
   if (generationRemove) {
     event.preventDefault();
@@ -160,6 +211,154 @@ function handleAttachmentTrayClick(event) {
     renderReaderToolControls();
     return;
   }
+}
+
+function selectedPdfPagesForChatContext() {
+  if (typeof selectedPdfPages === "function") return selectedPdfPages();
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed || !elements.pdfViewer) return [];
+  return Array.from(elements.pdfViewer.querySelectorAll(".pdf-page")).filter((pageElement) => {
+    const textLayer = pageElement.querySelector(".textLayer");
+    if (!textLayer) return false;
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      const range = selection.getRangeAt(index);
+      try {
+        if (range.intersectsNode(textLayer)) return true;
+      } catch (error) {
+        // A page can detach while PDF.js rerenders; ignore that transient state.
+      }
+    }
+    return false;
+  });
+}
+
+function normalizeReaderSelectedPdfText(text) {
+  const normalized = typeof normalizeCopiedPdfText === "function"
+    ? normalizeCopiedPdfText(text)
+    : normalizeText(text);
+  return normalizeText(normalized).slice(0, 4000);
+}
+
+function currentReaderSelectedPdfText() {
+  return normalizeReaderSelectedPdfText(readerState.selectedPdfText);
+}
+
+function captureReaderPdfSelectionRanges() {
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed || !selectedPdfPagesForChatContext().length) {
+    readerState.selectedPdfRanges = [];
+    return [];
+  }
+  const ranges = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    try {
+      ranges.push(selection.getRangeAt(index).cloneRange());
+    } catch (error) {
+      // Ignore ranges that disappear during PDF rerender or browser selection churn.
+    }
+  }
+  readerState.selectedPdfRanges = ranges;
+  return ranges;
+}
+
+function restoreReaderPdfSelectionRanges() {
+  const ranges = Array.isArray(readerState.selectedPdfRanges) ? readerState.selectedPdfRanges : [];
+  if (!ranges.length) return false;
+  const selection = window.getSelection?.();
+  if (!selection) return false;
+  try {
+    selection.removeAllRanges();
+    ranges.forEach((range) => selection.addRange(range.cloneRange()));
+    if (typeof schedulePdfSelectionOverlayRender === "function") schedulePdfSelectionOverlayRender();
+    return true;
+  } catch (error) {
+    readerState.selectedPdfRanges = [];
+    return false;
+  }
+}
+
+function isEditableAskPaneTarget(target) {
+  const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  return Boolean(element?.closest?.("input, textarea, [contenteditable='true'], [contenteditable='']"));
+}
+
+function isSelectedTextRemoveTarget(target) {
+  const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  return Boolean(element?.closest?.("[data-selected-text-remove]"));
+}
+
+function setReaderSelectedPdfText(text, page = "") {
+  const normalized = normalizeReaderSelectedPdfText(text);
+  if (!normalized) return false;
+  const normalizedPage = normalizeText(page);
+  const changed = normalized !== readerState.selectedPdfText || normalizedPage !== readerState.selectedPdfPage;
+  readerState.selectedPdfText = normalized;
+  readerState.selectedPdfPage = normalizedPage;
+  captureReaderPdfSelectionRanges();
+  if (changed) renderAttachmentTray();
+  return true;
+}
+
+function selectedPdfTextContextFromState() {
+  const text = currentReaderSelectedPdfText();
+  if (!text) return null;
+  return {
+    type: "selected_text",
+    text,
+    page: normalizeText(readerState.selectedPdfPage),
+    wordCount: text.split(/\s+/).filter(Boolean).length
+  };
+}
+
+function snapshotReaderSelectedPdfTextForSubmit() {
+  readerState.pendingSelectedTextContext = selectedPdfTextContextFromState();
+}
+
+function clearReaderSelectedPdfText({ clearNativeSelection = false } = {}) {
+  readerState.selectedPdfText = "";
+  readerState.selectedPdfPage = "";
+  readerState.selectedPdfRanges = [];
+  readerState.preservePdfSelectionUntil = 0;
+  if (clearNativeSelection) {
+    window.getSelection?.()?.removeAllRanges?.();
+    if (typeof clearPdfSelectionOverlays === "function") clearPdfSelectionOverlays();
+  }
+  renderAttachmentTray();
+}
+
+function preserveReaderPdfSelectionForAskPane(event) {
+  if (!currentReaderSelectedPdfText() || !elements.askPane?.contains(event.target)) return;
+  if (isSelectedTextRemoveTarget(event.target)) return;
+  captureReaderPdfSelectionRanges();
+  if (isEditableAskPaneTarget(event.target)) {
+    readerState.preservePdfSelectionUntil = 0;
+    return;
+  }
+  readerState.preservePdfSelectionUntil = Date.now() + 700;
+  window.requestAnimationFrame(() => {
+    if (Date.now() <= readerState.preservePdfSelectionUntil) restoreReaderPdfSelectionRanges();
+  });
+}
+
+function shouldRestoreReaderPdfSelection() {
+  if (isEditableAskPaneTarget(document.activeElement)) return false;
+  return currentReaderSelectedPdfText()
+    && Date.now() <= Number(readerState.preservePdfSelectionUntil || 0)
+    && Array.isArray(readerState.selectedPdfRanges)
+    && readerState.selectedPdfRanges.length > 0;
+}
+
+function refreshReaderSelectedPdfTextFromSelection() {
+  const pages = selectedPdfPagesForChatContext();
+  if (!pages.length) {
+    if (shouldRestoreReaderPdfSelection() && restoreReaderPdfSelectionRanges()) return true;
+    return Boolean(currentReaderSelectedPdfText());
+  }
+  const text = typeof textFromPdfSelection === "function"
+    ? textFromPdfSelection()
+    : window.getSelection?.()?.toString() || "";
+  const page = normalizeText(pages[0]?.dataset?.page);
+  return setReaderSelectedPdfText(text, page);
 }
 
 function imageFilesFromClipboard(event) {
@@ -411,7 +610,8 @@ function readerChatContext() {
   const note = readerState.note;
   const position = currentPdfScrollPosition();
   const currentPage = position?.page || "";
-  const selectionText = normalizeText(globalThis.getSelection?.().toString()).slice(0, 2000);
+  const selectionText = currentReaderSelectedPdfText()
+    || normalizeReaderSelectedPdfText(globalThis.getSelection?.().toString()).slice(0, 2000);
   return {
     selectedNoteId: note?.id || "",
     selectedNoteTitle: note?.title || "",

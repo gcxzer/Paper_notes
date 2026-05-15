@@ -16,6 +16,7 @@ function normalizeChatMessage(message) {
     text: role === "assistant" && error ? sanitizeVisibleAgentError(text) : text,
     error,
     generation: normalizeGenerationRequest(message?.generation),
+    selectedTextContext: normalizeSelectedTextContext(message?.selectedTextContext || message?.metadata?.selectedTextContext),
     attachments: normalizeImageArtifacts(message?.attachments),
     artifacts: normalizeImageArtifacts(message?.artifacts),
     sources: normalizeChatSources(message?.sources),
@@ -484,8 +485,9 @@ function renderChatImages(images) {
 function renderAttachmentTray() {
   if (!elements.readerAttachmentTray) return;
   const attachments = normalizeAttachmentArtifacts(readerState.chatAttachments);
+  const selectedTextChip = renderSelectedPdfTextChip();
   const generationChip = renderGenerationModeChip();
-  if (!attachments.length && !generationChip && !readerState.attachmentUploadPending && !readerState.imageUploadPending) {
+  if (!attachments.length && !selectedTextChip && !generationChip && !readerState.attachmentUploadPending && !readerState.imageUploadPending) {
     elements.readerAttachmentTray.hidden = true;
     elements.readerAttachmentTray.innerHTML = "";
     return;
@@ -495,7 +497,20 @@ function renderAttachmentTray() {
   const loadingChip = (readerState.attachmentUploadPending || readerState.imageUploadPending)
     ? `<span class="ask-attachment-loading">Uploading...</span>`
     : "";
-  elements.readerAttachmentTray.innerHTML = `${generationChip}${previews}${loadingChip}`;
+  elements.readerAttachmentTray.innerHTML = `${selectedTextChip}${generationChip}${previews}${loadingChip}`;
+}
+
+function renderSelectedPdfTextChip() {
+  const context = selectedPdfTextContextFromState();
+  if (!context) return "";
+  const text = context.text;
+  const wordCount = Number(context.wordCount) || text.split(/\s+/).filter(Boolean).length;
+  return `
+    <span class="ask-selected-text-chip" data-selected-text-preview="${escapeHtml(text)}">
+      <span class="ask-selected-text-main">Text selected: ${wordCount} ${wordCount === 1 ? "word" : "words"}</span>
+      <button type="button" data-selected-text-remove="1" aria-label="Remove selected text">×</button>
+    </span>
+  `;
 }
 
 function renderGenerationModeChip() {
@@ -1252,7 +1267,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     const toolActivityHtml = message.role === "assistant" ? renderChatToolActivity(message.toolActivity, { activityScope: `message-${index}` }) : "";
     const traceHtml = message.role === "assistant" ? renderRunTraceSummary(message.runTrace, message.workTrace) : "";
     const editing = message.role === "user" && readerState.chatEditingIndex === index;
-    const generationHtml = message.role === "user" ? renderUserGenerationBadge(message.generation, message.attachments) : "";
+    const userContextBadgesHtml = message.role === "user" ? renderUserContextBadges(message) : "";
     const userActionsHtml = renderReaderUserMessageActions(message, index, latestUserIndex);
     const bubbleHtml = editing
       ? renderReaderUserMessageEdit(message, index)
@@ -1265,7 +1280,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
         ${traceHtml}
         ${bubbleHtml}
         ${imageHtml}
-        ${generationHtml}
+        ${userContextBadgesHtml}
         ${editing ? "" : userActionsHtml}
         ${sourcesHtml}
         ${noteEditHtml}
@@ -1289,6 +1304,20 @@ function renderUserGenerationBadge(generation, attachments = []) {
   const label = generationRequestLabel(generation, attachments);
   if (!label) return "";
   return `<div class="ask-user-generation-badge">${escapeHtml(label)}</div>`;
+}
+
+function renderUserSelectedTextBadge(selectedTextContext) {
+  const context = normalizeSelectedTextContext(selectedTextContext);
+  if (!context) return "";
+  const wordCount = Number(context.wordCount) || context.text.split(/\s+/).filter(Boolean).length;
+  return `<div class="ask-user-generation-badge ask-user-selected-text-badge" title="${escapeHtml(context.text)}">Text selected: ${wordCount} ${wordCount === 1 ? "word" : "words"}</div>`;
+}
+
+function renderUserContextBadges(message) {
+  return [
+    renderUserGenerationBadge(message.generation, message.attachments),
+    renderUserSelectedTextBadge(message.selectedTextContext)
+  ].filter(Boolean).join("");
 }
 
 function renderChatDivider(message) {

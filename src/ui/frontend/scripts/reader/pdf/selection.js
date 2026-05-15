@@ -741,6 +741,9 @@ function renderPdfSelectionOverlays() {
     });
   });
   elements.pdfViewer.classList.toggle("has-pdf-selection", hasSelection);
+  if (hasSelection && typeof refreshReaderSelectedPdfTextFromSelection === "function") {
+    refreshReaderSelectedPdfTextFromSelection();
+  }
 }
 
 function schedulePdfSelectionOverlayRender() {
@@ -898,8 +901,6 @@ function finishSelectionAnnotation(pageElement, type) {
     if (annotation.w < 0.01 || annotation.h < 0.001) return;
     pushAnnotationHistory();
     pdfState.annotations.push(annotation);
-    window.getSelection()?.removeAllRanges();
-    clearPdfSelectionOverlays();
     scheduleSaveAnnotations();
     renderAnnotationsForPage(pageElement);
   }, 0);

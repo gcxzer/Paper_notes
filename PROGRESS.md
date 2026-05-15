@@ -13,7 +13,22 @@ Updated: 2026-05-15
   stabilize.
 - Consider a stronger sandbox backend for Code Execution, such as Docker or
   another isolated execution backend.
-- Keep README and this progress brief aligned as tool behavior changes.
+- Keep README and this release brief aligned as tool behavior changes.
+
+## Release 1.1.2
+
+- PDF selections now appear in Ask as a compact `Text selected: x words`
+  context badge, are sent with chat requests, and remain available even when
+  focus moves into the chat input.
+- Highlight and underline annotation flows keep the selected PDF text active
+  after creating the mark, so the same passage can be annotated and then asked
+  about without reselecting it.
+- The Ask attachment menu can add the current PDF page as an image attachment
+  through `Add page`, with provider capability checks for image input.
+- Image generation controls now respect the active provider/model capability
+  matrix, including disabling unsupported Codex Spark image generation.
+- Selected-text chips use stable rendering and hover previews so tooltip and
+  remove-button interactions do not flicker or resurrect cleared selections.
 
 ## Current Status
 
@@ -27,6 +42,7 @@ Current user-facing capabilities include:
 - Import PDFs into a local library.
 - Read a PDF beside its matching HTML note.
 - Add highlights, underlines, and sticky notes with saved PDF annotations.
+- Send selected PDF text to Ask as explicit model context.
 - Drag existing sticky note markers in any annotation mode.
 - Edit paper summaries, collections, and tags from the library details panel.
 - Add and remove tags from the library UI.
@@ -37,7 +53,9 @@ Current user-facing capabilities include:
 - View debug logs, tool activity, progress events, note diffs, and undo/redo
   write snapshots.
 - Generate local image and file artifacts, including image generation routed
-  through supported OpenAI API key settings.
+  through supported provider/model settings.
+- Add the current PDF page to Ask as an image attachment when the active model
+  supports image input.
 - Upload chat attachments, extract supported text-like content, and attach
   images to model requests when the selected provider supports vision.
 - Configure OpenAI, Codex OAuth, Anthropic, Gemini, and DeepSeek providers,

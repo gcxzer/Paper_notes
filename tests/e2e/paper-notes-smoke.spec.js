@@ -510,6 +510,7 @@ async function installAgentMocks(page) {
               imageGeneration: request.imageGeneration,
               fileGeneration: request.fileGeneration,
             },
+            selectedTextContext: request.metadata?.selectedTextContext,
           },
         },
         {
@@ -1169,6 +1170,46 @@ test("reader attachment uploads show tray progress and can be removed", async ({
 
   await page.getByRole("button", { name: "Remove attachment" }).click();
   await expect(page.locator("#readerAttachmentTray")).toBeHidden();
+});
+
+test("reader ask tools add the current PDF page as an attachment", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await installAgentMocks(page);
+  const uploads = [];
+  await page.route("**/api/chat/attachments", async (route) => {
+    const payload = route.request().postDataJSON();
+    uploads.push(payload);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        artifact: {
+          id: "img_pdf_page_1",
+          kind: "image",
+          source: "uploaded",
+          mimeType: "image/png",
+          fileName: payload.fileName,
+          size: 120,
+          width: 1,
+          height: 1,
+          url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+          downloadUrl: "/api/media/img_pdf_page_1/download",
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page.locator(".pdf-page-canvas")).toHaveCount(1);
+  await showAskPane(page);
+  await page.locator("#readerToolMenuButton").click();
+  await page.getByRole("button", { name: "Add page", exact: true }).click();
+
+  await expect.poll(() => uploads.length).toBe(1);
+  expect(uploads[0].fileName).toMatch(/deepseek-v4-page-1\.png$/);
+  expect(uploads[0].mimeType).toBe("image/png");
+  expect(uploads[0].data).toMatch(/^data:image\/png;base64,/);
+  await expect(page.locator("#readerAttachmentTray .ask-attachment-preview.is-image img")).toHaveAttribute("alt", "deepseek-v4-page-1.png");
 });
 
 test("reader manual context compaction updates the popover and adds a divider", async ({ page }) => {
@@ -2117,6 +2158,149 @@ test("reader PDF double-click selects the clicked word", async ({ page, context 
   await expect(page.locator(".pdf-annotation.is-selection-outlined")).toHaveCount(0);
 });
 
+test("reader sends selected PDF text as chat context", async ({ page }) => {
+  await openFixtureReader(page);
+  const { requests } = await installAgentMocks(page);
+  await installPdfTextFixture(page);
+  await showAskPane(page);
+
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll(".pdf-page[data-page='8'] .textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("stochastic"));
+    span.scrollIntoView({ block: "center", inline: "center" });
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected: 1 word");
+  await expect(page.locator(".ask-selected-text-chip")).not.toContainText("stochastic");
+  await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
+  await expect(page.locator(".ask-selected-text-chip")).not.toContainText("p.");
+
+  await page.locator("#readerChatInput").click();
+  await page.keyboard.type("输入不会被选区抢走");
+  await expect(page.locator("#readerChatInput")).toHaveValue("输入不会被选区抢走");
+  await page.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+  await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
+  const chipHandle = await page.locator(".ask-selected-text-chip").elementHandle();
+  await page.evaluate(() => {
+    schedulePdfSelectionOverlayRender();
+    schedulePdfSelectionOverlayRender();
+  });
+  await page.waitForTimeout(80);
+  expect(await page.locator(".ask-selected-text-chip").evaluate((node, previous) => node === previous, chipHandle)).toBe(true);
+  await page.locator("[data-selected-text-remove]").click();
+  await expect(page.locator(".ask-selected-text-chip")).toHaveCount(0);
+  await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll(".pdf-page[data-page='8'] .textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("stochastic"));
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+
+  await page.locator(".pdf-page").first().dispatchEvent("pointerdown", { bubbles: true });
+  await page.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+
+  await page.locator("#readerChatInput").fill("解释我选中的这段");
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll(".pdf-page[data-page='8'] .textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("stochastic"));
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+
+  await page.evaluate(() => {
+    document.activeElement?.blur?.();
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll(".pdf-page[data-page='8'] .textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("stochastic"));
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.locator("#askPane")).toContainText("DeepSeek V4");
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].selectionText).toContain("stochastic");
+  expect(requests[0].context.selectionText).toContain("stochastic");
+  expect(requests[0].context.selection_text).toContain("stochastic");
+  await expect(page.locator(".ask-user-selected-text-badge")).toContainText("Text selected: 1 word");
+  await expect(page.locator(".ask-user-selected-text-badge")).not.toContainText("p.");
+  await expect(page.locator(".ask-user-selected-text-badge")).toHaveAttribute("title", /stochastic/);
+  await expect(page.locator(".ask-selected-text-chip")).toHaveCount(0);
+});
+
+test("reader highlight and underline annotations keep selected PDF text", async ({ page }) => {
+  await openFixtureReader(page);
+  await installPdfTextFixture(page);
+  await showAskPane(page);
+
+  for (const type of ["highlight", "underline"]) {
+    await page.evaluate((annotationType) => {
+      const pageElement = document.querySelector(".pdf-page[data-page='8']");
+      const span = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+        .find((entry) => (entry.textContent || "").includes("stochastic"));
+      span.scrollIntoView({ block: "center", inline: "center" });
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      pdfState.mode = annotationType;
+      finishSelectionAnnotation(pageElement, annotationType);
+    }, type);
+
+    await page.waitForFunction((annotationType) => (
+      pdfState.annotations.some((entry) => entry.type === annotationType && entry.quote.includes("stochastic"))
+    ), type);
+    await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+    await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
+    await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toContain("stochastic");
+
+    await page.evaluate(() => {
+      pdfState.annotations = [];
+      renderAllAnnotations();
+    });
+  }
+});
+
 test("reader PDF drag selection stays on the current line over blank space", async ({ page }) => {
   await openFixtureReader(page);
   const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
@@ -2347,4 +2531,63 @@ test("reader ask tools send generation modes and render generated file cards", a
   await page.getByRole("button", { name: "Send" }).click();
   expect(requests.at(-1).fileGeneration).toBeUndefined();
   expect(requests.at(-1).imageGeneration).toBeUndefined();
+});
+
+test("reader disables image generation for Codex Spark", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "codex-oauth",
+        defaultModel: "gpt-5.3-codex-spark",
+        modelConnectionConfigured: true,
+        providers: [{
+          name: "codex-oauth",
+          displayName: "Codex OAuth",
+          configured: true,
+          ready: true,
+          model: "gpt-5.3-codex-spark",
+          selectedModel: "gpt-5.3-codex-spark",
+          defaultModel: "gpt-5.5",
+          capabilities: {
+            supportsTools: true,
+            supportsVision: true,
+            supportsImageGeneration: true,
+            supportsWebSearch: true,
+          },
+          models: [{
+            value: "gpt-5.3-codex-spark",
+            label: "GPT-5.3 Codex Spark",
+            shortLabel: "5.3 spark",
+            capabilities: {
+              supportsTools: true,
+              supportsVision: false,
+              supportsImageGeneration: false,
+              supportsWebSearch: false,
+              supportsReasoningOff: false,
+              imageInputMode: "unsupported",
+            },
+          }],
+        }],
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await page.waitForFunction(() => typeof window.setAskPaneVisible === "function");
+  await page.evaluate(() => window.setAskPaneVisible(true));
+  await expect(page.locator("#readerLayout")).not.toHaveClass(/is-ask-pane-hidden/);
+  await page.waitForFunction(() => typeof window.setReaderToolMenuOpen === "function");
+  await page.evaluate(() => window.setReaderToolMenuOpen(true));
+  await expect(page.locator("#readerToolPopover")).toBeVisible();
+  const generateImage = page.locator("[data-tool-action='generate-image']");
+  await expect(generateImage).toBeDisabled();
+  await expect(generateImage).toHaveAttribute("title", /does not support image generation/);
+  const addScreenshot = page.locator("[data-tool-action='add-screenshot']");
+  await expect(addScreenshot).toBeDisabled();
+  await expect(addScreenshot).toHaveAttribute("title", /does not support image input/);
+  await generateImage.click({ force: true });
+  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 });

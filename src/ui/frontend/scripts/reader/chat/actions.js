@@ -90,6 +90,7 @@ async function saveReaderUserMessageEdit(index) {
     text,
     attachments: message.attachments,
     generation: message.generation,
+    selectedTextContext: message.selectedTextContext,
     editLatestUserMessage: true,
     replaceFromIndex: index
   });
@@ -282,6 +283,12 @@ async function sendReaderChatMessage(options = {}) {
   const text = normalizeText(editing ? options.text : elements.readerChatInput?.value);
   const allAttachments = normalizeAttachmentArtifacts(editing ? options.attachments : readerState.chatAttachments);
   const generationPayload = editing ? generationPayloadFromRequest(options.generation) : readerGenerationPayload();
+  const editedSelectedTextContext = normalizeSelectedTextContext(options.selectedTextContext);
+  const pendingSelectedTextContext = normalizeSelectedTextContext(readerState.pendingSelectedTextContext);
+  const selectedTextContext = editing
+    ? editedSelectedTextContext
+    : normalizeSelectedTextContext(selectedPdfTextContextFromState() || pendingSelectedTextContext);
+  const selectedPdfText = normalizeText(selectedTextContext?.text);
   const blockedAttachments = allAttachments.filter((attachment) => (
     attachment.uploadPending || attachment.uploadError || attachment.id.startsWith("local_")
   ));
@@ -303,17 +310,22 @@ async function sendReaderChatMessage(options = {}) {
     readerState.generationMode = "";
     renderAttachmentTray();
     renderReaderToolControls();
-    setReaderChatError("Image generation needs a connected Codex OAuth or OpenAI API key provider.");
+    setReaderChatError(activeProviderImageGenerationUnsupportedMessage());
     return;
   }
   const requestId = createRequestId();
   const context = readerChatContext();
+  if (selectedPdfText) {
+    context.selectionText = selectedPdfText;
+    context.selection_text = selectedPdfText;
+  }
 
   if (!editing) {
     elements.readerChatInput.value = "";
     resizeReaderChatInput();
     attachments.forEach(revokeAttachmentPreview);
     readerState.chatAttachments = [];
+    clearReaderSelectedPdfText({ clearNativeSelection: Boolean(selectedPdfText) });
     readerState.generationMode = "";
     renderAttachmentTray();
     renderReaderToolControls();
@@ -324,7 +336,7 @@ async function sendReaderChatMessage(options = {}) {
     readerState.chatMessages = readerState.chatMessages.slice(0, Math.max(0, replaceFromIndex));
   }
   const generation = normalizeGenerationRequest(generationPayload);
-  readerState.chatMessages.push({ role: "user", text, attachments, generation });
+  readerState.chatMessages.push({ role: "user", text, attachments, generation, selectedTextContext });
   renderReaderChatMessages({ forceScrollToBottom: true });
   setReaderChatPending(true, sessionRunKey);
   startReaderChatProgress(requestId, sessionRunKey);
@@ -363,6 +375,7 @@ async function sendReaderChatMessage(options = {}) {
       metadata: {
         source: "reader",
         generation: generationPayload,
+        ...(selectedTextContext ? { selectedTextContext } : {}),
         deepseekThinkMode: deepSeekThinkModeForRequest.enabled ? deepSeekThinkModeForRequest.effort : "off",
         ...(providerSupportsGptThinkMode(normalizedProviderForRequest)
           ? { gptThinkMode: gptThinkModeForRequest.enabled ? gptThinkModeForRequest.effort : "off" }
@@ -452,6 +465,7 @@ async function sendReaderChatMessage(options = {}) {
       error: true
     });
   } finally {
+    readerState.pendingSelectedTextContext = null;
     if (detachedByAbort) return;
     if (readerState.chatProgressRequestIdsBySession[sessionRunKey] === requestId) {
       const shouldUpdateVisible = updatedVisibleSession || isCurrentChatSessionRunKey(sessionRunKey);
@@ -555,6 +569,8 @@ function initializeReaderChat() {
   });
   elements.readerChatInput?.addEventListener("paste", handleReaderImagePaste);
   elements.readerChatInput?.addEventListener("input", resizeReaderChatInput);
+  elements.askPane?.addEventListener("pointerdown", preserveReaderPdfSelectionForAskPane, true);
+  elements.sendReaderChat?.addEventListener("pointerdown", snapshotReaderSelectedPdfTextForSubmit);
   elements.readerChatInput?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
     event.preventDefault();

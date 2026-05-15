@@ -17,7 +17,12 @@ function initializePdfTools() {
   elements.pdfLinkDismiss?.addEventListener("click", hidePdfLinkBackButton);
   document.addEventListener("keydown", handleAnnotationKeyboard);
   document.addEventListener("pointerdown", handleAnnotationEditorOutsidePointer, true);
-  document.addEventListener("selectionchange", schedulePdfSelectionOverlayRender);
+  document.addEventListener("selectionchange", () => {
+    schedulePdfSelectionOverlayRender();
+    if (typeof refreshReaderSelectedPdfTextFromSelection === "function") {
+      window.requestAnimationFrame(refreshReaderSelectedPdfTextFromSelection);
+    }
+  });
   window.addEventListener("resize", schedulePdfSelectionOverlayRender);
   elements.pdfViewer?.addEventListener("scroll", schedulePdfSelectionOverlayRender, { passive: true });
   elements.zoomIn?.addEventListener("click", async () => {
