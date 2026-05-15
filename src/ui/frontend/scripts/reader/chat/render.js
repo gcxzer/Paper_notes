@@ -128,11 +128,56 @@ function safeChatLinkHref(rawHref) {
 function splitTrailingUrlPunctuation(url) {
   let trimmed = url;
   let trailing = "";
-  while (/[.,!?;:]$/.test(trimmed)) {
+  while (/[.,!?;:，。！？；：、]$/.test(trimmed)) {
     trailing = trimmed.slice(-1) + trailing;
     trimmed = trimmed.slice(0, -1);
   }
   return [trimmed, trailing];
+}
+
+function renderChatMathExpression(source, displayMode = false) {
+  const formula = String(source || "").trim();
+  if (!formula) return "";
+  if (globalThis.katex?.renderToString) {
+    return globalThis.katex.renderToString(formula, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      trust: false
+    });
+  }
+  const tag = displayMode ? "div" : "span";
+  return `<${tag} class="chat-math-fallback">${escapeHtml(formula)}</${tag}>`;
+}
+
+function extractChatMathSegments(text) {
+  const mathSegments = [];
+  const protect = (displayMode) => (_, formula) => {
+    const token = `@@CHATMATH${mathSegments.length}@@`;
+    mathSegments.push({
+      displayMode,
+      html: renderChatMathExpression(formula, displayMode)
+    });
+    return token;
+  };
+  const source = String(text || "")
+    .replace(/\\\[([\s\S]*?)\\\]/g, protect(true))
+    .replace(/\$\$([\s\S]*?)\$\$/g, protect(true))
+    .replace(/\\\(([\s\S]*?)\\\)/g, protect(false));
+  return { source, mathSegments };
+}
+
+function restoreChatMathSegments(html, mathSegments) {
+  let output = String(html || "");
+  mathSegments.forEach((segment, index) => {
+    const token = `@@CHATMATH${index}@@`;
+    const replacement = segment.displayMode
+      ? `<div class="chat-math-block">${segment.html}</div>`
+      : `<span class="chat-math-inline">${segment.html}</span>`;
+    output = output.replaceAll(`<p>${token}</p>`, replacement);
+    output = output.replaceAll(token, replacement);
+  });
+  return output;
 }
 
 function renderChatMarkdown(text) {
@@ -144,9 +189,10 @@ function renderChatMarkdown(text) {
     codeBlocks.push(renderChatCodeBlock(normalizeFencedCode(code), language));
     return token;
   });
+  const { source: withMath, mathSegments } = extractChatMathSegments(withCodeBlocks);
   const codeSpans = [];
   const codeSpanLabels = [];
-  let html = escapeHtml(withCodeBlocks).replace(/`([^`\n]+)`/g, (_, code) => {
+  let html = escapeHtml(withMath).replace(/`([^`\n]+)`/g, (_, code) => {
     const token = `@@CODESPAN${codeSpans.length}@@`;
     codeSpans.push(`<code>${code}</code>`);
     codeSpanLabels.push(code);
@@ -167,7 +213,7 @@ function renderChatMarkdown(text) {
     linkSpans.push(`<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a>`);
     return token;
   });
-  html = html.replace(/(https?:\/\/[^\s<>"']+)/gi, (url) => {
+  html = html.replace(/(https?:\/\/[^\s<>"'()[\]{}（）【】《》]+)/gi, (url) => {
     const [hrefCandidate, trailing] = splitTrailingUrlPunctuation(url);
     const safeHref = safeChatLinkHref(hrefCandidate);
     return safeHref
@@ -187,7 +233,7 @@ function renderChatMarkdown(text) {
   codeBlocks.forEach((block, index) => {
     html = html.replace(`@@CODEBLOCK${index}@@`, block);
   });
-  return html;
+  return restoreChatMathSegments(html, mathSegments);
 }
 
 function renderChatMarkdownBlocks(html) {
@@ -567,20 +613,27 @@ function renderNoteEditDraft(noteEdit) {
   `;
 }
 
-function renderChatToolActivity(toolActivity, { showActions = true } = {}) {
-  const items = groupToolActivityItems(normalizeToolActivity(toolActivity));
+function renderChatToolActivity(toolActivity, { showActions = true, activityScope = "" } = {}) {
+  const items = groupToolActivityItems(collapseIntermediateToolActivity(normalizeToolActivity(toolActivity)));
   if (!items.length) return "";
   return `
     <div class="ask-tool-activity" aria-label="Tool activity">
-      ${items.map((item) => {
+      ${items.map((item, itemIndex) => {
         const undoTarget = toolActivityUndoSnapshotId(item);
         const redoTarget = toolActivityRedoSnapshotId(item);
         const undoState = normalizeText(readerState.toolUndoStates[toolActivityStateKey(item)]);
         const undoBusy = undoState === "undoing" || undoState === "redoing";
         const toggleMode = undoState === "undone" ? "redo" : "undo";
-        const toggleTarget = toggleMode === "redo" ? redoTarget : undoTarget;
-        const toggleLabel = undoState === "undoing" ? "Undoing" : undoState === "redoing" ? "Redoing" : toggleMode === "redo" ? "Redo" : "Undo";
+        const toggleSnapshots = toolActivityToggleSnapshotIds(item, toggleMode);
+        const toggleTarget = toggleSnapshots[0] || (toggleMode === "redo" ? redoTarget : undoTarget);
+        const toggleLabel = toggleMode === "redo" ? "Redo" : "Undo";
+        const snapshotState = toolSnapshotStateFor(toggleTarget);
+        const toggleUnavailable = snapshotState
+          ? (toggleMode === "redo" ? !snapshotState.canRedo : !snapshotState.canUndo)
+          : false;
         const showView = toolActivityChangesHtmlNote(item);
+        const viewNoteId = normalizeText(item.noteId) || (showView ? currentChatNoteId() : "");
+        const previewKey = toolActivityPreviewKey(item, activityScope, itemIndex);
         return `
         <div class="ask-tool-activity-item" data-tool-activity-id="${escapeHtml(toolActivityStateKey(item))}">
           <div class="ask-tool-activity-copy">
@@ -589,36 +642,87 @@ function renderChatToolActivity(toolActivity, { showActions = true } = {}) {
           </div>
           ${showActions ? `
             <div class="ask-tool-activity-actions">
-              ${showView && item.noteId ? `
-                <button class="ask-tool-action" type="button" data-tool-view-note="${escapeHtml(item.noteId)}">View</button>
-              ` : showView && item.snapshotId ? `
+              ${showView && viewNoteId ? `
+                <button class="ask-tool-action" type="button" data-tool-view-note="${escapeHtml(viewNoteId)}">View</button>
+              ` : ""}
+              ${showView && item.snapshotId ? `
                 <button
                   class="ask-tool-action"
                   type="button"
                   data-tool-preview="${escapeHtml(item.snapshotId)}"
+                  data-tool-preview-key="${escapeHtml(previewKey)}"
                   data-tool-session-id="${escapeHtml(item.sessionId)}"
-                  ${readerState.toolDiffActionId === item.snapshotId ? "disabled" : ""}
-                >${readerState.toolDiffActionId === item.snapshotId ? "Loading" : "View"}</button>
+                  ${readerState.toolDiffActionId === previewKey ? "disabled" : ""}
+                >${readerState.toolDiffActionId === previewKey ? "Loading" : "Preview"}</button>
               ` : ""}
               ${item.undoable && toggleTarget ? `
                 <button
                   class="ask-tool-action ask-tool-undo"
                   type="button"
                   data-tool-toggle="${escapeHtml(toggleTarget)}"
+                  data-tool-toggle-snapshots="${escapeHtml(toggleSnapshots.join(","))}"
                   data-tool-toggle-mode="${escapeHtml(toggleMode)}"
                   data-tool-state-key="${escapeHtml(toolActivityStateKey(item))}"
                   data-tool-session-id="${escapeHtml(item.sessionId)}"
-                  ${undoBusy ? "disabled" : ""}
+                  ${undoBusy || toggleUnavailable ? "disabled" : ""}
                 >${escapeHtml(toggleLabel)}</button>
               ` : ""}
             </div>
-            ${renderToolActivityDiff(item)}
+            ${renderToolActivityDiff(item, previewKey)}
           ` : ""}
         </div>
       `;
       }).join("")}
     </div>
   `;
+}
+
+function collapseIntermediateToolActivity(items) {
+  const latestByWriteTarget = new Map();
+  const sequencesByWriteTarget = new Map();
+  items.forEach((item, index) => {
+    const key = intermediateToolActivityKey(item);
+    if (!key) return;
+    latestByWriteTarget.set(key, index);
+    const sequence = sequencesByWriteTarget.get(key) || [];
+    if (item.snapshotId) sequence.push(item.snapshotId);
+    sequencesByWriteTarget.set(key, sequence);
+  });
+  return items.map((item, index) => {
+    const key = intermediateToolActivityKey(item);
+    if (!key || latestByWriteTarget.get(key) !== index) return item;
+    const snapshotIds = sequencesByWriteTarget.get(key) || [];
+    return {
+      ...item,
+      snapshotIds,
+      undoSnapshotId: snapshotIds[0] || item.snapshotId,
+      redoSnapshotId: snapshotIds[snapshotIds.length - 1] || item.snapshotId,
+      collapsedCount: snapshotIds.length
+    };
+  }).filter((item, index) => {
+    const key = intermediateToolActivityKey(item);
+    return !key || latestByWriteTarget.get(key) === index;
+  });
+}
+
+function intermediateToolActivityKey(item) {
+  if (!item || !["write_note", "manage_annotations", "write_note_media"].includes(item.name)) return "";
+  const fileKey = toolActivityChangedFileKey(item);
+  if (!fileKey) return "";
+  return [
+    item.name,
+    normalizeText(item.sessionId),
+    normalizeText(item.noteId) || currentChatNoteId(),
+    fileKey
+  ].join("|");
+}
+
+function toolActivityPreviewKey(item, activityScope, itemIndex) {
+  return [
+    normalizeText(activityScope) || "activity",
+    normalizeText(item?.snapshotId) || toolActivityStateKey(item) || "snapshot",
+    String(Math.max(0, Number(itemIndex) || 0))
+  ].join(":");
 }
 
 function groupToolActivityItems(items) {
@@ -635,9 +739,9 @@ function groupToolActivityItems(items) {
     grouped.push({
       ...item,
       count: 1,
-      snapshotIds: item.snapshotId ? [item.snapshotId] : [],
-      undoSnapshotId: item.snapshotId,
-      redoSnapshotId: item.snapshotId
+      snapshotIds: toolActivitySnapshotIds(item),
+      undoSnapshotId: normalizeText(item.undoSnapshotId) || toolActivitySnapshotIds(item)[0] || item.snapshotId,
+      redoSnapshotId: normalizeText(item.redoSnapshotId) || toolActivitySnapshotIds(item).at(-1) || item.snapshotId
     });
   });
   return grouped;
@@ -651,7 +755,7 @@ function canMergeToolActivity(previous, item) {
 }
 
 function isAnnotationDeleteActivity(item) {
-  if (!item || item.name !== "paper_notes_edit") return false;
+  if (!item || item.name !== "manage_annotations") return false;
   const text = normalizeText(item.summary || item.toolMessage || item.message).toLowerCase();
   return text === "deleted annotation." && toolActivityChangesAnnotations(item);
 }
@@ -675,7 +779,26 @@ function mergeToolActivityChangedFiles(left, right) {
 }
 
 function toolActivityStateKey(item) {
-  return normalizeText(item?.undoSnapshotId || item?.snapshotId);
+  const snapshotIds = toolActivitySnapshotIds(item);
+  return snapshotIds.length > 1 ? snapshotIds.join("|") : normalizeText(item?.undoSnapshotId || item?.snapshotId);
+}
+
+function toolActivitySnapshotIds(item) {
+  const rawIds = Array.isArray(item?.snapshotIds) ? item.snapshotIds : [];
+  const ids = rawIds.map(normalizeText).filter(Boolean);
+  if (!ids.length && item?.snapshotId) ids.push(normalizeText(item.snapshotId));
+  return [...new Set(ids)];
+}
+
+function toolActivityToggleSnapshotIds(item, mode) {
+  const ids = toolActivitySnapshotIds(item);
+  return mode === "redo" ? ids : [...ids].reverse();
+}
+
+function toolSnapshotStateFor(snapshotId) {
+  const targetSnapshotId = normalizeText(snapshotId);
+  if (!targetSnapshotId) return null;
+  return (readerState.toolSnapshots || []).find((snapshot) => snapshot.snapshotId === targetSnapshotId) || null;
 }
 
 function toolActivityUndoSnapshotId(item) {
@@ -715,7 +838,8 @@ function toolActivitySummary(item) {
   return files || "Local note files changed.";
 }
 
-function renderToolActivityDiff(item) {
+function renderToolActivityDiff(item, previewKey = "") {
+  if (!readerState.toolDiffOpen?.[previewKey]) return "";
   const diff = normalizeToolDiff(readerState.toolDiffs[item.snapshotId]);
   if (!diff || !diff.files.length) return "";
   return `
@@ -724,15 +848,139 @@ function renderToolActivityDiff(item) {
         <div class="ask-tool-diff-file">
           <div class="ask-tool-diff-header">
             <strong>${escapeHtml(file.path)}</strong>
+            ${renderToolDiffSummary(file.diff)}
           </div>
-          ${file.diff ? `<pre>${escapeHtml(file.diff)}</pre>` : `<p>No text diff available.</p>`}
+          ${renderToolDiffPreview(file.diff, file.path)}
         </div>
       `).join("")}
     </div>
   `;
 }
 
+function parseToolDiffLines(diffText) {
+  const added = [];
+  const removed = [];
+  String(diffText || "").split(/\r?\n/).forEach((rawLine) => {
+    if (!rawLine || rawLine.startsWith("@@") || rawLine.startsWith("+++") || rawLine.startsWith("---")) return;
+    const marker = rawLine[0];
+    if (marker !== "+" && marker !== "-") return;
+    const value = rawLine.slice(1).trim();
+    if (!value) return;
+    if (marker === "+") added.push(value);
+    if (marker === "-") removed.push(value);
+  });
+  return { added, removed };
+}
+
+function toolDiffSummary(diffText) {
+  const { added, removed } = parseToolDiffLines(diffText);
+  const parts = [];
+  if (removed.length) parts.push(`${removed.length} removed`);
+  if (added.length) parts.push(`${added.length} added`);
+  return parts.join(" · ") || "No rendered changes";
+}
+
+function renderToolDiffSummary(diffText) {
+  const { added, removed } = parseToolDiffLines(diffText);
+  const parts = [];
+  if (removed.length) {
+    parts.push(`<span class="ask-tool-diff-stat is-removed">${escapeHtml(removed.length)} removed</span>`);
+  }
+  if (added.length) {
+    parts.push(`<span class="ask-tool-diff-stat is-added">${escapeHtml(added.length)} added</span>`);
+  }
+  return `<span class="ask-tool-diff-stats">${parts.join(`<span class="ask-tool-diff-stat-separator">·</span>`) || "No rendered changes"}</span>`;
+}
+
+function renderToolDiffPreview(diffText, filePath = "") {
+  if (!diffText) return `<p>No text diff available.</p>`;
+  return `
+    <div class="ask-tool-diff-viewer" role="table" aria-label="Preview diff">
+      ${renderToolDiffRows(diffText, filePath)}
+    </div>
+  `;
+}
+
+function renderToolDiffRows(diffText, filePath = "") {
+  const lines = String(diffText || "").split(/\r?\n/);
+  let oldLine = 0;
+  let newLine = 0;
+  let hasReliableLineNumbers = false;
+  const rows = [];
+  lines.forEach((rawLine) => {
+    if (!rawLine || rawLine.startsWith("---") || rawLine.startsWith("+++")) return;
+    const hunk = rawLine.match(/@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@(.*)$/);
+    if (hunk) {
+      oldLine = Number(hunk[1]) || 0;
+      newLine = Number(hunk[2]) || 0;
+      hasReliableLineNumbers = toolDiffHunkHasReliableLineNumbers(rawLine, filePath, oldLine, newLine);
+      const trailingContent = normalizeText(hunk[3]);
+      if (!trailingContent) {
+        rows.push(`
+          <div class="ask-tool-diff-row is-hunk has-no-lines" role="row">
+            <span class="ask-tool-diff-line"></span>
+            <span class="ask-tool-diff-line"></span>
+            <span class="ask-tool-diff-marker">@@</span>
+            <code>${escapeHtml(rawLine.slice(hunk.index || 0))}</code>
+          </div>
+        `);
+        return;
+      }
+      rows.push(renderToolDiffRow("context", hasReliableLineNumbers ? oldLine : "", hasReliableLineNumbers ? newLine : "", "", trailingContent));
+      oldLine += 1;
+      newLine += 1;
+      return;
+    }
+    const marker = rawLine[0];
+    const content = rawLine.slice(marker === "+" || marker === "-" || marker === " " ? 1 : 0);
+    if (marker === "-") {
+      rows.push(renderToolDiffRow("removed", hasReliableLineNumbers ? oldLine : "", "", "-", content));
+      oldLine += 1;
+      return;
+    }
+    if (marker === "+") {
+      rows.push(renderToolDiffRow("added", "", hasReliableLineNumbers ? newLine : "", "+", content));
+      newLine += 1;
+      return;
+    }
+    rows.push(renderToolDiffRow(
+      "context",
+      hasReliableLineNumbers && oldLine ? oldLine : "",
+      hasReliableLineNumbers && newLine ? newLine : "",
+      "",
+      marker === " " ? content : rawLine
+    ));
+    if (oldLine) oldLine += 1;
+    if (newLine) newLine += 1;
+  });
+  return rows.join("") || `<p>No text diff available.</p>`;
+}
+
+function toolDiffHunkHasReliableLineNumbers(rawLine, filePath, oldLine, newLine) {
+  if (oldLine > 1 || newLine > 1) return true;
+  const path = normalizeText(filePath);
+  const line = normalizeText(rawLine);
+  if (!path || !line) return false;
+  const fileName = path.split(/[\\/]/).pop();
+  return Boolean(fileName && line.includes(fileName) && (oldLine > 1 || newLine > 1));
+}
+
+function renderToolDiffRow(kind, oldLine, newLine, marker, content) {
+  const hasLineNumber = normalizeText(oldLine) || normalizeText(newLine);
+  return `
+    <div class="ask-tool-diff-row is-${escapeHtml(kind)}${hasLineNumber ? "" : " has-no-lines"}" role="row">
+      <span class="ask-tool-diff-line">${escapeHtml(oldLine)}</span>
+      <span class="ask-tool-diff-line">${escapeHtml(newLine)}</span>
+      <span class="ask-tool-diff-marker">${escapeHtml(marker)}</span>
+      <code>${escapeHtml(content)}</code>
+    </div>
+  `;
+}
+
 function toolDisplayName(name) {
+  if (name === "write_note") return "Updated note";
+  if (name === "manage_annotations") return "Updated annotation";
+  if (name === "write_note_media") return "Updated note media";
   if (name === "append_note_section") return "Appended note section";
   if (name === "replace_note_section") return "Replaced note section";
   if (name === "write_note_section") return "Updated note section";
@@ -984,7 +1232,11 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   const previousScrollTop = elements.readerChatMessages.scrollTop;
   const wasNearBottom = readerChatIsNearBottom(elements.readerChatMessages);
   if (!readerState.chatMessages.length && !isChatSessionPending()) {
-    elements.readerChatMessages.innerHTML = "";
+    elements.readerChatMessages.innerHTML = `
+      <div class="ask-empty-chat">
+        <p>Ask about this paper, or tell me what to do.</p>
+      </div>
+    `;
     return;
   }
 
@@ -997,7 +1249,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     const sourcesHtml = message.role === "assistant" ? renderChatSources(message.sources) : "";
     const imageHtml = renderChatImages([...(message.attachments || []), ...(message.artifacts || [])]);
     const noteEditHtml = message.role === "assistant" ? renderNoteEditDraft(message.noteEdit) : "";
-    const toolActivityHtml = message.role === "assistant" ? renderChatToolActivity(message.toolActivity) : "";
+    const toolActivityHtml = message.role === "assistant" ? renderChatToolActivity(message.toolActivity, { activityScope: `message-${index}` }) : "";
     const traceHtml = message.role === "assistant" ? renderRunTraceSummary(message.runTrace, message.workTrace) : "";
     const editing = message.role === "user" && readerState.chatEditingIndex === index;
     const generationHtml = message.role === "user" ? renderUserGenerationBadge(message.generation, message.attachments) : "";
@@ -1185,18 +1437,27 @@ async function viewToolActivityNote(noteId) {
   elements.notePane?.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSessionId() } = {}) {
+async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSessionId(), previewKey = "" } = {}) {
   const targetSnapshotId = normalizeText(snapshotId);
   const targetSessionId = normalizeText(sessionId);
+  const targetPreviewKey = normalizeText(previewKey) || targetSnapshotId;
   if (!targetSnapshotId || !targetSessionId) return null;
-  if (readerState.toolDiffs[targetSnapshotId]) {
-    const nextDiffs = { ...readerState.toolDiffs };
-    delete nextDiffs[targetSnapshotId];
-    readerState.toolDiffs = nextDiffs;
+  if (readerState.toolDiffOpen?.[targetPreviewKey]) {
+    const nextOpen = { ...(readerState.toolDiffOpen || {}) };
+    delete nextOpen[targetPreviewKey];
+    readerState.toolDiffOpen = nextOpen;
     renderReaderChatMessages({ preserveScrollTop: true });
     return null;
   }
-  readerState.toolDiffActionId = targetSnapshotId;
+  if (readerState.toolDiffs[targetSnapshotId]) {
+    readerState.toolDiffOpen = {
+      ...(readerState.toolDiffOpen || {}),
+      [targetPreviewKey]: true
+    };
+    renderReaderChatMessages({ preserveScrollTop: true });
+    return normalizeToolDiff(readerState.toolDiffs[targetSnapshotId]);
+  }
+  readerState.toolDiffActionId = targetPreviewKey;
   renderReaderChatMessages({ preserveScrollTop: true });
   try {
     const payload = await fetchAgentJson(
@@ -1207,6 +1468,10 @@ async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSe
       readerState.toolDiffs = {
         ...readerState.toolDiffs,
         [targetSnapshotId]: diff
+      };
+      readerState.toolDiffOpen = {
+        ...(readerState.toolDiffOpen || {}),
+        [targetPreviewKey]: true
       };
     }
     renderReaderChatMessages({ preserveScrollTop: true });
@@ -1232,7 +1497,8 @@ async function handleToolActivityClick(event) {
   if (previewButton) {
     event.preventDefault();
     await previewReaderToolSnapshotDiff(previewButton.dataset.toolPreview, {
-      sessionId: normalizeText(previewButton.dataset.toolSessionId) || getChatSessionId()
+      sessionId: normalizeText(previewButton.dataset.toolSessionId) || getChatSessionId(),
+      previewKey: normalizeText(previewButton.dataset.toolPreviewKey)
     });
     return;
   }
@@ -1241,6 +1507,7 @@ async function handleToolActivityClick(event) {
   if (toggleButton) {
     event.preventDefault();
     const snapshotId = normalizeText(toggleButton.dataset.toolToggle);
+    const snapshotIds = normalizeToolToggleSnapshotIds(toggleButton.dataset.toolToggleSnapshots, snapshotId);
     const mode = normalizeText(toggleButton.dataset.toolToggleMode) === "redo" ? "redo" : "undo";
     const stateKey = normalizeText(toggleButton.dataset.toolStateKey) || snapshotId;
     const sessionId = normalizeText(toggleButton.dataset.toolSessionId) || getChatSessionId();
@@ -1251,10 +1518,14 @@ async function handleToolActivityClick(event) {
     preserveReaderChatScrollTop(() => setToolUndoState(stateKey, mode === "redo" ? "redoing" : "undoing"));
     try {
       if (mode === "redo") {
-        await redoReaderToolSnapshot(snapshotId, { sessionId, force: true });
+        for (const targetSnapshotId of snapshotIds) {
+          await redoReaderToolSnapshot(targetSnapshotId, { sessionId });
+        }
         preserveReaderChatScrollTop(() => setToolUndoState(stateKey, ""));
       } else {
-        await restoreReaderToolSnapshot(snapshotId, { sessionId, force: true });
+        for (const targetSnapshotId of snapshotIds) {
+          await restoreReaderToolSnapshot(targetSnapshotId, { sessionId });
+        }
         preserveReaderChatScrollTop(() => setToolUndoState(stateKey, "undone"));
       }
     } catch (error) {
@@ -1263,4 +1534,13 @@ async function handleToolActivityClick(event) {
     }
     return;
   }
+}
+
+function normalizeToolToggleSnapshotIds(value, fallback = "") {
+  const ids = normalizeText(value)
+    .split(",")
+    .map(normalizeText)
+    .filter(Boolean);
+  if (!ids.length && fallback) ids.push(normalizeText(fallback));
+  return [...new Set(ids)];
 }

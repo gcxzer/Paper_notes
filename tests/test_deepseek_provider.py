@@ -54,7 +54,7 @@ def test_deepseek_provider_translates_tool_call_response():
                 "tool_calls": [{
                     "id": "call_1",
                     "type": "function",
-                    "function": {"name": "paper_notes_search", "arguments": '{"query":"attention"}'},
+                    "function": {"name": "search_notes", "arguments": '{"query":"attention"}'},
                 }],
             },
             "finish_reason": "tool_calls",
@@ -66,7 +66,7 @@ def test_deepseek_provider_translates_tool_call_response():
 
     assert result.finish_reason == "tool_calls"
     assert result.tool_calls[0].id == "call_1"
-    assert result.tool_calls[0].name == "paper_notes_search"
+    assert result.tool_calls[0].name == "search_notes"
     assert '"attention"' in result.tool_calls[0].arguments
 
 

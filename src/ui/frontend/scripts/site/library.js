@@ -375,7 +375,7 @@ function safeLinkHref(rawHref) {
 function splitTrailingUrlPunctuation(url) {
   let trimmed = url;
   let trailing = "";
-  while (/[.,!?;:]$/.test(trimmed)) {
+  while (/[.,!?;:，。！？；：、]$/.test(trimmed)) {
     trailing = trimmed.slice(-1) + trailing;
     trimmed = trimmed.slice(0, -1);
   }
@@ -411,7 +411,7 @@ function renderLinkedText(text) {
       ? `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a>`
       : match;
   });
-  html = html.replace(/(https?:\/\/[^\s<>"']+)/gi, (url) => {
+  html = html.replace(/(https?:\/\/[^\s<>"'()[\]{}（）【】《》]+)/gi, (url) => {
     const [hrefCandidate, trailing] = splitTrailingUrlPunctuation(url);
     const href = safeLinkHref(hrefCandidate);
     return href

@@ -91,6 +91,20 @@ def test_codex_provider_allows_reasoning_effort_none() -> None:
     assert "include" not in client.responses.calls[0]
 
 
+def test_codex_spark_provider_sanitizes_reasoning_effort_none_to_low() -> None:
+    response = SimpleNamespace(id="resp_1", status="completed", output=[], output_text="Hello from Codex", usage=None)
+    client = FakeClient(response)
+    provider = CodexModelProvider(client=client, default_model="gpt-5.3-codex-spark")
+
+    provider.generate(ModelRequest(
+        messages=[{"role": "user", "content": "Hi"}],
+        request_options={"reasoning": {"effort": "none"}},
+    ))
+
+    assert client.responses.calls[0]["reasoning"] == {"effort": "low"}
+    assert "include" not in client.responses.calls[0]
+
+
 def test_codex_provider_supports_image_input() -> None:
     response = SimpleNamespace(id="resp_1", status="completed", output=[], output_text="Hello from Codex", usage=None)
     client = FakeClient(response)

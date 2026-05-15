@@ -50,7 +50,8 @@ def test_catalog_resolves_default_readonly_and_settings_groups():
     group_names = [group.name for group in catalog.describe_groups()]
 
     assert set(default.tool_names) == {
-        "paper_notes_search",
+        "search_notes",
+        "write_note",
         "persistent_memory",
         "session_search",
         "todo",
@@ -60,8 +61,8 @@ def test_catalog_resolves_default_readonly_and_settings_groups():
         "web_fetch",
         "web_search",
     }
-    assert set(readonly.tool_names) == {"paper_notes_search", "session_search"}
-    assert "paper_notes_edit" not in readonly.tool_names
+    assert set(readonly.tool_names) == {"search_notes", "session_search"}
+    assert "write_note" not in readonly.tool_names
     assert group_names == ["paper_notes", "code_execution", "persistent_memory", "session_search", "todo", "skills", "web_search"]
 
 
@@ -106,7 +107,7 @@ def test_catalog_cache_returns_deep_copy_and_invalidates_on_generation():
     first.model_tools[0]["function"]["description"] = "mutated"
     second = catalog.resolve(selection)
     registry.register(ToolDefinition(
-        name="paper_notes_context",
+        name="get_note_context",
         description="Get note context.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"ok": True},
@@ -116,7 +117,7 @@ def test_catalog_cache_returns_deep_copy_and_invalidates_on_generation():
     third = catalog.resolve(selection)
 
     assert second.model_tools[0]["function"]["description"] != "mutated"
-    assert "paper_notes_context" in third.tool_names
+    assert "get_note_context" in third.tool_names
     assert third.generation > second.generation
 
 
@@ -198,7 +199,7 @@ def test_registry_dispatches_async_tool_handler():
 def _registry_with_group_tools() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        name="paper_notes_search",
+        name="search_notes",
         description="Search local notes.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"success": True},
@@ -206,7 +207,7 @@ def _registry_with_group_tools() -> ToolRegistry:
         read_only=True,
     ))
     registry.register(ToolDefinition(
-        name="paper_notes_edit",
+        name="write_note",
         description="Write note HTML.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"success": True},

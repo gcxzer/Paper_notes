@@ -90,7 +90,7 @@ def test_execute_code_scrubs_secret_env_and_uses_fake_home(monkeypatch) -> None:
 def test_execute_code_child_can_call_allowed_readonly_parent_tool() -> None:
     registry = _registry()
     registry.register(ToolDefinition(
-        name="paper_notes_search",
+        name="search_notes",
         description="Search.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True, "query": args.get("query")},
@@ -101,12 +101,12 @@ def test_execute_code_child_can_call_allowed_readonly_parent_tool() -> None:
     ))
     register_code_execution_tool(
         registry,
-        available_tool_names_provider=lambda: ("execute_code", "paper_notes_search"),
+        available_tool_names_provider=lambda: ("execute_code", "search_notes"),
     )
 
     result = _dispatch_execute_code(
         registry,
-        "from paper_notes_tools import paper_notes_search\nprint(paper_notes_search(query='rag'))\n",
+        "from paper_notes_tools import search_notes\nprint(search_notes(query='rag'))\n",
     )
 
     assert result["success"] is True
@@ -114,10 +114,10 @@ def test_execute_code_child_can_call_allowed_readonly_parent_tool() -> None:
     assert "'query': 'rag'" in result["output"]
 
 
-def test_execute_code_child_can_call_paper_notes_edit_helper() -> None:
+def test_execute_code_child_cannot_call_paper_notes_write_helper() -> None:
     registry = _registry()
     registry.register(ToolDefinition(
-        name="paper_notes_context",
+        name="get_note_context",
         description="Context.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True},
@@ -127,7 +127,7 @@ def test_execute_code_child_can_call_paper_notes_edit_helper() -> None:
         kind="read",
     ))
     registry.register(ToolDefinition(
-        name="paper_notes_edit",
+        name="write_note",
         description="Edit.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True, "action": args.get("action"), "html": args.get("html")},
@@ -138,28 +138,27 @@ def test_execute_code_child_can_call_paper_notes_edit_helper() -> None:
     ))
     register_code_execution_tool(
         registry,
-        available_tool_names_provider=lambda: ("execute_code", "paper_notes_context"),
+        available_tool_names_provider=lambda: ("execute_code", "get_note_context"),
     )
 
     result = _dispatch_execute_code(
         registry,
         (
-            "from paper_notes_tools import paper_notes_edit\n"
-            "print(paper_notes_edit('append_section', 'n1', heading='Notes', html='<p>x</p>'))\n"
+            "from paper_notes_tools import write_note\n"
+            "print(write_note('append_to_section', 'n1', heading='Notes', html='<p>x</p>'))\n"
         ),
     )
 
-    assert result["success"] is True
-    assert result["tool_calls_made"] == 1
-    assert "'action': 'append_section'" in result["output"]
-    assert "'html': '<p>x</p>'" in result["output"]
+    assert result["success"] is False
+    assert result["tool_calls_made"] == 0
+    assert "write_note" in result["error"]
 
 
 def test_execute_code_rpc_returns_full_inner_tool_result_not_truncated_preview() -> None:
     registry = _registry()
     annotations = [{"id": f"a{i}", "quote": "x" * 20} for i in range(8)]
     registry.register(ToolDefinition(
-        name="paper_notes_context",
+        name="get_note_context",
         description="Context.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True, "annotations": annotations, "large": "y" * 1000},
@@ -171,14 +170,14 @@ def test_execute_code_rpc_returns_full_inner_tool_result_not_truncated_preview()
     ))
     register_code_execution_tool(
         registry,
-        available_tool_names_provider=lambda: ("execute_code", "paper_notes_context"),
+        available_tool_names_provider=lambda: ("execute_code", "get_note_context"),
     )
 
     result = _dispatch_execute_code(
         registry,
         (
-            "from paper_notes_tools import paper_notes_context\n"
-            "res = paper_notes_context(note_id='note-1')\n"
+            "from paper_notes_tools import get_note_context\n"
+            "res = get_note_context(note_id='note-1')\n"
             "print(len(res.get('annotations', [])))\n"
             "print(res.get('truncated'))\n"
         ),
@@ -229,7 +228,7 @@ def test_execute_code_child_can_call_allowed_skill_tools() -> None:
 def test_execute_code_rpc_rejects_mutating_and_recursive_tools() -> None:
     registry = _registry()
     registry.register(ToolDefinition(
-        name="paper_notes_search",
+        name="search_notes",
         description="Search.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True},
@@ -238,13 +237,13 @@ def test_execute_code_rpc_rejects_mutating_and_recursive_tools() -> None:
         risk="write",
     ))
     mutating_result = run_python_code(
-        "from paper_notes_tools import _call\nprint(_call('paper_notes_search', {}))\n",
+        "from paper_notes_tools import _call\nprint(_call('search_notes', {}))\n",
         registry=registry,
-        allowed_tools={"paper_notes_search"},
+        allowed_tools={"search_notes"},
     )
     register_code_execution_tool(
         registry,
-        available_tool_names_provider=lambda: ("execute_code", "paper_notes_search"),
+        available_tool_names_provider=lambda: ("execute_code", "search_notes"),
     )
     recursive_result = _dispatch_execute_code(
         registry,
@@ -260,7 +259,7 @@ def test_execute_code_rpc_rejects_mutating_and_recursive_tools() -> None:
 def test_execute_code_rpc_enforces_tool_call_limit() -> None:
     registry = _registry()
     registry.register(ToolDefinition(
-        name="paper_notes_search",
+        name="search_notes",
         description="Search.",
         parameters={"type": "object", "properties": {}, "additionalProperties": True},
         handler=lambda args: {"success": True},
@@ -270,9 +269,9 @@ def test_execute_code_rpc_enforces_tool_call_limit() -> None:
     ))
 
     result = run_python_code(
-        "from paper_notes_tools import paper_notes_search\nfor i in range(27):\n    print(paper_notes_search(query=str(i)))\n",
+        "from paper_notes_tools import search_notes\nfor i in range(27):\n    print(search_notes(query=str(i)))\n",
         registry=registry,
-        allowed_tools={"paper_notes_search"},
+        allowed_tools={"search_notes"},
         max_tool_calls=25,
     )
 
@@ -290,7 +289,7 @@ def test_execute_code_rpc_rejects_bad_token() -> None:
         max_tool_calls=25,
     ).start()
     try:
-        response = _rpc_call(server.port, {"token": "bad-token", "tool": "paper_notes_search", "args": {}})
+        response = _rpc_call(server.port, {"token": "bad-token", "tool": "search_notes", "args": {}})
     finally:
         server.stop()
 

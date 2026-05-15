@@ -204,6 +204,11 @@ class MediaStore:
         metadata: dict[str, Any] | None = None,
     ) -> ImageArtifact:
         source_path = Path(path).resolve()
+        media_root = self.root.resolve()
+        if source not in {"pdf_page", "pdf_image"} and not is_relative_to(source_path, media_root):
+            raise MediaStoreError(
+                f"Local images must be placed under {media_root} before they can be inserted into notes."
+            )
         if not source_path.exists() or not source_path.is_file():
             raise MediaStoreError(f"Image file does not exist: {source_path}")
         data = source_path.read_bytes()

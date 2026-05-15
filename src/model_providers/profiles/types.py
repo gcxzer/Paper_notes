@@ -9,6 +9,7 @@ class ModelCapabilities:
     supports_vision: bool = False
     supports_image_generation: bool = False
     supports_web_search: bool = False
+    supports_reasoning_off: bool = True
     context_window: int = 0
     image_input_mode: str = "unsupported"
 
@@ -18,6 +19,7 @@ class ModelCapabilities:
             "supportsVision": self.supports_vision,
             "supportsImageGeneration": self.supports_image_generation,
             "supportsWebSearch": self.supports_web_search,
+            "supportsReasoningOff": self.supports_reasoning_off,
             "contextWindow": self.context_window,
             "imageInputMode": self.image_input_mode,
         }

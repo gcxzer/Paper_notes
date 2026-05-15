@@ -73,6 +73,20 @@ CODEX_PROFILE = ModelProviderProfile(
         ModelOption("gpt-5.4-mini", "GPT-5.4 mini", "5.4 mini", "Faster Codex model"),
         ModelOption("gpt-5.4", "GPT-5.4", "5.4", "Codex CLI family"),
         ModelOption("gpt-5.3-codex", "GPT-5.3 Codex", "5.3 codex", "Codex-optimized"),
+        ModelOption(
+            "gpt-5.3-codex-spark",
+            "GPT-5.3 Codex Spark",
+            "5.3 spark",
+            "Ultra-fast Codex research preview",
+            capabilities=ModelCapabilities(
+                supports_tools=True,
+                supports_vision=False,
+                supports_image_generation=False,
+                supports_web_search=False,
+                supports_reasoning_off=False,
+                image_input_mode="unsupported",
+            ),
+        ),
     ),
 )
 

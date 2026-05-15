@@ -7,6 +7,8 @@ import time
 import pytest
 
 from agent_runtime.service import AgentService, AgentServiceRequest, AgentServiceResult
+from agent_runtime.types import AgentEvent
+from backend import agent_api
 from context_compression import ContextCompressionConfig, ContextCompressor
 from agent_sessions import AgentSession, AgentSessionMetadata, AgentSessionStore
 from tool_safety import PaperNotesSnapshotManager
@@ -210,6 +212,34 @@ def test_serialize_session_keeps_cancelled_tool_call_work_trace():
     assert serialized["messages"][-1]["workTrace"]["items"][0]["text"] == "I inspected the annotation flow."
 
 
+def test_tool_activity_deduplicates_single_and_list_snapshot_payloads():
+    snapshot = {
+        "snapshotId": "snap-1",
+        "toolName": "write_note",
+        "changed": True,
+        "undoable": True,
+        "changedFiles": [{"path": "Paper-html/note.html", "beforeBytes": 10, "afterBytes": 20}],
+        "arguments": {"note_id": "note-1"},
+    }
+
+    activity = agent_api._tool_activity_from_events([
+        AgentEvent(
+            "tool_result",
+            "Tool completed: write_note",
+            {
+                "name": "execute_code",
+                "message": "Tool completed: write_note",
+                "snapshot": dict(snapshot),
+                "snapshots": [dict(snapshot)],
+            },
+        )
+    ], session_id="session-1")
+
+    assert len(activity) == 1
+    assert activity[0]["name"] == "write_note"
+    assert activity[0]["snapshotId"] == "snap-1"
+
+
 def test_serialize_chat_result_places_deepseek_reasoning_in_work_trace(tmp_path):
     service = AgentService(
         model_provider=FakeProvider([
@@ -326,6 +356,28 @@ def test_openai_gpt_think_mode_high_enables_reasoning_summary(tmp_path):
     )
 
     assert provider.requests[0].request_options["reasoning"] == {"effort": "high", "summary": "auto"}
+
+
+def test_codex_spark_think_mode_off_falls_back_to_low_reasoning(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Fast answer.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Answer directly.",
+            "provider": "codex-oauth",
+            "model": "gpt-5.3-codex-spark",
+            "metadata": {"gptThinkMode": "off"},
+            "requestOptions": {"reasoning": {"effort": "high", "summary": "auto"}},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["reasoning"] == {"effort": "low", "summary": "auto"}
 
 
 def test_gemini_flash_think_off_uses_minimal_level(tmp_path):
@@ -958,8 +1010,8 @@ def test_tool_snapshot_undo_api_restores_file(tmp_path):
                 content=None,
                 tool_calls=[ToolCall(
                     id="call_api_restore",
-                    name="append_note_section",
-                    arguments='{"note_id":"note-1","heading":"Undo API","html":"<p>temporary</p>"}',
+                    name="write_note",
+                    arguments='{"action":"append_to_section","note_id":"note-1","heading":"Undo API","html":"<p>temporary</p>"}',
                 )],
                 finish_reason="tool_calls",
             ),
@@ -1031,8 +1083,8 @@ def test_tool_snapshot_api_lists_cleans_and_conflicts(tmp_path):
                 content=None,
                 tool_calls=[ToolCall(
                     id="call_conflict",
-                    name="append_note_section",
-                    arguments='{"note_id":"note-1","heading":"Conflict","html":"<p>temporary</p>"}',
+                    name="write_note",
+                    arguments='{"action":"append_to_section","note_id":"note-1","heading":"Conflict","html":"<p>temporary</p>"}',
                 )],
                 finish_reason="tool_calls",
             ),
@@ -1588,7 +1640,11 @@ def test_create_rename_archive_and_delete_chat_session(tmp_path):
     renamed = rename_chat_session({"sessionId": created["session"]["id"], "title": "Renamed"}, service=service)
     archived = archive_chat_session({"sessionId": created["session"]["id"], "archived": True}, service=service)
     visible = list_chat_sessions(service=service)
+    archive_sessions = list_chat_sessions({"state": ["archived"]}, service=service)
     all_sessions = list_chat_sessions({"includeArchived": ["true"]}, service=service)
+    restored = archive_chat_session({"sessionId": created["session"]["id"], "state": "active"}, service=service)
+    trashed = archive_chat_session({"sessionId": created["session"]["id"], "state": "trashed"}, service=service)
+    trash_sessions = list_chat_sessions({"state": ["trashed"]}, service=service)
     deleted = delete_chat_session({"sessionId": created["session"]["id"]}, service=service)
 
     assert created["session"]["title"] == "Draft"
@@ -1596,8 +1652,14 @@ def test_create_rename_archive_and_delete_chat_session(tmp_path):
     assert created["session"]["provider"] == "openai"
     assert renamed["session"]["title"] == "Renamed"
     assert archived["session"]["archived"] is True
+    assert archived["session"]["state"] == "archived"
     assert visible["sessions"] == []
+    assert archive_sessions["sessions"][0]["id"] == created["session"]["id"]
     assert all_sessions["sessions"][0]["id"] == created["session"]["id"]
+    assert restored["session"]["state"] == "active"
+    assert trashed["session"]["trashed"] is True
+    assert trashed["session"]["state"] == "trashed"
+    assert trash_sessions["sessions"][0]["id"] == created["session"]["id"]
     assert deleted["deleted"] is True
     assert service.session_store.get_session(created["session"]["id"]) is None
 

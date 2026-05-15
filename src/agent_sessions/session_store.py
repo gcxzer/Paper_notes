@@ -15,6 +15,7 @@ from agent_sessions.models import (
     SessionNotFoundError,
     date_bucket_for,
     now_iso,
+    normalize_session_state,
 )
 
 from app_infra.paths import PROJECT_ROOT
@@ -81,14 +82,16 @@ class AgentSessionStore:
             raise SessionNotFoundError(session_id)
         return session
 
-    def list_sessions(self, *, include_archived: bool = False) -> list[AgentSessionMetadata]:
+    def list_sessions(self, *, include_archived: bool = False, state: str | None = None) -> list[AgentSessionMetadata]:
         with self._lock:
             self._ensure_loaded_locked()
-            sessions = [
-                metadata
-                for metadata in self._sessions.values()
-                if include_archived or not metadata.archived
-            ]
+            normalized_state = normalize_session_state(state) if state else ""
+            if normalized_state:
+                sessions = [metadata for metadata in self._sessions.values() if metadata.state == normalized_state]
+            elif include_archived:
+                sessions = list(self._sessions.values())
+            else:
+                sessions = [metadata for metadata in self._sessions.values() if metadata.state == "active"]
             return sorted(sessions, key=lambda metadata: metadata.updated_at, reverse=True)
 
     def append_message(
@@ -135,11 +138,25 @@ class AgentSessionStore:
             return metadata
 
     def archive_session(self, session_id: str, *, archived: bool = True) -> AgentSessionMetadata:
+        return self.update_session_state(session_id, state="archived" if archived else "active")
+
+    def update_session_state(self, session_id: str, *, state: str) -> AgentSessionMetadata:
         with self._lock:
             self._ensure_loaded_locked()
             metadata = self._require_metadata_locked(session_id)
-            metadata.archived = archived
-            metadata.updated_at = now_iso(self._clock())
+            next_state = normalize_session_state(state)
+            metadata.state = next_state
+            metadata.archived = next_state == "archived"
+            changed_at = now_iso(self._clock())
+            metadata.updated_at = changed_at
+            metadata.metadata = {
+                **metadata.metadata,
+                "sessionStateChangedAt": changed_at,
+            }
+            if next_state == "archived":
+                metadata.metadata["archivedAt"] = changed_at
+            elif next_state == "trashed":
+                metadata.metadata["trashedAt"] = changed_at
             self._save_index_locked()
             return metadata
 

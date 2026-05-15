@@ -159,6 +159,13 @@ function normalizeReaderChatSession(rawSession) {
   const metadata = rawSession?.metadata && typeof rawSession.metadata === "object" && !Array.isArray(rawSession.metadata)
     ? rawSession.metadata
     : {};
+  const state = ["active", "archived", "trashed"].includes(normalizeText(rawSession?.state))
+    ? normalizeText(rawSession.state)
+    : rawSession?.trashed
+      ? "trashed"
+      : rawSession?.archived
+        ? "archived"
+        : "active";
   return {
     id,
     title: normalizeText(rawSession?.title) || "New chat",
@@ -171,10 +178,13 @@ function normalizeReaderChatSession(rawSession) {
     anthropicThinkMode: normalizeText(metadata.anthropicThinkMode || metadata.anthropic_think_mode),
     updatedAt: normalizeText(rawSession?.updatedAt || rawSession?.createdAt),
     createdAt: normalizeText(rawSession?.createdAt),
+    archivedAt: normalizeText(rawSession?.archivedAt || metadata.archivedAt || metadata.archived_at),
     trashedAt: normalizeText(rawSession?.trashedAt),
     lastMessagePreview: normalizeText(rawSession?.lastMessagePreview),
     messageCount: Number(rawSession?.messageCount) || 0,
-    archived: Boolean(rawSession?.archived)
+    state,
+    archived: state === "archived",
+    trashed: state === "trashed"
   };
 }
 
@@ -202,6 +212,7 @@ function upsertReaderChatSession(rawSession) {
 
 function normalizeToolActivity(rawItems) {
   if (!Array.isArray(rawItems)) return [];
+  const seenSnapshotIds = new Set();
   return rawItems.map((raw) => {
     if (!raw || typeof raw !== "object") return null;
     const changedFiles = Array.isArray(raw.changedFiles)
@@ -224,7 +235,13 @@ function normalizeToolActivity(rawItems) {
       changed: raw.changed !== false,
       changedFiles
     };
-  }).filter((item) => item && item.changedFiles.length);
+  }).filter((item) => {
+    if (!item || !item.changedFiles.length) return false;
+    if (!item.snapshotId) return true;
+    if (seenSnapshotIds.has(item.snapshotId)) return false;
+    seenSnapshotIds.add(item.snapshotId);
+    return true;
+  });
 }
 
 function normalizeToolDiff(rawDiff) {
@@ -265,6 +282,10 @@ function normalizeToolSnapshot(rawSnapshot) {
     changed: Boolean(rawSnapshot.changed),
     changedFiles,
     undoable: Boolean(rawSnapshot.undoable),
+    canUndo: rawSnapshot.canUndo !== false && rawSnapshot.can_undo !== false,
+    canRedo: rawSnapshot.canRedo === true || rawSnapshot.can_redo === true,
+    currentMatchesAfter: rawSnapshot.currentMatchesAfter === true || rawSnapshot.current_matches_after === true,
+    currentMatchesBefore: rawSnapshot.currentMatchesBefore === true || rawSnapshot.current_matches_before === true,
     restored: Boolean(rawSnapshot.restored),
     failed: Boolean(rawSnapshot.failed),
     createdAt: normalizeText(rawSnapshot.createdAt || rawSnapshot.created_at),
@@ -595,23 +616,29 @@ function currentDeepSeekThinkMode() {
   return normalizeDeepSeekThinkMode(readerState.deepSeekThinkMode?.enabled ? readerState.deepSeekThinkMode.effort : "off");
 }
 
-function normalizeGptThinkMode(rawMode) {
+function normalizeGptThinkMode(rawMode, model = "", provider = "") {
   const mode = normalizeText(rawMode).toLowerCase();
-  if (!mode || mode === "off" || mode === "none" || mode === "false") return { enabled: false, effort: "medium" };
+  if (!mode || mode === "off" || mode === "none" || mode === "false") {
+    const selectedProvider = normalizeProviderName(provider);
+    const selectedModel = normalizeText(model);
+    return !selectedProvider || !selectedModel || gptReasoningOffSupported(selectedProvider, selectedModel)
+      ? { enabled: false, effort: "medium" }
+      : { enabled: true, effort: "low" };
+  }
   const effort = ["low", "medium", "high", "xhigh"].includes(mode) ? mode : "medium";
   return { enabled: true, effort };
 }
 
-function readStoredGptThinkMode() {
+function readStoredGptThinkMode(model = "", provider = "") {
   try {
-    return normalizeGptThinkMode(localStorage.getItem(GPT_THINK_MODE_KEY) || "");
+    return normalizeGptThinkMode(localStorage.getItem(GPT_THINK_MODE_KEY) || "", model, provider);
   } catch (error) {
     return { enabled: false, effort: "medium" };
   }
 }
 
-function writeStoredGptThinkMode(mode) {
-  const normalized = normalizeGptThinkMode(mode);
+function writeStoredGptThinkMode(mode, model = currentReaderModel(), provider = currentReaderProvider()) {
+  const normalized = normalizeGptThinkMode(mode, model, provider);
   try {
     localStorage.setItem(GPT_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
   } catch (error) {
@@ -625,10 +652,10 @@ function providerSupportsGptThinkMode(provider) {
   return normalized === "openai" || normalized === "codex-oauth";
 }
 
-function currentGptThinkMode() {
+function currentGptThinkMode(model = currentReaderModel(), provider = currentReaderProvider()) {
   const sessionMode = normalizeText(currentReaderSession()?.gptThinkMode);
-  if (sessionMode) return normalizeGptThinkMode(sessionMode);
-  return normalizeGptThinkMode(readerState.gptThinkMode?.enabled ? readerState.gptThinkMode.effort : "off");
+  if (sessionMode) return normalizeGptThinkMode(sessionMode, model, provider);
+  return normalizeGptThinkMode(readerState.gptThinkMode?.enabled ? readerState.gptThinkMode.effort : "off", model, provider);
 }
 
 function normalizeGeminiThinkMode(rawMode, model = currentReaderModel()) {
@@ -814,6 +841,7 @@ function normalizeModelCapabilities(rawCapabilities) {
     supportsVision: Boolean(raw.supportsVision),
     supportsImageGeneration: Boolean(raw.supportsImageGeneration),
     supportsWebSearch: Boolean(raw.supportsWebSearch),
+    supportsReasoningOff: raw.supportsReasoningOff !== false,
     contextWindow: Math.max(0, Math.round(Number(raw.contextWindow) || 0)),
     imageInputMode: normalizeText(raw.imageInputMode)
   };
@@ -1064,6 +1092,10 @@ function modelCapabilitiesFor(provider, model) {
   const selected = normalizeText(model);
   const option = modelOptionsForProvider(provider, selected).find((item) => item.value === selected);
   return option?.capabilities || profile?.capabilities || normalizeModelCapabilities({});
+}
+
+function gptReasoningOffSupported(provider, model = currentReaderModel()) {
+  return Boolean(modelCapabilitiesFor(provider, model).supportsReasoningOff);
 }
 
 function activeProviderSupportsImageArtifacts() {

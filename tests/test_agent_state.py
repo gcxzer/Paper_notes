@@ -88,10 +88,31 @@ def test_list_sessions_sorts_by_updated_at_and_hides_archived(tmp_path):
     store.archive_session(old_session.metadata.session_id)
 
     visible = store.list_sessions()
+    archived_sessions = store.list_sessions(state="archived")
     all_sessions = store.list_sessions(include_archived=True)
 
     assert [session.session_id for session in visible] == [new_session.metadata.session_id]
+    assert [session.session_id for session in archived_sessions] == [old_session.metadata.session_id]
     assert [session.title for session in all_sessions] == ["Old", "New"]
+
+
+def test_session_state_tracks_archive_and_trash_separately(tmp_path):
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
+    session = store.create_session(title="Stateful")
+
+    archived = store.update_session_state(session.metadata.session_id, state="archived")
+    assert archived.state == "archived"
+    assert archived.archived is True
+
+    trashed = store.update_session_state(session.metadata.session_id, state="trashed")
+    assert trashed.state == "trashed"
+    assert trashed.archived is False
+    assert "archivedAt" in trashed.metadata
+    assert "trashedAt" in trashed.metadata
+
+    restored = store.update_session_state(session.metadata.session_id, state="active")
+    assert restored.state == "active"
+    assert restored.archived is False
 
 
 def test_replace_messages_rewrites_jsonl_atomically(tmp_path):

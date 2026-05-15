@@ -6,6 +6,7 @@ from typing import Any
 from app_config.ai_settings import resolve_openai_api_key, resolve_openai_model
 from media.image import ImageValidationError, shrink_image_data_url
 from model_providers.errors import ModelProviderAPIError, ModelProviderConfigError
+from model_providers.profiles import capabilities_for_provider_model
 from model_providers.responses_adapter import (
     CODEX_PROVIDER_NAME,
     build_responses_payload,
@@ -65,6 +66,7 @@ class OpenAIModelProvider:
             provider_name=provider_name,
             codex_strict=provider_name == CODEX_PROVIDER_NAME,
         )
+        payload = _sanitize_reasoning_payload(payload, provider_name=provider_name, model=model)
         use_stream = stream or provider_name == CODEX_PROVIDER_NAME
         try:
             response = (
@@ -420,6 +422,19 @@ def _payload_has_web_search(payload: dict[str, Any]) -> bool:
     )
 
 
+def _sanitize_reasoning_payload(payload: dict[str, Any], *, provider_name: str, model: str) -> dict[str, Any]:
+    reasoning = payload.get("reasoning")
+    if not isinstance(reasoning, dict):
+        return payload
+    if str(reasoning.get("effort") or "").strip().lower() != "none":
+        return payload
+    if capabilities_for_provider_model(provider_name, model).supports_reasoning_off:
+        return payload
+    sanitized = dict(payload)
+    sanitized["reasoning"] = {**reasoning, "effort": "low"}
+    return sanitized
+
+
 def _payload_has_image_generation(payload: dict[str, Any]) -> bool:
     tools = payload.get("tools")
     return isinstance(tools, list) and any(
@@ -508,8 +523,14 @@ def _api_error_from_exception(
     message = str(error) or "OpenAI Responses API request failed."
     code = ""
     api_error = _openai_error_details(body)
+    text = _error_text(error).lower()
+    if "does not support image input" in text or "does not support image inputs" in text:
+        code = "image_input_unavailable"
+        message = (
+            "The selected OpenAI model does not support image input. "
+            "Switch to a vision-capable model, or remove image attachments and try again."
+        )
     if provider_native_web_search:
-        text = _error_text(error).lower()
         if provider_name == CODEX_PROVIDER_NAME and any(token in text for token in ("web_search", "web search", "unsupported")):
             code = "native_web_search_unavailable"
             message = (

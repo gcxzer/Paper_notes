@@ -30,6 +30,8 @@ def run_python_code(
     *,
     registry: ToolRegistry,
     allowed_tools: set[str],
+    snapshot_manager: Any = None,
+    session_id: str = "",
     cancel_check: Callable[[], bool] | None = None,
     timeout_seconds: float = TIMEOUT_SECONDS,
     max_tool_calls: int = MAX_TOOL_CALLS,
@@ -52,6 +54,8 @@ def run_python_code(
             allowed_tools=set(allowed_tools),
             token=token,
             max_tool_calls=max_tool_calls,
+            snapshot_manager=snapshot_manager,
+            session_id=session_id,
         ) as rpc_server:
             env = _child_environment(
                 fake_home=fake_home,
@@ -98,6 +102,8 @@ def run_python_code(
         "output": output_text,
         "error": error_text,
         "tool_calls_made": snapshot.tool_calls_made,
+        "snapshots": list(snapshot.snapshots),
+        "snapshot": snapshot.snapshots[-1] if snapshot.snapshots else None,
         "duration_seconds": duration,
     }
 

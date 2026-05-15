@@ -15,6 +15,7 @@ from agent_sessions import AgentSession, AgentSessionMetadata, SessionNotFoundEr
 from tool_safety import ToolApprovalNotFoundError, ToolSnapshotConflictError, ToolSnapshotError
 from media import MediaStoreError
 from model_providers import ModelProviderAPIError, ModelProviderConfigError, ToolCall, normalize_model_provider_name
+from model_providers.profiles import capabilities_for_provider_model
 from telemetry.agent_background_runs import BackgroundChatRunStore
 from telemetry.agent_progress import AgentProgressStore, unknown_progress_snapshot
 from telemetry.agent_runs import AgentRunCoordinator, AgentRunHandle
@@ -469,11 +470,12 @@ def get_chat_progress(
 
 def list_chat_sessions(query: dict[str, list[str]] | None = None, *, service: AgentService | None = None) -> dict[str, Any]:
     include_archived = _query_bool(query or {}, "includeArchived") or _query_bool(query or {}, "include_archived")
+    state = _query_text(query or {}, "state")
     agent_service = service or get_agent_service()
     return {
         "sessions": [
             serialize_session_metadata(session)
-            for session in agent_service.session_store.list_sessions(include_archived=include_archived)
+            for session in agent_service.session_store.list_sessions(include_archived=include_archived, state=state)
         ],
     }
 
@@ -607,11 +609,18 @@ def archive_chat_session(body: Any, *, service: AgentService | None = None) -> d
     if not isinstance(body, dict):
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
     session_id = _body_session_id(body)
-    archived = _bool_value(body.get("archived", True), default=True)
+    requested_state = _optional_text(body.get("state"))
+    if requested_state:
+        state = requested_state
+    elif _bool_value(body.get("trashed", False), default=False):
+        state = "trashed"
+    else:
+        archived = _bool_value(body.get("archived", True), default=True)
+        state = "archived" if archived else "active"
 
     agent_service = service or get_agent_service()
     try:
-        metadata = agent_service.session_store.archive_session(session_id, archived=archived)
+        metadata = agent_service.session_store.update_session_state(session_id, state=state)
     except SessionNotFoundError as error:
         raise AgentAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
     return {"session": serialize_session_metadata(metadata)}
@@ -700,6 +709,8 @@ def redo_chat_tool_snapshot(body: Any, *, service: AgentService | None = None) -
         return agent_service.redo_tool_snapshot(session_id=session_id, snapshot_id=snapshot_id, force=force)
     except SessionNotFoundError as error:
         raise AgentAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
+    except ToolSnapshotConflictError as error:
+        raise AgentAPIError(HTTPStatus.CONFLICT, "snapshot_conflict", str(error)) from error
     except ToolSnapshotError as error:
         raise AgentAPIError(HTTPStatus.NOT_FOUND, "snapshot_not_found", str(error)) from error
 
@@ -860,26 +871,42 @@ def _tool_activity_from_events(events: list[AgentEvent], *, session_id: str) -> 
         if event.type != "tool_result":
             continue
         data = event.data or {}
-        snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
-        changed_files = snapshot.get("changedFiles") if isinstance(snapshot.get("changedFiles"), list) else []
-        if not changed_files:
-            continue
-        snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
-        note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
-        activities.append({
-            "type": "tool_result",
-            "name": data.get("name") or snapshot.get("toolName") or "tool",
-            "sessionId": session_id,
-            "noteId": note_id or "",
-            "snapshotId": snapshot.get("snapshotId") or "",
-            "changedFiles": changed_files,
-            "undoable": bool(snapshot.get("undoable")),
-            "writeMode": data.get("write_mode") or data.get("writeMode") or "",
-            "changed": bool(data.get("changed") or snapshot.get("changed")),
-            "summary": data.get("summary") or "",
-            "toolMessage": data.get("message") or "",
-            "message": data.get("message") or event.message or "Tool completed.",
-        })
+        raw_snapshots = data.get("snapshots") if isinstance(data.get("snapshots"), list) else []
+        snapshots: list[dict[str, Any]] = []
+        seen_snapshot_ids: set[str] = set()
+        for raw_snapshot in raw_snapshots:
+            if not isinstance(raw_snapshot, dict):
+                continue
+            snapshot_id = str(raw_snapshot.get("snapshotId") or "").strip()
+            if snapshot_id and snapshot_id in seen_snapshot_ids:
+                continue
+            if snapshot_id:
+                seen_snapshot_ids.add(snapshot_id)
+            snapshots.append(raw_snapshot)
+        single_snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+        single_snapshot_id = str(single_snapshot.get("snapshotId") or "").strip()
+        if single_snapshot and (not single_snapshot_id or single_snapshot_id not in seen_snapshot_ids):
+            snapshots.append(single_snapshot)
+        for snapshot in snapshots:
+            changed_files = snapshot.get("changedFiles") if isinstance(snapshot.get("changedFiles"), list) else []
+            if not changed_files:
+                continue
+            snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
+            note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
+            activities.append({
+                "type": "tool_result",
+                "name": snapshot.get("toolName") or data.get("name") or "tool",
+                "sessionId": session_id,
+                "noteId": note_id or "",
+                "snapshotId": snapshot.get("snapshotId") or "",
+                "changedFiles": changed_files,
+                "undoable": bool(snapshot.get("undoable")),
+                "writeMode": data.get("write_mode") or data.get("writeMode") or "",
+                "changed": bool(data.get("changed") or snapshot.get("changed")),
+                "summary": data.get("summary") or "",
+                "toolMessage": data.get("message") or "",
+                "message": data.get("message") or event.message or "Tool completed.",
+            })
     return activities
 
 
@@ -981,6 +1008,8 @@ def serialize_context_status(status: AgentContextStatus) -> dict[str, Any]:
 
 
 def serialize_session_metadata(metadata: AgentSessionMetadata) -> dict[str, Any]:
+    state = getattr(metadata, "state", "archived" if metadata.archived else "active")
+    metadata_payload = metadata.metadata or {}
     return {
         "id": metadata.session_id,
         "sessionId": metadata.session_id,
@@ -992,7 +1021,11 @@ def serialize_session_metadata(metadata: AgentSessionMetadata) -> dict[str, Any]
         "updatedAt": metadata.updated_at,
         "dateBucket": metadata.date_bucket,
         "messageCount": metadata.message_count,
-        "archived": metadata.archived,
+        "state": state,
+        "archived": state == "archived",
+        "trashed": state == "trashed",
+        "archivedAt": str(metadata_payload.get("archivedAt") or ""),
+        "trashedAt": str(metadata_payload.get("trashedAt") or ""),
         "metadata": metadata.metadata,
     }
 
@@ -1230,18 +1263,18 @@ def _work_trace_tool_start_detail(name: str, data: dict[str, Any]) -> str:
         skill_name = _work_trace_clean_text(args.get("name"))
         file_path = _work_trace_clean_text(args.get("file_path") or args.get("filePath"))
         return f"Loading skill: {skill_name or 'instructions'}{f' -> {file_path}' if file_path else ''}..."
-    if name == "paper_notes_search":
+    if name == "search_notes":
         query = _work_trace_clean_text(args.get("query"))
         return f"Searching paper notes{f': {query}' if query else ''}..."
-    if name == "paper_notes_context":
+    if name == "get_note_context":
         return "Reading note context..."
     if name == "create_image_artifact":
         return "Generating image..."
-    if name == "paper_notes_read_paper":
+    if name == "read_paper":
         return "Reading paper source..."
-    if name == "paper_notes_review":
+    if name == "review_note":
         return "Reviewing note..."
-    if name in {"paper_notes_edit", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:
+    if name in {"write_note", "manage_annotations", "write_note_media", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:
         return "Updating note..."
     if name == "read_note_html":
         return "Reading note HTML..."
@@ -1491,12 +1524,17 @@ def _request_options(body: dict[str, Any]) -> dict[str, Any]:
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
 
     if provider in {"openai", "codex-oauth"}:
+        model = _optional_text(body.get("model")).lower()
         think_mode = _optional_text(metadata.get("gptThinkMode") or metadata.get("gpt_think_mode"))
         if not think_mode:
             return options
         normalized = think_mode.strip().lower()
         if normalized == "off":
-            options["reasoning"] = {"effort": "none"}
+            if capabilities_for_provider_model(provider, model).supports_reasoning_off:
+                options["reasoning"] = {"effort": "none"}
+            else:
+                reasoning = dict(options.get("reasoning")) if isinstance(options.get("reasoning"), dict) else {}
+                options["reasoning"] = {**reasoning, "effort": "low", "summary": reasoning.get("summary") or "auto"}
         elif normalized in {"low", "medium", "high", "xhigh"}:
             reasoning = dict(options.get("reasoning")) if isinstance(options.get("reasoning"), dict) else {}
             options["reasoning"] = {**reasoning, "effort": normalized, "summary": reasoning.get("summary") or "auto"}
@@ -1664,7 +1702,7 @@ def _model_provider_error_message(body: dict[str, Any]) -> str:
 
 def _model_provider_api_public_message(error: ModelProviderAPIError, body: dict[str, Any]) -> str:
     code = str(error.provider_data.get("code") or "")
-    if code in {"image_generation_unavailable", "native_web_search_unavailable"}:
+    if code in {"image_generation_unavailable", "image_input_unavailable", "native_web_search_unavailable"}:
         return str(error) or _model_provider_error_message(body)
     classified = _classified_model_provider_api_message(error, body)
     if classified:

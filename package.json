@@ -1,6 +1,6 @@
 {
   "name": "paper-notes",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "license": "MIT",
   "description": "A local research workspace for reading PDFs, annotating papers, and building HTML notes with an AI assistant.",
@@ -11,6 +11,7 @@
     "lint": "uv run --group dev ruff check src tests"
   },
   "dependencies": {
+    "katex": "^0.16.46",
     "pdfjs-dist": "^5.7.284"
   },
   "devDependencies": {

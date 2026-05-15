@@ -629,6 +629,37 @@ def test_tool_settings_uses_codex_native_provider_when_active(monkeypatch, tmp_p
     assert payload["disabledTools"] == []
 
 
+def test_tool_settings_blocks_codex_spark_native_provider_when_active(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("PAPER_NOTES_AI_PROVIDER", "codex-oauth")
+    monkeypatch.setenv("CODEX_MODEL", "gpt-5.3-codex-spark")
+    service = _tool_settings_service(tmp_path)
+    settings_path = tmp_path / "tool-settings.json"
+    settings_path.write_text(json.dumps({
+        "globalAccess": "full_access",
+        "toolsets": {
+            "web_search": {
+                "enabled": True,
+                "access": "inherit",
+                "native_provider": {
+                    "openaiCodex": {"enabled": True},
+                    "openaiAPIKey": {"enabled": False},
+                },
+                "custom_provider": {
+                    "Tavily": {"enabled": True},
+                    "Brave": {"enabled": False},
+                },
+            },
+        },
+    }), encoding="utf-8")
+
+    payload = get_tool_settings(settings_path=settings_path, service=service)
+
+    assert payload["nativeWebSearchEnabled"] is False
+    assert payload["enabledToolsets"] == ["web_search"]
+    assert payload["disabledTools"] == []
+
+
 def test_tool_settings_uses_gemini_native_provider_when_active(monkeypatch, tmp_path):
     _isolate_ai_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PAPER_NOTES_AI_PROVIDER", "gemini")

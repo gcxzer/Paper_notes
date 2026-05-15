@@ -104,7 +104,7 @@ def split_instructions_and_input(
 ) -> tuple[str | None, list[dict[str, Any]]]:
     instructions: list[str] = []
     input_items: list[dict[str, Any]] = []
-    media_store = (request_options or {}).get("_paper_notes_media_store")
+    media_store = (request_options or {}).get("_write_note_media_store")
     image_route = decide_image_input_route(provider_name, model)
     seen_replay_item_ids: set[str] = set()
 
@@ -669,7 +669,7 @@ def image_artifacts_from_response(
 ) -> list[dict[str, Any]]:
     if request is None:
         return []
-    media_store = request.request_options.get("_paper_notes_media_store")
+    media_store = request.request_options.get("_write_note_media_store")
     if media_store is None:
         return []
     create_generated_image = getattr(media_store, "create_generated_image", None)

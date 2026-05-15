@@ -23,7 +23,7 @@ function readerRequestOptions() {
   const provider = currentReaderProvider();
   const normalizedProvider = normalizeProviderName(provider);
   if (providerSupportsGptThinkMode(normalizedProvider)) {
-    const thinkMode = currentGptThinkMode();
+    const thinkMode = currentGptThinkMode(currentReaderModel(), normalizedProvider);
     return {
       reasoning: thinkMode.enabled
         ? { effort: thinkMode.effort, summary: "auto" }
@@ -337,9 +337,9 @@ async function sendReaderChatMessage(options = {}) {
 
   try {
     const deepSeekThinkModeForRequest = currentDeepSeekThinkMode();
-    const gptThinkModeForRequest = currentGptThinkMode();
     const providerForRequest = currentReaderProvider();
     const normalizedProviderForRequest = normalizeProviderName(providerForRequest);
+    const gptThinkModeForRequest = currentGptThinkMode(currentReaderModel(), normalizedProviderForRequest);
     const geminiThinkModeForRequest = currentGeminiThinkMode(currentReaderModel());
     const anthropicThinkModeForRequest = currentAnthropicThinkMode(currentReaderModel());
     const requestBody = {
@@ -427,9 +427,7 @@ async function sendReaderChatMessage(options = {}) {
       ].filter(Boolean), payload, runStartedAtMs);
     }
     setReaderChatError(payload.error && !payload.completed ? payload.error : "");
-    if (readerState.toolMenuOpen) {
-      await loadReaderToolSnapshots({ silent: true });
-    }
+    await loadReaderToolSnapshots({ silent: true });
     if (chatPayloadChangesAnnotations(payload)) {
       await refreshAnnotationsFromServer({ preserveOpenEditor: true });
     }
@@ -528,9 +526,6 @@ function initializeReaderChat() {
     if (row) void loadReaderDebugRunDetail(row.dataset.debugRunId);
   });
   elements.readerDebugDialog?.addEventListener("wheel", handleReaderDebugWheel, { passive: false });
-  elements.chatSessionMenuButton?.addEventListener("click", () => {
-    setChatSessionMenuOpen(!readerState.chatSessionMenuOpen);
-  });
   elements.readerModelMenuButton?.addEventListener("click", () => {
     setReaderModelMenuOpen(!readerState.modelMenuOpen);
   });
@@ -583,27 +578,28 @@ function initializeReaderChat() {
       compactReaderContext();
     }
   });
+  elements.clearTrashSessions?.addEventListener("click", openClearTrashDialog);
   elements.newChatSession?.addEventListener("click", createReaderChatSession);
-  elements.toggleChatSessionTrash?.addEventListener("click", async () => {
-    readerState.chatSessionTrashOpen = !readerState.chatSessionTrashOpen;
-    readerState.chatSessionQuery = "";
-    readerState.confirmingDeleteSessionId = "";
-    readerState.renamingSessionId = "";
-    await fetchReaderChatSessions({ silent: false });
+  elements.cancelClearTrash?.addEventListener("click", closeClearTrashDialog);
+  elements.confirmClearTrash?.addEventListener("click", clearTrashedReaderChatSessions);
+  elements.chatSessionViewButtons?.forEach((button) => {
+    button.addEventListener("click", () => {
+      openChatSessionView(button.dataset.sessionView);
+    });
   });
   elements.chatSessionSearch?.addEventListener("input", (event) => {
     readerState.chatSessionQuery = event.target.value;
-    readerState.confirmingDeleteSessionId = "";
+    clearSessionRowState();
     renderChatSessionList();
   });
   document.addEventListener("pointerdown", (event) => {
     if (
       readerState.chatSessionMenuOpen
       && !elements.chatSessionPopover?.contains(event.target)
-      && !elements.chatSessionMenuButton?.contains(event.target)
+      && !elements.chatSessionViewButtons?.some((button) => button.contains(event.target))
+      && !elements.clearTrashDialog?.contains(event.target)
     ) {
-      readerState.confirmingDeleteSessionId = "";
-      readerState.renamingSessionId = "";
+      clearSessionRowState();
       setChatSessionMenuOpen(false);
     }
     if (

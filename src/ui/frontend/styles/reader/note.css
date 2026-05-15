@@ -30,6 +30,27 @@
   color: var(--paper-muted);
 }
 
+.note-math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.note-math-block {
+  display: block;
+  margin: 16px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.note-math-block .katex-display {
+  margin: 0;
+}
+
+.note-math-fallback {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .note-section {
   padding: 26px 0;
   border-bottom: 1px solid var(--paper-line);
@@ -174,6 +195,25 @@
 .note-body {
   min-width: 0;
   padding-top: 26px;
+}
+
+.note-body a {
+  color: #2f8f5b;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, #2f8f5b 42%, transparent);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.note-body a:hover,
+.note-body a:focus-visible {
+  color: #236f47;
+  text-decoration-color: currentColor;
+}
+
+.note-body a:visited {
+  color: #4f8b63;
 }
 
 .note-figure {
@@ -332,4 +372,3 @@
 .reader-error h1 {
   margin: 0 0 18px;
 }
-

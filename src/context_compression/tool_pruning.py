@@ -46,17 +46,24 @@ def summarize_tool_result(tool_name: str, tool_args: str, tool_content: str) -> 
     content_len = len(content)
     line_count = content.count("\n") + 1 if content.strip() else 0
 
-    if tool_name in {"paper_notes_search", "search_library", "paper_notes.search_library"}:
+    if tool_name in {"search_notes", "search_library", "paper_notes.search_library"}:
         query = args.get("query", "?")
         return f"[{tool_name}] query={query!r} ({content_len:,} chars result)"
-    if tool_name in {"paper_notes_context", "get_note", "paper_notes.read_note"}:
+    if tool_name in {"get_note_context", "get_note", "paper_notes.read_note"}:
         note_id = args.get("note_id") or args.get("id") or "?"
         return f"[{tool_name}] note context {note_id} ({content_len:,} chars)"
-    if tool_name in {"paper_notes_read_paper", "read_paper_text", "search_paper_text"}:
+    if tool_name in {"read_paper", "read_paper_text", "search_paper_text"}:
         note_id = args.get("note_id") or "?"
         action = args.get("action") or ("search_text" if args.get("query") else "read_pages")
         return f"[{tool_name}] {action} for {note_id} ({content_len:,} chars)"
-    if tool_name in {"paper_notes_edit", "write_note_section", "append_note_section", "replace_note_section"}:
+    if tool_name in {
+        "write_note",
+        "manage_annotations",
+        "write_note_media",
+        "write_note_section",
+        "append_note_section",
+        "replace_note_section",
+    }:
         note_id = args.get("note_id") or "?"
         action = args.get("action") or tool_name
         return f"[{tool_name}] {action} for {note_id} ({content_len:,} chars)"

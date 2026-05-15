@@ -28,13 +28,15 @@ from app_infra.storage import atomic_replace, atomic_write_json
 
 
 NOTE_HTML_TOOLS = {
+    "write_note",
+    "write_note_media",
     "write_note_section",
     "append_note_section",
     "replace_note_section",
     "write_note_from_paper_image",
 }
 LIBRARY_TOOLS = {"update_note_metadata"}
-PAPER_NOTES_EDIT_TOOL = "paper_notes_edit"
+ANNOTATION_TOOLS = {"manage_annotations"}
 
 
 class ToolSnapshotError(Exception):
@@ -85,7 +87,8 @@ class PaperNotesSnapshotManager:
         if not paths:
             return None
 
-        snapshot_id = _safe_id(tool_call_id) or f"snapshot-{uuid.uuid4().hex[:12]}"
+        base_snapshot_id = _safe_id(tool_call_id) or f"snapshot-{uuid.uuid4().hex[:12]}"
+        snapshot_id = self._unique_snapshot_id(session_id, base_snapshot_id)
         snapshot_dir = self.snapshot_root / session_id / snapshot_id
         files_dir = snapshot_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +248,9 @@ class PaperNotesSnapshotManager:
             raise ToolSnapshotError("session_id and snapshot_id are required.")
         manifest = self._read_manifest(session_id, snapshot_id)
         snapshot_dir = self.snapshot_root / session_id / snapshot_id
+        conflicts = self._redo_conflicts(manifest)
+        if conflicts and not force:
+            raise ToolSnapshotConflictError("Snapshot redo would overwrite newer changes.", conflicts)
         redone_files = []
 
         for entry in manifest.get("files", []):
@@ -295,10 +301,17 @@ class PaperNotesSnapshotManager:
                 snapshot_file = snapshot_dir / str(entry.get("snapshotFile") or "")
                 if snapshot_file.is_file():
                     before_bytes = snapshot_file.read_bytes()
-            after_exists = path.exists() and path.is_file()
-            after_bytes = path.read_bytes() if after_exists else b""
-            current_hash = _sha256_bytes(after_bytes) if after_exists else ""
+            current_exists = path.exists() and path.is_file()
+            current_bytes = path.read_bytes() if current_exists else b""
+            current_hash = _sha256_bytes(current_bytes) if current_exists else ""
             expected_hash = str(entry.get("afterHash") or "")
+            after_bytes = b""
+            if entry.get("afterExists"):
+                after_file = snapshot_dir / str(entry.get("afterFile") or "")
+                if after_file.is_file():
+                    after_bytes = after_file.read_bytes()
+                elif current_hash == expected_hash:
+                    after_bytes = current_bytes
             diff_text = _unified_text_diff(
                 before_bytes,
                 after_bytes,
@@ -313,7 +326,7 @@ class PaperNotesSnapshotManager:
                 "path": entry.get("relativePath") or self._relative_label(path),
                 "beforeBytes": int(entry.get("beforeBytes") or 0),
                 "afterBytes": int(entry.get("afterBytes") or 0),
-                "currentBytes": len(after_bytes),
+                "currentBytes": len(current_bytes),
                 "currentMatchesSnapshot": current_hash == expected_hash,
                 "diff": diff_text,
                 "truncated": truncated,
@@ -394,18 +407,18 @@ class PaperNotesSnapshotManager:
         }
 
     def _affected_paths(self, tool_name: str, arguments: dict[str, Any]) -> list[Path]:
-        if tool_name == PAPER_NOTES_EDIT_TOOL:
+        if tool_name == "write_note":
             action = normalize_text(arguments.get("action")).lower()
             if action == "update_metadata":
                 return [self.notes_path]
-            if action in {"create_annotation", "update_annotation", "delete_annotation"}:
-                note_id = normalize_text(arguments.get("note_id") or arguments.get("id"))
-                path = annotation_path_for(note_id, self.annotations_dir) if note_id else None
-                return [path] if path is not None else []
-            if action in {"write_section", "append_section", "replace_section", "delete_section", "write_from_image", "insert_image"}:
+            if action in {"write_section", "append_to_section", "delete_section"}:
                 path = self._note_html_path(arguments)
                 return [path] if path is not None else []
             return []
+        if tool_name in ANNOTATION_TOOLS:
+            note_id = normalize_text(arguments.get("note_id") or arguments.get("id"))
+            path = annotation_path_for(note_id, self.annotations_dir) if note_id else None
+            return [path] if path is not None else []
         if tool_name in LIBRARY_TOOLS:
             return [self.notes_path]
         if tool_name in NOTE_HTML_TOOLS:
@@ -452,6 +465,16 @@ class PaperNotesSnapshotManager:
             raise ToolSnapshotError(f"Snapshot is invalid: {snapshot_id}")
         return data
 
+    def _unique_snapshot_id(self, session_id: str, base_snapshot_id: str) -> str:
+        session_dir = self.snapshot_root / session_id
+        if not (session_dir / base_snapshot_id).exists():
+            return base_snapshot_id
+        for suffix in range(2, 10_000):
+            candidate = f"{base_snapshot_id}-{suffix}"
+            if not (session_dir / candidate).exists():
+                return candidate
+        return f"{base_snapshot_id}-{uuid.uuid4().hex[:8]}"
+
     def _restore_conflicts(self, manifest: dict[str, Any]) -> list[dict[str, Any]]:
         conflicts = []
         for entry in manifest.get("files", []):
@@ -464,6 +487,28 @@ class PaperNotesSnapshotManager:
             current_hash = _sha256_bytes(path.read_bytes()) if current_exists else ""
             expected_exists = bool(entry.get("afterExists")) if "afterExists" in entry else bool(entry.get("afterHash"))
             expected_hash = str(entry.get("afterHash") or "")
+            if current_exists != expected_exists or current_hash != expected_hash:
+                conflicts.append({
+                    "path": entry.get("relativePath") or self._relative_label(path),
+                    "expectedHash": expected_hash,
+                    "currentHash": current_hash,
+                    "expectedExists": expected_exists,
+                    "currentExists": current_exists,
+                })
+        return conflicts
+
+    def _redo_conflicts(self, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+        conflicts = []
+        for entry in manifest.get("files", []):
+            if not isinstance(entry, dict) or not entry.get("changed"):
+                continue
+            path = Path(str(entry.get("path") or "")).resolve()
+            if not self._is_allowed_path(path):
+                continue
+            current_exists = path.exists() and path.is_file()
+            current_hash = _sha256_bytes(path.read_bytes()) if current_exists else ""
+            expected_exists = bool(entry.get("existed"))
+            expected_hash = str(entry.get("beforeHash") or "")
             if current_exists != expected_exists or current_hash != expected_hash:
                 conflicts.append({
                     "path": entry.get("relativePath") or self._relative_label(path),
@@ -488,14 +533,21 @@ class PaperNotesSnapshotManager:
         except ValueError:
             return path.name
 
-    @staticmethod
-    def _public_snapshot(manifest: dict[str, Any]) -> dict[str, Any]:
+    def _public_snapshot(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        changed = bool(manifest.get("changed"))
+        failed = bool(manifest.get("failed"))
+        current_matches_after = changed and not self._restore_conflicts(manifest)
+        current_matches_before = changed and not self._redo_conflicts(manifest)
         return {
             "snapshotId": manifest.get("snapshotId") or "",
             "toolName": manifest.get("toolName") or "",
-            "changed": bool(manifest.get("changed")),
+            "changed": changed,
             "changedFiles": manifest.get("changedFiles") if isinstance(manifest.get("changedFiles"), list) else [],
-            "undoable": bool(manifest.get("changed")),
+            "undoable": changed,
+            "canUndo": changed and not failed and current_matches_after,
+            "canRedo": changed and not failed and current_matches_before,
+            "currentMatchesAfter": current_matches_after,
+            "currentMatchesBefore": current_matches_before,
         }
 
 

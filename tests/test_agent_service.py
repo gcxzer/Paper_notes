@@ -262,7 +262,7 @@ def test_service_persists_attachment_metadata_without_base64(tmp_path):
     assert persisted_user["content"] == ""
     assert persisted_user["attachments"][0]["id"] == artifact.id
     assert "base64" not in json.dumps(persisted_user)
-    assert provider.requests[0].request_options["_paper_notes_media_store"] is service.media_store
+    assert provider.requests[0].request_options["_write_note_media_store"] is service.media_store
 
 
 def test_service_instructions_prioritize_attached_file_references(tmp_path):
@@ -864,10 +864,10 @@ def test_service_default_toolsets_expose_session_todo_and_inject_active_items(tm
 
     first_tool_names = {tool["function"]["name"] for tool in provider.requests[0].tools}
     assert {
-            "paper_notes_search",
-            "paper_notes_context",
-            "paper_notes_read_paper",
-            "paper_notes_review",
+            "search_notes",
+            "get_note_context",
+            "read_paper",
+            "review_note",
         "persistent_memory",
         "session_search",
         "todo",
@@ -975,7 +975,7 @@ def test_service_can_disable_todo_toolset_for_default_tools(tmp_path):
 
     tool_names = {tool["function"]["name"] for tool in provider.requests[0].tools}
     assert "todo" not in tool_names
-    assert "paper_notes_search" in tool_names
+    assert "search_notes" in tool_names
 
 
 def test_service_can_disable_paper_notes_write_tools_for_default_tools(tmp_path):
@@ -993,18 +993,20 @@ def test_service_can_disable_paper_notes_write_tools_for_default_tools(tmp_path)
     ))
 
     tool_names = {tool["function"]["name"] for tool in provider.requests[0].tools}
-    assert "paper_notes_search" in tool_names
-    assert "paper_notes_context" in tool_names
-    assert "paper_notes_read_paper" in tool_names
-    assert "paper_notes_review" in tool_names
+    assert "search_notes" in tool_names
+    assert "get_note_context" in tool_names
+    assert "read_paper" in tool_names
+    assert "review_note" in tool_names
     assert "session_search" in tool_names
-    assert "paper_notes_edit" not in tool_names
+    assert "write_note" not in tool_names
+    assert "manage_annotations" not in tool_names
+    assert "write_note_media" not in tool_names
 
 
-def test_service_execute_code_description_lists_visible_readonly_tools_and_edit_helper(tmp_path):
+def test_service_execute_code_description_lists_visible_readonly_tools_only(tmp_path):
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        name="paper_notes_search",
+        name="search_notes",
         description="Search.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"success": True},
@@ -1013,7 +1015,7 @@ def test_service_execute_code_description_lists_visible_readonly_tools_and_edit_
         risk="read",
     ))
     registry.register(ToolDefinition(
-        name="paper_notes_context",
+        name="get_note_context",
         description="Context.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"success": True},
@@ -1022,7 +1024,7 @@ def test_service_execute_code_description_lists_visible_readonly_tools_and_edit_
         risk="read",
     ))
     registry.register(ToolDefinition(
-        name="paper_notes_edit",
+        name="write_note",
         description="Edit.",
         parameters={"type": "object", "properties": {}},
         handler=lambda args: {"success": True},
@@ -1062,8 +1064,8 @@ def test_service_execute_code_description_lists_visible_readonly_tools_and_edit_
         if tool["function"]["name"] == "execute_code"
     )
     description = execute_code_tool["function"]["description"]
-    assert "paper_notes_search" in description
-    assert "paper_notes_edit" in description
+    assert "search_notes" in description
+    assert "write_note" not in description
     assert "web_search" not in description
 
 
@@ -1150,6 +1152,84 @@ def test_service_execute_code_auto_mode_runs_without_approval(tmp_path):
     assert not any(event.type == "tool_approval_requested" for event in result.events)
 
 
+def test_service_execute_code_cannot_inner_write_paper_note(tmp_path):
+    library_path = tmp_path / "notes.json"
+    html_dir = tmp_path / "Paper-html"
+    annotations_dir = tmp_path / "Paper-annotations"
+    html_dir.mkdir(parents=True)
+    html_path = html_dir / "note-1.html"
+    html_path.write_text(
+        "<html><body><main class=\"note-body\"><h2>Existing</h2><p>Old.</p></main></body></html>",
+        encoding="utf-8",
+    )
+    write_library({
+        "notes": [{
+            "id": "note-1",
+            "title": "Paper",
+            "htmlHref": "resources/Paper-html/note-1.html",
+        }],
+    }, library_path)
+    snapshot_manager = PaperNotesSnapshotManager(
+        tmp_path / ".paper-notes" / "snapshots",
+        project_root=tmp_path,
+        notes_path=library_path,
+        html_dir=html_dir,
+        annotations_dir=annotations_dir,
+    )
+    registry = create_paper_notes_registry(library_path=library_path, html_dir=html_dir)
+    session_id_holder = {"session_id": ""}
+    register_code_execution_tool(
+        registry,
+        available_tool_names_provider=lambda: ("execute_code", "write_note"),
+        snapshot_manager_provider=lambda: snapshot_manager,
+        session_id_provider=lambda: session_id_holder["session_id"],
+    )
+    provider = FakeProvider([
+        ModelResponse(
+            content=None,
+            tool_calls=[ToolCall(
+                id="code_call_write",
+                name="execute_code",
+                arguments=json.dumps({
+                    "code": (
+                        "from paper_notes_tools import write_note\n"
+                        "write_note('append_to_section', 'note-1', heading='From Code', html='<p>temporary</p>')\n"
+                    ),
+                }),
+            )],
+            finish_reason="tool_calls",
+        ),
+        ModelResponse(content="Done.", finish_reason="stop"),
+    ])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=registry,
+        use_memory=False,
+        use_session_search=False,
+        use_compression=False,
+        tool_snapshot_manager=snapshot_manager,
+    )
+    session = service.session_store.create_session(title="Code Snapshot")
+    session_id_holder["session_id"] = session.metadata.session_id
+
+    result = service.run(AgentServiceRequest(
+        message="Run code.",
+        session_id=session.metadata.session_id,
+        model="test-model",
+        write_tool_mode="auto",
+        enabled_toolsets=["code_execution", "paper_notes"],
+    ))
+
+    tool_payload = json.loads(result.messages[2]["content"])
+    persisted = service.session_store.require_session(result.session_id)
+    assert tool_payload["success"] is False
+    assert tool_payload.get("snapshot") is None
+    assert persisted.messages[-1].get("toolActivity", []) == []
+    assert "write_note" in tool_payload["error"]
+    assert "From Code" not in html_path.read_text(encoding="utf-8")
+
+
 def test_service_can_execute_paper_note_write_tool(tmp_path):
     library_path = tmp_path / "notes.json"
     html_dir = tmp_path / "Paper-html"
@@ -1172,8 +1252,9 @@ def test_service_can_execute_paper_note_write_tool(tmp_path):
             content=None,
             tool_calls=[ToolCall(
                 id="call_1",
-                name="append_note_section",
+                name="write_note",
                 arguments=json.dumps({
+                    "action": "append_to_section",
                     "note_id": "note-1",
                     "heading": "Agent Notes",
                     "html": "<p>Written by the agent.</p>",
@@ -1202,7 +1283,7 @@ def test_service_can_execute_paper_note_write_tool(tmp_path):
     tool_payload = json.loads(result.messages[2]["content"])
     assert tool_payload["success"] is True
     persisted = service.session_store.require_session(result.session_id)
-    assert persisted.messages[-1]["toolActivity"][0]["name"] == "append_note_section"
+    assert persisted.messages[-1]["toolActivity"][0]["name"] == "write_note"
     assert persisted.messages[-1]["toolActivity"][0]["changedFiles"][0]["path"] == "Paper-html/note-1.html"
     assert '<h2 id="agent-notes">Agent Notes</h2>' in html_path.read_text(encoding="utf-8")
 
@@ -1460,8 +1541,9 @@ def test_service_can_restore_mutating_tool_snapshot(tmp_path):
             content=None,
             tool_calls=[ToolCall(
                 id="call_restore",
-                name="append_note_section",
+                name="write_note",
                 arguments=json.dumps({
+                    "action": "append_to_section",
                     "note_id": "note-1",
                     "heading": "Restore Me",
                     "html": "<p>Temporary.</p>",

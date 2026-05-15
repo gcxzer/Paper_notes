@@ -6,6 +6,7 @@ import json
 from library.annotations import write_annotations
 from library import write_library
 from media import MediaStore
+from media.store import MediaStoreError
 from model_providers.types import ToolCall
 from tools.executor import ToolExecutorAdapter
 from tools.paper_notes import create_paper_notes_registry
@@ -69,7 +70,7 @@ def test_search_library_returns_matching_notes(tmp_path):
     }, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    result = registry.dispatch("search_library", {"query": "attention", "limit": 5})
+    result = registry.dispatch("search_notes", {"query": "attention", "limit": 5})
     payload = json.loads(result.content)
 
     assert result.is_error is False
@@ -89,8 +90,8 @@ def test_search_library_lists_notes_for_empty_or_wildcard_query(tmp_path):
     }, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    empty = json.loads(registry.dispatch("paper_notes_search", {"query": "", "limit": 10}).content)
-    wildcard = json.loads(registry.dispatch("paper_notes_search", {"query": "*", "limit": 10}).content)
+    empty = json.loads(registry.dispatch("search_notes", {"query": "", "limit": 10}).content)
+    wildcard = json.loads(registry.dispatch("search_notes", {"query": "*", "limit": 10}).content)
 
     assert empty["mode"] == "list"
     assert empty["total"] == 2
@@ -103,14 +104,10 @@ def test_search_library_lists_notes_for_empty_or_wildcard_query(tmp_path):
 def test_search_tools_describe_multilingual_keyword_rewriting(tmp_path):
     registry = create_paper_notes_registry(library_path=tmp_path / "notes.json")
 
-    internal = registry.get("search_library")
-    facade = registry.get("paper_notes_search")
+    facade = registry.get("search_notes")
 
-    assert internal is not None
     assert facade is not None
-    assert "English-first paper keywords" in internal.description
     assert "English-first paper keywords" in facade.description
-    assert "original-language terms" in internal.parameters["properties"]["query"]["description"]
     assert "original-language terms" in facade.parameters["properties"]["query"]["description"]
 
 
@@ -127,7 +124,7 @@ def test_get_note_returns_sanitized_note(tmp_path):
     }, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    result = registry.dispatch("get_note", {"note_id": "note-1"})
+    result = registry.dispatch("get_note_context", {"note_id": "note-1"})
     payload = json.loads(result.content)
 
     assert result.is_error is False
@@ -137,18 +134,18 @@ def test_get_note_returns_sanitized_note(tmp_path):
 
 
 def test_read_annotations_returns_note_annotations(tmp_path):
+    library_path = tmp_path / "notes.json"
     annotations_dir = tmp_path / "annotations"
+    write_library({"notes": [{"id": "note-1", "title": "Paper"}]}, library_path)
     write_annotations("note-1", [{"id": "a1", "page": 2, "comment": "Important"}], annotations_dir)
-    registry = create_paper_notes_registry(annotations_dir=annotations_dir)
+    registry = create_paper_notes_registry(library_path=library_path, annotations_dir=annotations_dir)
 
-    result = registry.dispatch("read_annotations", {"note_id": "note-1"})
+    result = registry.dispatch("get_note_context", {"note_id": "note-1"})
     payload = json.loads(result.content)
 
     assert result.is_error is False
-    assert payload == {
-        "note_id": "note-1",
-        "annotations": [{"id": "a1", "page": 2, "comment": "Important"}],
-    }
+    assert payload["note_id"] == "note-1"
+    assert payload["annotations"] == [{"id": "a1", "page": 2, "comment": "Important"}]
 
 
 def test_missing_note_is_reported_as_tool_error(tmp_path):
@@ -156,7 +153,7 @@ def test_missing_note_is_reported_as_tool_error(tmp_path):
     write_library({"notes": []}, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    result = registry.dispatch("get_note", {"note_id": "missing"})
+    result = registry.dispatch("get_note_context", {"note_id": "missing"})
 
     assert result.is_error is True
     assert json.loads(result.content)["error"] == "Note not found: missing"
@@ -168,7 +165,7 @@ def test_paper_notes_registry_can_be_used_by_executor(tmp_path):
     registry = create_paper_notes_registry(library_path=library_path)
     executor = ToolExecutorAdapter(registry)
 
-    result = executor.execute(ToolCall(id="call_1", name="search_library", arguments='{"query": "rag"}'))
+    result = executor.execute(ToolCall(id="call_1", name="search_notes", arguments='{"query": "rag"}'))
 
     assert result.is_error is False
     assert json.loads(result.content)["notes"][0]["id"] == "note-1"
@@ -177,15 +174,14 @@ def test_paper_notes_registry_can_be_used_by_executor(tmp_path):
 def test_read_note_html_and_list_sections_use_note_body(tmp_path):
     registry, _, _ = _paper_note_fixture(tmp_path)
 
-    html_result = registry.dispatch("read_note_html", {"note_id": "note-1"})
-    sections_result = registry.dispatch("list_note_sections", {"note_id": "note-1"})
+    context_result = registry.dispatch("get_note_context", {"note_id": "note-1", "include_html": True})
 
-    assert html_result.is_error is False
-    html_payload = json.loads(html_result.content)
-    assert html_payload["mode"] == "body"
-    assert "<main" not in html_payload["html"]
-    assert "Old background" in html_payload["html"]
-    assert json.loads(sections_result.content)["sections"] == [
+    assert context_result.is_error is False
+    payload = json.loads(context_result.content)
+    assert payload["html"]["mode"] == "body"
+    assert "<main" not in payload["html"]["html"]
+    assert "Old background" in payload["html"]["html"]
+    assert payload["sections"] == [
         {"level": 2, "id": "", "heading": "Background"},
         {"level": 2, "id": "", "heading": "Findings"},
     ]
@@ -194,9 +190,9 @@ def test_read_note_html_and_list_sections_use_note_body(tmp_path):
 def test_paper_text_search_read_and_build_context_use_cache(tmp_path):
     registry, _, _ = _paper_note_fixture(tmp_path)
 
-    search = registry.dispatch("search_paper_text", {"note_id": "note-1", "query": "annotation", "limit": 3})
-    read = registry.dispatch("read_paper_text", {"note_id": "note-1", "page_start": 2, "page_end": 2})
-    context = registry.dispatch("build_note_context", {"note_id": "note-1", "query": "retrieval"})
+    search = registry.dispatch("read_paper", {"action": "search_text", "note_id": "note-1", "query": "annotation", "limit": 3})
+    read = registry.dispatch("read_paper", {"action": "read_pages", "note_id": "note-1", "page_start": 2, "page_end": 2})
+    context = registry.dispatch("get_note_context", {"note_id": "note-1", "query": "retrieval"})
 
     assert search.is_error is False
     assert json.loads(search.content)["matches"][0]["page"] == 2
@@ -212,13 +208,13 @@ def test_paper_text_search_read_and_build_context_use_cache(tmp_path):
 def test_paper_notes_facade_tools_route_to_internal_capabilities(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    search = registry.dispatch("paper_notes_search", {"query": "paper", "limit": 3})
-    context = registry.dispatch("paper_notes_context", {"note_id": "note-1", "query": "retrieval", "include_html": True})
-    paper = registry.dispatch("paper_notes_read_paper", {"note_id": "note-1", "action": "search_text", "query": "annotation"})
-    review = registry.dispatch("paper_notes_review", {"note_id": "note-1", "action": "validate_html"})
-    edit = registry.dispatch("paper_notes_edit", {
+    search = registry.dispatch("search_notes", {"query": "paper", "limit": 3})
+    context = registry.dispatch("get_note_context", {"note_id": "note-1", "query": "retrieval", "include_html": True})
+    paper = registry.dispatch("read_paper", {"note_id": "note-1", "action": "search_text", "query": "annotation"})
+    review = registry.dispatch("review_note", {"note_id": "note-1", "action": "validate_html"})
+    edit = registry.dispatch("write_note", {
         "note_id": "note-1",
-        "action": "append_section",
+        "action": "append_to_section",
         "heading": "Agent Notes",
         "html": "<p>Facade write.</p>",
     })
@@ -239,8 +235,8 @@ def test_validate_and_preview_note_html_do_not_write(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
     before = html_path.read_text(encoding="utf-8")
 
-    validation = registry.dispatch("validate_note_html", {"note_id": "note-1"})
-    preview = registry.dispatch("preview_note_diff", {
+    validation = registry.dispatch("review_note", {"action": "validate_html", "note_id": "note-1"})
+    preview = registry.dispatch("review_note", {"action": "preview_note_diff",
         "note_id": "note-1",
         "heading": "Takeaways",
         "html": "<p>New preview text.</p>",
@@ -278,7 +274,7 @@ def test_write_note_from_paper_image_analyzes_previews_writes_and_validates(tmp_
         paper_image_analyzer=fake_analyzer,
     )
 
-    result = registry.dispatch("write_note_from_paper_image", {
+    result = registry.dispatch("write_note_media", {"action": "write_from_image",
         "note_id": "note-1",
         "artifact_id": "img-test",
         "heading": "Figure Notes",
@@ -314,14 +310,14 @@ def test_validate_html_allows_template_scripts_but_rejects_body_scripts(tmp_path
         encoding="utf-8",
     )
 
-    safe_result = registry.dispatch("paper_notes_review", {"note_id": "note-1", "action": "validate_html"})
+    safe_result = registry.dispatch("review_note", {"note_id": "note-1", "action": "validate_html"})
     safe_payload = json.loads(safe_result.content)
 
     html_path.write_text(
         html_path.read_text(encoding="utf-8").replace("<p>Safe body.</p>", "<script>alert(1)</script>"),
         encoding="utf-8",
     )
-    unsafe_result = registry.dispatch("paper_notes_review", {"note_id": "note-1", "action": "validate_html"})
+    unsafe_result = registry.dispatch("review_note", {"note_id": "note-1", "action": "validate_html"})
     unsafe_payload = json.loads(unsafe_result.content)
 
     assert safe_payload["valid"] is True
@@ -333,7 +329,7 @@ def test_validate_html_allows_template_scripts_but_rejects_body_scripts(tmp_path
 def test_write_note_section_sanitizes_html_and_appends(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("write_note_section", {
+    result = registry.dispatch("write_note", {"action": "write_section",
         "note_id": "note-1",
         "heading": "Takeaways",
         "html": (
@@ -356,10 +352,126 @@ def test_write_note_section_sanitizes_html_and_appends(tmp_path):
     assert '<a href="https://example.com" title="source">safe link</a>' in saved_html
 
 
+def test_write_note_section_preserves_local_file_links(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Local Link",
+        "html": '<p><a href="file:///Users/xzhu/Documents/AWS/notes/docker/00-index.md">00-index.md</a></p>',
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert '<a href="file:///Users/xzhu/Documents/AWS/notes/docker/00-index.md">00-index.md</a>' in saved_html
+
+
+def test_write_note_section_allows_arbitrary_safe_links(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Links",
+        "html": (
+            '<p><a href="obsidian://open?vault=Notes&file=Docker(01)">Obsidian</a></p>'
+            '<p><a href="https://example.com/path(foo)">URL with parentheses</a></p>'
+            '<p><a href="vbscript:msgbox(1)">Unsafe</a></p>'
+        ),
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert 'href="obsidian://open?vault=Notes&amp;file=Docker(01)"' in saved_html
+    assert 'href="https://example.com/path(foo)"' in saved_html
+    assert "vbscript:" not in saved_html
+
+
+def test_write_note_media_sources_must_be_project_local(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Media",
+        "html": (
+            '<p><img src="https://example.com/remote.png" alt="Remote"></p>'
+            '<video src="https://example.com/remote.mp4" controls></video>'
+        ),
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is True
+    assert payload["success"] is False
+    assert payload["code"] == "media_store_unavailable"
+    assert "remote.png" not in saved_html
+    assert "remote.mp4" not in saved_html
+
+
+def test_write_note_section_preserves_project_video_sources(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Video",
+        "html": '<video src="/resources/media/demo.mp4" poster="/resources/media/poster.png" controls preload="metadata"></video>',
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert '<video src="/resources/media/demo.mp4" poster="/resources/media/poster.png" controls preload="metadata"></video>' in saved_html
+
+
+def test_write_note_section_converts_markdown_blockquote_lines(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Quotes",
+        "html": (
+            "<p>Paper says:</p>\n"
+            "> first quoted line\n"
+            "> second quoted line\n"
+            "<p>2 > 1 should stay plain text.</p>"
+        ),
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert "<blockquote><p>first quoted line\nsecond quoted line</p></blockquote>" in saved_html
+    assert "&gt; first quoted line" not in saved_html
+    assert "<p>2 &gt; 1 should stay plain text.</p>" in saved_html
+
+
+def test_write_note_section_trims_explanatory_text_from_link_href(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Sources",
+        "html": (
+            '<p>来源链接：<a href="https://platform.openai.com/docs/models（跳转到">'
+            "https://platform.openai.com/docs/models（跳转到 developers）</a></p>"
+        ),
+    })
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert '<a href="https://platform.openai.com/docs/models">' in saved_html
+    assert 'href="https://platform.openai.com/docs/models（跳转到' not in saved_html
+
+
 def test_replace_note_section_preserves_html_document(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("replace_note_section", {
+    result = registry.dispatch("write_note", {"action": "write_section",
         "note_id": "note-1",
         "heading": "Background",
         "html": "<p>New background.</p>",
@@ -373,14 +485,68 @@ def test_replace_note_section_preserves_html_document(tmp_path):
     assert "<h2>Findings</h2>" in saved_html
 
 
+def test_replace_note_section_preserves_existing_heading_level(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+    html_path.write_text(
+        "<html><body><main class=\"note-body\">\n"
+        "<h3>Parent</h3>\n"
+        "<h4>Nested</h4>\n"
+        "<p>Old nested.</p>\n"
+        "<h4>Next Nested</h4>\n"
+        "</main></body></html>",
+        encoding="utf-8",
+    )
+
+    result = registry.dispatch("write_note", {
+        "action": "write_section",
+        "note_id": "note-1",
+        "heading": "Nested",
+        "html": "<p>New nested.</p>",
+    })
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert '<h4 id="nested">Nested</h4>\n<p>New nested.</p>' in saved_html
+    assert "<h2>Nested</h2>" not in saved_html
+    assert "Old nested" not in saved_html
+    assert "<h4>Next Nested</h4>" in saved_html
+
+
+def test_replace_note_section_allows_clearing_body_without_promoting_heading(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+    html_path.write_text(
+        "<html><body><main class=\"note-body\">\n"
+        "<h3>Parent</h3>\n"
+        "<h4>Nested</h4>\n"
+        "<p>Remove me.</p>\n"
+        "<h4>Next Nested</h4>\n"
+        "</main></body></html>",
+        encoding="utf-8",
+    )
+
+    result = registry.dispatch("write_note", {
+        "action": "write_section",
+        "note_id": "note-1",
+        "heading": "Nested",
+        "html": "",
+    })
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert '<h4 id="nested">Nested</h4>' in saved_html
+    assert "<h2>Nested</h2>" not in saved_html
+    assert "Remove me" not in saved_html
+    assert "<h4>Next Nested</h4>" in saved_html
+
+
 def test_update_note_metadata_allows_only_known_fields(tmp_path):
     registry, library_path, _ = _paper_note_fixture(tmp_path)
 
-    rejected = registry.dispatch("update_note_metadata", {
+    rejected = registry.dispatch("write_note", {"action": "update_metadata",
         "note_id": "note-1",
         "title": "Renames are not allowed",
     })
-    result = registry.dispatch("update_note_metadata", {
+    result = registry.dispatch("write_note", {"action": "update_metadata",
         "note_id": "note-1",
         "summary": "New summary",
         "tags": "agent, notes",
@@ -391,7 +557,7 @@ def test_update_note_metadata_allows_only_known_fields(tmp_path):
     note = library["notes"][0]
 
     assert rejected.is_error is True
-    assert json.loads(rejected.content)["code"] == "unknown_metadata_fields"
+    assert "title" in json.loads(rejected.content)["error"]
     assert result.is_error is False
     assert note["summary"] == "New summary"
     assert note["tags"] == ["agent", "notes"]
@@ -399,10 +565,10 @@ def test_update_note_metadata_allows_only_known_fields(tmp_path):
     assert note["date"] == "2026"
 
 
-def test_paper_notes_edit_update_metadata_ignores_facade_action(tmp_path):
+def test_write_note_update_metadata_ignores_facade_action(tmp_path):
     registry, library_path, _ = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note", {
         "action": "update_metadata",
         "note_id": "note-1",
         "summary": "Facade summary",
@@ -427,7 +593,7 @@ def test_update_note_metadata_accepts_collection_name(tmp_path):
     }, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note", {
         "action": "update_metadata",
         "note_id": "note-1",
         "collection": "Models / Reasoning",
@@ -442,7 +608,7 @@ def test_update_note_metadata_accepts_collection_name(tmp_path):
     assert payload["after"]["collectionPath"] == "Models / Reasoning"
 
 
-def test_paper_notes_context_includes_collection_metadata(tmp_path):
+def test_get_note_context_includes_collection_metadata(tmp_path):
     library_path = tmp_path / "notes.json"
     write_library({
         "categories": [
@@ -453,7 +619,7 @@ def test_paper_notes_context_includes_collection_metadata(tmp_path):
     }, library_path)
     registry = create_paper_notes_registry(library_path=library_path)
 
-    result = registry.dispatch("paper_notes_context", {"note_id": "note-1"})
+    result = registry.dispatch("get_note_context", {"note_id": "note-1"})
     payload = json.loads(result.content)
 
     assert result.is_error is False
@@ -462,10 +628,10 @@ def test_paper_notes_context_includes_collection_metadata(tmp_path):
     assert payload["note"]["collectionPath"] == "Models / Reasoning"
 
 
-def test_paper_notes_edit_deletes_note_section(tmp_path):
+def test_write_note_deletes_note_section(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note", {
         "action": "delete_section",
         "note_id": "note-1",
         "heading": "Background",
@@ -480,7 +646,7 @@ def test_paper_notes_edit_deletes_note_section(tmp_path):
     assert "<h2>Findings</h2>" in saved_html
 
 
-def test_paper_notes_edit_inserts_generated_image_into_section(tmp_path):
+def test_write_note_media_inserts_generated_image_into_section(tmp_path):
     registry, library_path, html_path = _paper_note_fixture(tmp_path)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
     image = media_store.create_generated_image(
@@ -493,7 +659,7 @@ def test_paper_notes_edit_inserts_generated_image_into_section(tmp_path):
     )
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note_media", {
         "action": "insert_image",
         "note_id": "note-1",
         "heading": "Findings",
@@ -514,7 +680,7 @@ def test_paper_notes_edit_inserts_generated_image_into_section(tmp_path):
     assert saved_html.index("<h2>Findings</h2>") < saved_html.index(f"/api/media/{image.id}")
 
 
-def test_paper_notes_edit_insert_image_accepts_generated_path_fragment(tmp_path):
+def test_write_note_media_insert_image_accepts_generated_path_fragment(tmp_path):
     registry, library_path, html_path = _paper_note_fixture(tmp_path)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
     image = media_store.create_generated_image(
@@ -528,7 +694,7 @@ def test_paper_notes_edit_insert_image_accepts_generated_path_fragment(tmp_path)
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
     path_fragment = f"session-1/{image.file_name}"
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note_media", {
         "action": "insert_image",
         "note_id": "note-1",
         "heading": "Findings",
@@ -545,7 +711,7 @@ def test_paper_notes_edit_insert_image_accepts_generated_path_fragment(tmp_path)
     assert path_fragment not in saved_html
 
 
-def test_paper_notes_edit_rewrites_local_media_img_paths_in_section_writes(tmp_path):
+def test_write_note_rewrites_local_media_img_paths_in_section_writes(tmp_path):
     registry, library_path, html_path = _paper_note_fixture(tmp_path)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
     image = media_store.create_generated_image(
@@ -558,11 +724,10 @@ def test_paper_notes_edit_rewrites_local_media_img_paths_in_section_writes(tmp_p
     )
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
 
-    result = registry.dispatch("paper_notes_edit", {
+    result = registry.dispatch("write_note", {
         "action": "write_section",
         "note_id": "note-1",
         "heading": "Findings",
-        "position": "replace_heading",
         "html": f'<h2>Findings</h2><p><img src="{image.path}" alt="Generated figure"></p>',
     })
     payload = json.loads(result.content)
@@ -576,7 +741,7 @@ def test_paper_notes_edit_rewrites_local_media_img_paths_in_section_writes(tmp_p
     assert 'alt="Generated figure"' in saved_html
 
 
-def test_paper_notes_edit_rewrites_local_media_img_paths_in_append_section(tmp_path):
+def test_write_note_rewrites_local_media_img_paths_in_append_section(tmp_path):
     registry, library_path, html_path = _paper_note_fixture(tmp_path)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
     image = media_store.create_generated_image(
@@ -589,8 +754,8 @@ def test_paper_notes_edit_rewrites_local_media_img_paths_in_append_section(tmp_p
     )
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
 
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "append_section",
+    result = registry.dispatch("write_note", {
+        "action": "append_to_section",
         "note_id": "note-1",
         "heading": "Findings",
         "html": f'<p><img src="{image.path}" alt="Inserted image" /></p>',
@@ -606,11 +771,11 @@ def test_paper_notes_edit_rewrites_local_media_img_paths_in_append_section(tmp_p
     assert 'alt="Inserted image"' in saved_html
 
 
-def test_paper_notes_edit_append_existing_heading_does_not_duplicate_heading(tmp_path):
+def test_write_note_append_existing_heading_does_not_duplicate_heading(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "append_section",
+    result = registry.dispatch("write_note", {
+        "action": "append_to_section",
         "note_id": "note-1",
         "heading": "Findings",
         "html": "<p>Extra finding.</p>",
@@ -638,10 +803,9 @@ def test_internal_write_note_section_rewrites_local_media_img_paths(tmp_path):
     )
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
 
-    result = registry.dispatch("write_note_section", {
+    result = registry.dispatch("write_note", {"action": "write_section",
         "note_id": "note-1",
         "heading": "Findings",
-        "position": "replace_heading",
         "html": f'<h2>Findings</h2><p><img src="{image.path}" alt="Internal figure"></p>',
     })
     payload = json.loads(result.content)
@@ -653,7 +817,7 @@ def test_internal_write_note_section_rewrites_local_media_img_paths(tmp_path):
     assert image.path not in saved_html
 
 
-def test_paper_notes_edit_rewrites_file_uri_media_img_paths(tmp_path):
+def test_write_note_rewrites_file_uri_media_img_paths(tmp_path):
     registry, library_path, html_path = _paper_note_fixture(tmp_path)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
     image = media_store.create_generated_image(
@@ -666,7 +830,7 @@ def test_paper_notes_edit_rewrites_file_uri_media_img_paths(tmp_path):
     )
     registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
 
-    preview = registry.dispatch("paper_notes_review", {
+    preview = registry.dispatch("review_note", {
         "action": "preview_note_diff",
         "note_id": "note-1",
         "heading": "Findings",
@@ -674,8 +838,8 @@ def test_paper_notes_edit_rewrites_file_uri_media_img_paths(tmp_path):
         "html": f'<h2>Findings</h2><p><img src="{image.filesystem_path.as_uri()}" alt="File URI figure"></p>',
     })
     preview_payload = json.loads(preview.content)
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "replace_section",
+    result = registry.dispatch("write_note", {
+        "action": "write_section",
         "note_id": "note-1",
         "heading": "Findings",
         "html": f'<h2>Findings</h2><p><img src="{image.filesystem_path.as_uri()}" alt="File URI figure"></p>',
@@ -693,11 +857,11 @@ def test_paper_notes_edit_rewrites_file_uri_media_img_paths(tmp_path):
     assert 'alt="File URI figure"' in saved_html
 
 
-def test_paper_notes_edit_rejects_unresolved_local_image_paths(tmp_path):
+def test_write_note_rejects_unresolved_local_image_paths(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "replace_section",
+    result = registry.dispatch("write_note", {
+        "action": "write_section",
         "note_id": "note-1",
         "heading": "Findings",
         "html": '<h2>Findings</h2><img src="/tmp/missing-generated-image.png" alt="Missing figure">',
@@ -711,7 +875,45 @@ def test_paper_notes_edit_rejects_unresolved_local_image_paths(tmp_path):
     assert "missing-generated-image" not in saved_html
 
 
-def test_paper_notes_edit_manages_annotations(tmp_path):
+def test_write_note_rejects_local_image_paths_outside_media_store(tmp_path):
+    registry, library_path, html_path = _paper_note_fixture(tmp_path)
+    media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
+    outside_image = tmp_path / "Desktop" / "figure.png"
+    outside_image.parent.mkdir()
+    outside_image.write_bytes(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="))
+    registry = create_paper_notes_registry(library_path=library_path, html_dir=html_path.parent, media_store=media_store)
+
+    result = registry.dispatch("write_note", {
+        "action": "write_section",
+        "note_id": "note-1",
+        "heading": "Findings",
+        "html": f'<h2>Findings</h2><img src="{outside_image}" alt="Outside figure">',
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is True
+    assert payload["success"] is False
+    assert payload["code"] == "image_must_be_in_media_store"
+    assert str(outside_image) in payload["unresolved_sources"]
+    assert "Outside figure" not in saved_html
+
+
+def test_media_store_register_existing_requires_media_root(tmp_path):
+    media_store = MediaStore(tmp_path / ".paper-notes" / "media", project_root=tmp_path)
+    outside_image = tmp_path / "Desktop" / "figure.png"
+    outside_image.parent.mkdir()
+    outside_image.write_bytes(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="))
+
+    try:
+        media_store.register_existing(outside_image, source="manual")
+    except MediaStoreError as error:
+        assert ".paper-notes/media" in str(error)
+    else:
+        raise AssertionError("register_existing should reject images outside .paper-notes/media")
+
+
+def test_manage_annotations(tmp_path):
     annotations_dir = tmp_path / "annotations"
     write_annotations("note-1", [{
         "id": "a1",
@@ -725,8 +927,8 @@ def test_paper_notes_edit_manages_annotations(tmp_path):
     }], annotations_dir)
     registry = create_paper_notes_registry(annotations_dir=annotations_dir)
 
-    created = registry.dispatch("paper_notes_edit", {
-        "action": "create_annotation",
+    created = registry.dispatch("manage_annotations", {
+        "action": "create",
         "note_id": "note-1",
         "annotation_id": "a2",
         "annotation_type": "highlight",
@@ -739,15 +941,15 @@ def test_paper_notes_edit_manages_annotations(tmp_path):
         "quote": "quoted text",
         "color": "purple",
     })
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "update_annotation",
+    result = registry.dispatch("manage_annotations", {
+        "action": "update",
         "note_id": "note-1",
         "annotation_id": "a1",
         "comment": "new comment",
         "color": "green",
     })
-    deleted = registry.dispatch("paper_notes_edit", {
-        "action": "delete_annotation",
+    deleted = registry.dispatch("manage_annotations", {
+        "action": "delete",
         "note_id": "note-1",
         "annotation_id": "a2",
     })
@@ -770,7 +972,7 @@ def test_paper_notes_edit_manages_annotations(tmp_path):
     }
 
 
-def test_paper_notes_edit_creates_annotation_by_locating_pdf_quote(tmp_path):
+def test_manage_annotations_creates_annotation_by_locating_pdf_quote(tmp_path):
     import pymupdf
 
     library_path = tmp_path / "notes.json"
@@ -796,8 +998,8 @@ def test_paper_notes_edit_creates_annotation_by_locating_pdf_quote(tmp_path):
         annotations_dir=annotations_dir,
     )
 
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "create_annotation",
+    result = registry.dispatch("manage_annotations", {
+        "action": "create",
         "note_id": "note-1",
         "annotation_id": "located-annotation",
         "annotation_type": "highlight",
@@ -821,7 +1023,7 @@ def test_paper_notes_edit_creates_annotation_by_locating_pdf_quote(tmp_path):
     assert saved["h"] > 0
 
 
-def test_paper_notes_edit_locates_annotation_across_spacing_and_line_breaks(tmp_path):
+def test_manage_annotations_locates_annotation_across_spacing_and_line_breaks(tmp_path):
     import pymupdf
 
     library_path = tmp_path / "notes.json"
@@ -848,8 +1050,8 @@ def test_paper_notes_edit_locates_annotation_across_spacing_and_line_breaks(tmp_
         annotations_dir=annotations_dir,
     )
 
-    result = registry.dispatch("paper_notes_edit", {
-        "action": "create_annotation",
+    result = registry.dispatch("manage_annotations", {
+        "action": "create",
         "note_id": "note-1",
         "annotation_id": "flexible-annotation",
         "annotation_type": "underline",
@@ -873,14 +1075,13 @@ def test_paper_notes_edit_locates_annotation_across_spacing_and_line_breaks(tmp_
 def test_paper_note_write_tools_are_marked_mutating(tmp_path):
     registry, _, _ = _paper_note_fixture(tmp_path)
 
-    assert registry.get("paper_notes_search").read_only is True
-    assert registry.get("paper_notes_edit").mutating is True
-    assert registry.get("paper_notes_edit").risk == "write"
-    assert registry.get("search_library").read_only is True
-    assert registry.get("write_note_from_paper_image").mutating is True
-    assert registry.get("write_note_from_paper_image").risk == "write"
-    assert registry.get("write_note_section").mutating is True
-    assert registry.get("write_note_section").risk == "write"
+    assert registry.get("search_notes").read_only is True
+    assert registry.get("write_note").mutating is True
+    assert registry.get("write_note").risk == "write"
+    assert registry.get("manage_annotations").mutating is True
+    assert registry.get("manage_annotations").risk == "write"
+    assert registry.get("write_note_media").mutating is True
+    assert registry.get("write_note_media").risk == "write"
 
 
 def test_render_paper_page_and_extract_images_from_pdf(tmp_path):
@@ -918,8 +1119,8 @@ def test_render_paper_page_and_extract_images_from_pdf(tmp_path):
         media_store=media_store,
     )
 
-    rendered = registry.dispatch("render_paper_page", {"note_id": "note-1", "page": 1, "scale": 1.5})
-    extracted = registry.dispatch("extract_paper_images", {"note_id": "note-1"})
+    rendered = registry.dispatch("read_paper", {"action": "render_page", "note_id": "note-1", "page": 1, "scale": 1.5})
+    extracted = registry.dispatch("read_paper", {"action": "extract_images", "note_id": "note-1"})
     rendered_payload = json.loads(rendered.content)
     extracted_payload = json.loads(extracted.content)
 

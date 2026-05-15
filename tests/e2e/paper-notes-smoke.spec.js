@@ -36,6 +36,9 @@ const E2E_NOTE_HTML = `<!doctype html>
       <section class="note-body">
         <h2>Overview</h2>
         <p>E2E fixture note.</p>
+        <p>Inline math $M$ and escaped math \\(x^2\\).</p>
+        <p>Block math \\[e^{ix}=\\cos x+i\\sin x\\]</p>
+        <pre><code>Keep code math $not_rendered$</code></pre>
       </section>
     </main>
   </body>
@@ -47,7 +50,10 @@ function sseFrame(event, payload) {
 
 async function installReaderFixtures(page, options = {}) {
   await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify(E2E_LIBRARY) });
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(options.library || E2E_LIBRARY),
+    });
   });
   await page.route("**/resources/Paper-html/e2e-deepseek-v4.html**", async (route) => {
     await route.fulfill({ contentType: "text/html", body: E2E_NOTE_HTML });
@@ -60,7 +66,21 @@ async function installReaderFixtures(page, options = {}) {
     });
   });
   await page.route("**/api/annotations**", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      if (typeof options.onAnnotationSave === "function") {
+        await options.onAnnotationSave(payload);
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(options.annotationSaveResponse || { ok: true }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(options.annotations || []),
+    });
   });
   await page.route("**/api/settings/tools", async (route) => {
     await route.fulfill({
@@ -69,9 +89,12 @@ async function installReaderFixtures(page, options = {}) {
     });
   });
   await page.route("**/api/chat/context**", async (route) => {
+    const payload = typeof options.contextStatus === "function"
+      ? await options.contextStatus(route.request())
+      : options.contextStatus;
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({
+      body: JSON.stringify(payload || {
         success: true,
         usedTokens: 1200,
         maxTokens: 128000,
@@ -80,6 +103,133 @@ async function installReaderFixtures(page, options = {}) {
       }),
     });
   });
+  await page.route("**/api/chat/tool-snapshots**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(options.toolSnapshots || { snapshots: [] }),
+    });
+  });
+}
+
+async function installStubPdfJs(page, options = {}) {
+  const pageCount = Number(options.pageCount || 12);
+  const delayedZoomPage = Number(options.delayedZoomPage || 7);
+  const delayedZoomMs = Number(options.delayedZoomMs || 250);
+  const zoomHeightExtraByPage = JSON.stringify(options.zoomHeightExtraByPage || {});
+  const moduleSource = `
+    export const GlobalWorkerOptions = { workerSrc: "" };
+    export const AnnotationType = { LINK: 2 };
+    export const OPS = {};
+    export const Util = {
+      transform(left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right)) return [1, 0, 0, 1, 0, 0];
+        const [a1, b1, c1, d1, e1, f1] = left;
+        const [a2, b2, c2, d2, e2, f2] = right;
+        return [
+          a1 * a2 + c1 * b2,
+          b1 * a2 + d1 * b2,
+          a1 * c2 + c1 * d2,
+          b1 * c2 + d1 * d2,
+          a1 * e2 + c1 * f2 + e1,
+          b1 * e2 + d1 * f2 + f1
+        ];
+      }
+    };
+
+    function delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function makeViewport(pageNumber, scale) {
+      const width = 720;
+      const zoomHeightExtraByPage = ${zoomHeightExtraByPage};
+      const extraHeight = scale > 2.15 ? Number(zoomHeightExtraByPage[String(pageNumber)] || 0) : 0;
+      const height = 960 + extraHeight;
+      return {
+        width,
+        height,
+        scale,
+        transform: [1, 0, 0, 1, 0, 0],
+        convertToViewportRectangle(rect) {
+          return Array.isArray(rect) ? rect.slice() : [0, 0, 0, 0];
+        }
+      };
+    }
+
+    function makePage(pageNumber) {
+      return {
+        async getAnnotations() {
+          return [];
+        },
+        async getOperatorList() {
+          return { fnArray: [], argsArray: [] };
+        },
+        async getTextContent() {
+          return { items: [], styles: {} };
+        },
+        getViewport({ scale }) {
+          return makeViewport(pageNumber, scale);
+        },
+        render({ canvasContext, viewport }) {
+          if (canvasContext) {
+            canvasContext.fillStyle = pageNumber % 2 ? "#fbfbfd" : "#f3f4f8";
+            canvasContext.fillRect(0, 0, canvasContext.canvas.width, canvasContext.canvas.height);
+            canvasContext.fillStyle = "#222";
+            canvasContext.font = "28px sans-serif";
+            canvasContext.fillText("Stub page " + pageNumber, 32, 64);
+          }
+          const waitMs = pageNumber === ${delayedZoomPage} && viewport.scale > 2.15 ? ${delayedZoomMs} : 0;
+          return { promise: delay(waitMs) };
+        }
+      };
+    }
+
+    export function getDocument() {
+      return {
+        promise: Promise.resolve({
+          numPages: ${pageCount},
+          async getPage(pageNumber) {
+            return makePage(pageNumber);
+          },
+          async getPageIndex(ref) {
+            return typeof ref === "number" ? ref : 0;
+          }
+        })
+      };
+    }
+  `;
+
+  await page.route("**/node_modules/pdfjs-dist/legacy/build/pdf.mjs", async (route) => {
+    await route.fulfill({
+      contentType: "text/javascript",
+      body: moduleSource,
+    });
+  });
+}
+
+async function openFixtureLibrary(page, options = {}) {
+  await ignoreMissingFavicon(page);
+  await page.route("**/notes.json**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(options.library || E2E_LIBRARY),
+    });
+  });
+  await page.route("**/api/library", async (route) => {
+    const payload = route.request().postDataJSON();
+    if (typeof options.onLibrarySync === "function") {
+      await options.onLibrarySync(payload);
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.goto("/index.html");
+  await expect(page).toHaveTitle("Paper Notes");
+  await expect(page.getByRole("heading", { name: "All Notes" })).toBeVisible();
+  await expect(page.locator(".note-card h3").first()).toHaveText("DeepSeek V4");
 }
 
 async function openFixtureReader(page) {
@@ -89,6 +239,14 @@ async function openFixtureReader(page) {
   await expect(page).toHaveTitle("Paper Reader");
   await expect(page.getByRole("heading", { name: "DeepSeek V4" })).toBeVisible();
   await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
+}
+
+async function showAskPane(page) {
+  const isHidden = await page.locator("#readerLayout").evaluate((element) => element.classList.contains("is-ask-pane-hidden"));
+  if (isHidden) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await expect(page.locator("#askPane")).toBeVisible();
 }
 
 async function installPdfTextFixture(page) {
@@ -211,8 +369,8 @@ async function installAgentMocks(page) {
     preview: "这篇论文当前的 tags 是：tool-test、deepseek",
     events: [
       { type: "model_request", message: "Calling model provider.", data: { turn: 1 } },
-      { type: "tool_call", message: "Executing tool: paper_notes_context", data: { toolName: "paper_notes_context" } },
-      { type: "tool_result", message: "Tool completed: paper_notes_context", data: { toolName: "paper_notes_context" } },
+      { type: "tool_call", message: "Executing tool: get_note_context", data: { toolName: "get_note_context" } },
+      { type: "tool_result", message: "Tool completed: get_note_context", data: { toolName: "get_note_context" } },
       { type: "model_response", message: "Model provider returned a response.", data: { turn: 1 } },
     ],
   };
@@ -543,6 +701,40 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   expect(consoleIssues).toEqual([]);
 });
 
+test("library tag add and remove flows persist through the details panel", async ({ page }) => {
+  const syncPayloads = [];
+  await openFixtureLibrary(page, {
+    onLibrarySync: (payload) => {
+      syncPayloads.push(payload);
+    },
+  });
+
+  await expect(page.locator(".details-tags")).toContainText("tool-test");
+  await expect(page.locator(".details-tags")).toContainText("deepseek");
+
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.locator("#tagDialog")).toBeVisible();
+  await page.locator("#tagInput").fill("regression");
+  await page.locator("#tagForm").getByRole("button", { name: "Add" }).click();
+
+  await expect(page.locator("#tagDialog")).not.toBeVisible();
+  await expect(page.locator(".details-tags")).toContainText("regression");
+  await expect(page.getByRole("button", { name: "Remove regression tag" })).toBeVisible();
+  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
+    "tool-test",
+    "deepseek",
+    "regression",
+  ]);
+
+  await page.locator(".details-tag", { hasText: "regression" }).hover();
+  await page.getByRole("button", { name: "Remove regression tag" }).click();
+  await expect(page.locator(".details-tags")).not.toContainText("regression");
+  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
+    "tool-test",
+    "deepseek",
+  ]);
+});
+
 test("reader ask flow renders response, work trace, and debug", async ({ page }) => {
   await openFixtureReader(page);
   const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
@@ -585,6 +777,493 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   expect(consoleIssues).toEqual([]);
 });
 
+test("reader trash uses clear all with confirmation", async ({ page }) => {
+  const deletedSessionIds = [];
+  const trashedSessions = [
+    {
+      id: "trashed-session-1",
+      title: "First trashed chat",
+      lastMessagePreview: "First",
+      updatedAt: "2026-05-15T10:00:00.000Z",
+      trashedAt: "2026-05-15T10:05:00.000Z",
+      state: "trashed",
+    },
+    {
+      id: "trashed-session-2",
+      title: "Second trashed chat",
+      lastMessagePreview: "Second",
+      updatedAt: "2026-05-15T11:00:00.000Z",
+      trashedAt: "2026-05-15T11:05:00.000Z",
+      state: "trashed",
+    },
+  ];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: url.searchParams.get("state") === "trashed" ? trashedSessions : [],
+      }),
+    });
+  });
+  await page.route("**/api/chat/session/delete", async (route) => {
+    deletedSessionIds.push(route.request().postDataJSON().sessionId);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ success: true }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  await page.getByRole("button", { name: "Trash chats" }).click();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Trash");
+  await expect(page.locator("#clearTrashSessions")).toHaveText("Clear all");
+  await expect(page.locator("#clearTrashSessions")).toBeEnabled();
+
+  await page.locator("#clearTrashSessions").click();
+  await expect(page.locator("#readerClearTrashDialog")).toBeVisible();
+  await expect(page.locator("#readerClearTrashMessage")).toContainText("Permanently delete 2 trashed chats");
+  await page.locator("#readerCancelClearTrash").click();
+  await expect(page.locator("#readerClearTrashDialog")).not.toBeVisible();
+  expect(deletedSessionIds).toEqual([]);
+
+  await page.locator("#clearTrashSessions").click();
+  await expect(page.locator("#readerClearTrashDialog")).toBeVisible();
+  await page.locator("#readerConfirmClearTrash").click();
+  await expect.poll(() => deletedSessionIds).toEqual(["trashed-session-1", "trashed-session-2"]);
+});
+
+test("reader session tabs expose archive trash and active views", async ({ page }) => {
+  const activeSessions = [{
+    id: "active-session-1",
+    title: "Active chat",
+    lastMessagePreview: "Working",
+    updatedAt: "2026-05-15T09:00:00.000Z",
+    state: "active",
+  }];
+  const archivedSessions = [{
+    id: "archived-session-1",
+    title: "Archived chat",
+    lastMessagePreview: "Done",
+    updatedAt: "2026-05-15T08:00:00.000Z",
+    archivedAt: "2026-05-15T08:05:00.000Z",
+    state: "archived",
+  }];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get("state") || "active";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: state === "archived" ? archivedSessions : state === "active" ? activeSessions : [],
+      }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  const sessionTabs = page.locator(".ask-session-tabs button");
+  await expect(sessionTabs).toHaveCount(3);
+  await expect(sessionTabs.nth(0)).toHaveAttribute("aria-label", "Trash chats");
+  await expect(sessionTabs.nth(1)).toHaveAttribute("aria-label", "Archived chats");
+  await expect(sessionTabs.nth(2)).toHaveAttribute("aria-label", "Chats");
+
+  await page.locator("#chatSessionArchivedButton").click();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
+  await expect(page.locator("#clearTrashSessions")).toBeHidden();
+  await expect(page.getByText("Archived chat")).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Archived chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Archived chat/ }).click();
+  await expect(page.getByRole("button", { name: /Restore Archived chat/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Move Archived chat to Trash/ })).toBeVisible();
+
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Sessions");
+  await expect(page.getByText("Active chat")).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Active chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Active chat/ }).click();
+  await expect(page.getByRole("button", { name: /Rename Active chat/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Archive Active chat/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Move Active chat to Trash/ })).toBeVisible();
+});
+
+test("reader restore keeps the current session list view", async ({ page }) => {
+  const archiveCalls = [];
+  const stateBySessionId = new Map([["archived-session-1", "archived"]]);
+  const archivedSession = {
+    id: "archived-session-1",
+    title: "Archived chat",
+    lastMessagePreview: "Done",
+    updatedAt: "2026-05-15T08:00:00.000Z",
+    archivedAt: "2026-05-15T08:05:00.000Z",
+  };
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get("state") || "active";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: stateBySessionId.get("archived-session-1") === state
+          ? [{ ...archivedSession, state }]
+          : [],
+      }),
+    });
+  });
+  await page.route("**/api/chat/session/archive", async (route) => {
+    const payload = route.request().postDataJSON();
+    archiveCalls.push(payload);
+    stateBySessionId.set(payload.sessionId, payload.state);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          ...archivedSession,
+          id: payload.sessionId,
+          sessionId: payload.sessionId,
+          state: payload.state,
+          archived: payload.state === "archived",
+          trashed: payload.state === "trashed",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/chat/session?id=archived-session-1", async (route) => {
+    throw new Error(`Restore should not load the restored session: ${route.request().url()}`);
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await page.locator("#chatSessionArchivedButton").click();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
+  await expect(page.getByText("Archived chat")).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Archived chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Archived chat/ }).click();
+  await page.getByRole("button", { name: /Restore Archived chat/ }).click();
+
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
+  await expect(page.locator("#chatSessionPopover")).toBeVisible();
+  await expect(page.locator("#chatSessionList")).toContainText("Archive is empty");
+  await expect(page.locator("#readerChatMessages")).not.toContainText("Archived loaded message");
+  expect(archiveCalls).toEqual([{ sessionId: "archived-session-1", state: "active" }]);
+});
+
+test("reader archive and trash actions run from the row menu without confirm", async ({ page }) => {
+  const archiveCalls = [];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: [{
+          id: "active-session-1",
+          title: "Active chat",
+          updatedAt: "2026-05-15T09:00:00.000Z",
+          state: "active",
+        }],
+      }),
+    });
+  });
+  await page.route("**/api/chat/session/archive", async (route) => {
+    const payload = route.request().postDataJSON();
+    archiveCalls.push(payload);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          id: payload.sessionId,
+          sessionId: payload.sessionId,
+          title: "Active chat",
+          state: payload.state,
+          archived: payload.state === "archived",
+          trashed: payload.state === "trashed",
+        },
+      }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.getByText("Active chat")).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Active chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Active chat/ }).click();
+  await page.getByRole("button", { name: /Archive Active chat/ }).click();
+  await expect.poll(() => archiveCalls).toEqual([{ sessionId: "active-session-1", state: "archived" }]);
+
+  archiveCalls.length = 0;
+  await page.locator("#chatSessionMenuButton").click();
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.getByText("Active chat")).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Active chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Active chat/ }).click();
+  await page.getByRole("button", { name: /Move Active chat to Trash/ }).click();
+  await expect.poll(() => archiveCalls).toEqual([{ sessionId: "active-session-1", state: "trashed" }]);
+});
+
+test("reader permanent delete still requires confirmation", async ({ page }) => {
+  const deletedSessionIds = [];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: url.searchParams.get("state") === "trashed"
+          ? [{
+            id: "trashed-session-1",
+            title: "Trashed chat",
+            updatedAt: "2026-05-15T09:00:00.000Z",
+            trashedAt: "2026-05-15T09:05:00.000Z",
+            state: "trashed",
+          }]
+          : [],
+      }),
+    });
+  });
+  await page.route("**/api/chat/session/delete", async (route) => {
+    deletedSessionIds.push(route.request().postDataJSON().sessionId);
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await page.locator("#chatSessionTrashButton").click();
+  await expect(page.locator(".ask-session-row", { hasText: "Trashed chat" })).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Trashed chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Trashed chat/ }).click();
+  await page.getByRole("button", { name: /Permanently delete Trashed chat/ }).click();
+  expect(deletedSessionIds).toEqual([]);
+  await expect(page.getByRole("button", { name: /Confirm delete Trashed chat/ })).toBeVisible();
+  await page.getByRole("button", { name: /Confirm delete Trashed chat/ }).click();
+  await expect.poll(() => deletedSessionIds).toEqual(["trashed-session-1"]);
+});
+
+test("reader chats tab opens immediately from a closed session menu", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [] }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
+
+  if ((await page.locator("#askPaneToggle").getAttribute("aria-expanded")) !== "true") {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopover")).toBeVisible();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Sessions");
+
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopover")).toBeHidden();
+
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopover")).toBeVisible();
+});
+
+test("reader new chat lives at the bottom of the ask tools menu", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [] }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopover")).toBeVisible();
+  await expect(page.locator("#chatSessionPopover")).not.toContainText("New chat");
+  await page.locator("#chatSessionMenuButton").click();
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{ role: "assistant", text: "Old session text." }];
+    setCurrentChatSessionId("session-before-new-chat");
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+  await expect(page.locator("#readerChatMessages")).toContainText("Old session text.");
+
+  await page.locator("#readerToolMenuButton").click();
+  const toolOptions = page.locator("#readerToolRoot .ask-tool-menu-option");
+  await expect(toolOptions.last()).toContainText("New chat");
+  await toolOptions.last().click();
+
+  await expect(page.locator("#readerToolPopover")).toBeHidden();
+  await expect(page.locator("#readerChatMessages")).not.toContainText("Old session text.");
+  await expect(askInput).toBeFocused();
+});
+
+test("reader attachment uploads show tray progress and can be removed", async ({ page }) => {
+  await openFixtureReader(page);
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+
+  const uploads = [];
+  let releaseUpload;
+  const uploadGate = new Promise((resolve) => {
+    releaseUpload = resolve;
+  });
+  await page.route("**/api/chat/attachments", async (route) => {
+    uploads.push(route.request().postDataJSON());
+    await uploadGate;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        artifact: {
+          id: "file_upload_1",
+          kind: "text",
+          source: "uploaded",
+          mimeType: "text/plain",
+          fileName: "reader-attachment.txt",
+          size: 19,
+          url: "/api/media/file_upload_1",
+          downloadUrl: "/api/media/file_upload_1/download",
+        },
+      }),
+    });
+  });
+
+  await page.locator("#readerAttachmentInput").setInputFiles({
+    name: "reader-attachment.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("reader attachment\n"),
+  });
+
+  await expect(page.locator("#readerAttachmentTray")).toBeVisible();
+  await expect(page.locator("#readerAttachmentTray")).toContainText("reader-attachment.txt");
+  await expect(page.locator(".ask-attachment-loading")).toContainText("Uploading...");
+  await expect(page.locator(".ask-attachment-badge")).toContainText("Uploading");
+
+  releaseUpload();
+
+  await expect(page.locator("#readerAttachmentTray")).toContainText("reader-attachment.txt");
+  await expect(page.locator(".ask-attachment-loading")).toHaveCount(0);
+  await expect(page.locator(".ask-attachment-badge")).toHaveCount(0);
+  expect(uploads).toHaveLength(1);
+  expect(uploads[0]).toMatchObject({
+    fileName: "reader-attachment.txt",
+    mimeType: "text/plain",
+    metadata: { source: "reader_upload" },
+  });
+
+  await page.getByRole("button", { name: "Remove attachment" }).click();
+  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
+});
+
+test("reader manual context compaction updates the popover and adds a divider", async ({ page }) => {
+  let compressionCount = 0;
+  let lastCompressedAt = "";
+  let compressRequest = null;
+  let releaseCompress;
+  const compressGate = new Promise((resolve) => {
+    releaseCompress = resolve;
+  });
+  await installReaderFixtures(page, {
+    contextStatus: () => ({
+      context: {
+        provider: "openai",
+        model: "gpt-5.5",
+        contextLength: 128000,
+        tokensUsed: 112000,
+        thresholdTokens: 102400,
+        thresholdPercent: 80,
+        percentFull: 88,
+        messageCount: 6,
+        compactionEnabled: true,
+        compressionCount,
+        lastCompressedAt,
+        summaryAvailable: compressionCount > 0,
+      },
+    }),
+  });
+  await ignoreMissingFavicon(page);
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
+  await installAgentMocks(page);
+  await page.route("**/api/chat/compress", async (route) => {
+    compressRequest = route.request().postDataJSON();
+    await compressGate;
+    compressionCount = 1;
+    lastCompressedAt = "2026-05-15T11:30:00.000Z";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        compressed: true,
+        context: {
+          provider: "openai",
+          model: "gpt-5.5",
+          contextLength: 128000,
+          tokensUsed: 64000,
+          thresholdTokens: 102400,
+          thresholdPercent: 80,
+          percentFull: 50,
+          messageCount: 7,
+          compactionEnabled: true,
+          compressionCount,
+          lastCompressedAt,
+          summaryAvailable: true,
+        },
+        message: {
+          role: "divider",
+          text: "Context compacted. Earlier conversation was summarized.",
+          metadata: {
+            type: "context_compaction",
+            focus: "tags only",
+          },
+        },
+      }),
+    });
+  });
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await askInput.fill("总结一下这篇论文");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.locator("#askPane")).toContainText("DeepSeek V4");
+
+  await page.locator("#readerContextButton").click();
+  await expect(page.locator("#readerContextPopover")).toBeVisible();
+  await expect(page.locator("#readerContextPopover")).toContainText("88% full");
+  await page.locator("#readerContextCompactFocus").fill("tags only");
+  await page.locator("[data-context-action='compact']").click();
+  await expect(page.locator("[data-context-action='compact']")).toHaveText("Compacting");
+
+  releaseCompress();
+
+  await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
+  await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
+  await expect(page.locator("#readerContextPopover")).toContainText("50% full");
+  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted. Earlier conversation was summarized.");
+  expect(compressRequest).toMatchObject({
+    sessionId: "e2e-session",
+    focus: "tags only",
+    noteId: E2E_NOTE_ID,
+  });
+});
+
 test("reader HTML note renders before a delayed PDF finishes", async ({ page }) => {
   await ignoreMissingFavicon(page);
   let releasePdf;
@@ -611,6 +1290,380 @@ test("reader PDF zoom persists after reload", async ({ page }) => {
   await page.reload();
   await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
   await expect(page.locator("#zoomLabel")).toHaveText("225%");
+});
+
+test("reader chat renders LaTeX math in assistant messages", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "欧拉公式是：\n\\[\ne^{ix}=\\cos x+i\\sin x\n\\]\n其中 \\(i^2=-1\\)。",
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const bubble = page.locator(".ask-message-assistant .ask-bubble");
+  await expect(bubble.locator(".katex")).toHaveCount(2);
+  await expect(bubble.locator(".chat-math-block")).toBeVisible();
+  await expect(bubble).not.toContainText("\\[");
+  await expect(bubble).not.toContainText("\\]");
+});
+
+test("reader chat linkifies adjacent Chinese parenthetical URLs separately", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "来源链接：https://platform.openai.com/docs/models（跳转到https://developers.openai.com/api/docs/models）。",
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const links = page.locator(".ask-message-assistant .ask-bubble a");
+  await expect(links).toHaveCount(2);
+  await expect(links.nth(0)).toHaveAttribute("href", "https://platform.openai.com/docs/models");
+  await expect(links.nth(0)).toHaveText("https://platform.openai.com/docs/models");
+  await expect(links.nth(1)).toHaveAttribute("href", "https://developers.openai.com/api/docs/models");
+  await expect(links.nth(1)).toHaveText("https://developers.openai.com/api/docs/models");
+});
+
+test("reader note renders LaTeX math in generated HTML notes", async ({ page }) => {
+  await openFixtureReader(page);
+
+  const notePage = page.locator("#notePage");
+  await expect(notePage.locator(".note-math-inline .katex")).toHaveCount(2);
+  await expect(notePage.locator(".note-math-block .katex")).toHaveCount(1);
+  await expect(notePage).not.toContainText("\\(");
+  await expect(notePage).not.toContainText("\\]");
+  await expect(notePage.locator("pre code")).toContainText("$not_rendered$");
+});
+
+test("reader chat tool activity shows view and preview with real diff line numbers", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.toolDiffs = {
+      "snapshot-e2e": {
+        snapshotId: "snapshot-e2e",
+        files: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          diff: [
+            "resources/Paper-html/e2e-deepseek-v4.html@@ -74,14 +74,6 @@ <h4>5.2.5. Sandbox Infrastructure</h4>",
+            " <h3>5.3. Standard Benchmark Evaluation</h3>",
+            "-<h4>5.3.1. Evaluation Setup</h4>",
+            " <h4 id=\"5.4.1--chinese-writing\">5.4.1. Chinese Writing</h4>"
+          ].join("\n")
+        }]
+      }
+    };
+    readerState.toolDiffOpen = { "message-0:snapshot-e2e:0": true };
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "已更新。",
+      toolActivity: [{
+        name: "write_note",
+        sessionId: "session-e2e",
+        snapshotId: "snapshot-e2e",
+        noteId: "",
+        undoable: true,
+        changedFiles: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          beforeBytes: 200,
+          afterBytes: 160
+        }],
+        message: "Tool completed: write_note"
+      }]
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const actions = page.locator(".ask-tool-activity-actions button");
+  await expect(actions).toHaveText(["View", "Preview", "Undo"]);
+  await page.evaluate(() => {
+    readerState.toolSnapshots = [{ snapshotId: "snapshot-e2e", canUndo: false, canRedo: false, undoable: true }];
+    renderReaderChatMessages({ forceScrollToBottom: false });
+  });
+  await expect(actions.filter({ hasText: "Undo" })).toBeDisabled();
+  await page.evaluate(() => {
+    readerState.toolSnapshots = [{ snapshotId: "snapshot-e2e", canUndo: true, canRedo: false, undoable: true }];
+    renderReaderChatMessages({ forceScrollToBottom: false });
+  });
+  await page.evaluate(() => {
+    readerState.toolUndoStates["snapshot-e2e"] = "undoing";
+    renderReaderChatMessages({ forceScrollToBottom: false });
+  });
+  await expect(actions).toHaveText(["View", "Preview", "Undo"]);
+  const firstContextLineNumbers = await page.locator(".ask-tool-diff-row.is-context").first().locator(".ask-tool-diff-line").allTextContents();
+  expect(firstContextLineNumbers).toEqual(["74", "74"]);
+  await expect(page.locator(".ask-tool-diff-line", { hasText: "1" })).toHaveCount(0);
+});
+
+test("reader chat tool activity hides snippet-local diff line numbers", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.toolDiffs = {
+      "snapshot-e2e-snippet": {
+        snapshotId: "snapshot-e2e-snippet",
+        files: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          diff: [
+            "@@ -1,5 +1,4 @@",
+            " <h4 id=\"5.4.2--search\">5.4.2. Search</h4>",
+            "-<h4 id=\"5.4.4--code-agent\">5.4.4. Code Agent</h4>",
+            " <h2>6. Conclusion, Limitations, and Future Directions</h2>"
+          ].join("\n")
+        }]
+      }
+    };
+    readerState.toolDiffOpen = { "message-0:snapshot-e2e-snippet:0": true };
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "已更新。",
+      toolActivity: [{
+        name: "write_note",
+        sessionId: "session-e2e",
+        snapshotId: "snapshot-e2e-snippet",
+        noteId: "",
+        undoable: true,
+        changedFiles: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          beforeBytes: 200,
+          afterBytes: 160
+        }],
+        message: "Tool completed: write_note"
+      }]
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  await expect(page.locator(".ask-tool-activity-actions button")).toHaveText(["View", "Preview", "Undo"]);
+  await expect(page.locator(".ask-tool-diff-line", { hasText: "1" })).toHaveCount(0);
+  await expect(page.locator(".ask-tool-diff-line", { hasText: "2" })).toHaveCount(0);
+  await expect(page.locator(".ask-tool-diff-line", { hasText: "3" })).toHaveCount(0);
+});
+
+test("reader chat preview expands only the clicked tool activity", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.route("**/api/chat/tool-snapshot-diff**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        sessionId: "session-e2e",
+        snapshotId: "shared-snapshot",
+        files: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          diff: [
+            "@@ -4,3 +4,4 @@",
+            " <h2>Overview</h2>",
+            "+<p>Added once.</p>"
+          ].join("\n")
+        }]
+      })
+    });
+  });
+
+  const toolActivity = {
+    name: "write_note",
+    sessionId: "session-e2e",
+    snapshotId: "shared-snapshot",
+    noteId: "",
+    undoable: true,
+    changedFiles: [{
+      path: "resources/Paper-html/e2e-deepseek-v4.html",
+      beforeBytes: 200,
+      afterBytes: 240
+    }],
+    message: "Tool completed: write_note"
+  };
+  await page.evaluate((activity) => {
+    readerState.toolDiffs = {};
+    readerState.toolDiffOpen = {};
+    readerState.chatMessages = [
+      { role: "assistant", text: "第一次。", toolActivity: [activity] },
+      { role: "assistant", text: "第二次。", toolActivity: [activity] }
+    ];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  }, toolActivity);
+
+  const firstActivity = page.locator(".ask-tool-activity-item").nth(0);
+  const secondActivity = page.locator(".ask-tool-activity-item").nth(1);
+  await firstActivity.getByRole("button", { name: "Preview" }).click();
+
+  await expect(firstActivity.locator(".ask-tool-diff")).toHaveCount(1);
+  await expect(secondActivity.locator(".ask-tool-diff")).toHaveCount(0);
+});
+
+test("reader chat shows only the final note edit card for repeated same-file writes", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  const activities = Array.from({ length: 5 }, (_, index) => ({
+    name: "write_note",
+    sessionId: "session-e2e",
+    snapshotId: `snapshot-e2e-${index + 1}`,
+    noteId: "",
+    undoable: true,
+    changedFiles: [{
+      path: "resources/Paper-html/e2e-deepseek-v4.html",
+      beforeBytes: 200 + index,
+      afterBytes: 201 + index
+    }],
+    message: `Tool completed: write_note ${index + 1}`
+  }));
+
+  await page.evaluate((toolActivity) => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "已加好了。",
+      toolActivity
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  }, activities);
+
+  await expect(page.locator(".ask-tool-activity-item")).toHaveCount(1);
+  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute("data-tool-toggle", "snapshot-e2e-5");
+  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute(
+    "data-tool-toggle-snapshots",
+    "snapshot-e2e-5,snapshot-e2e-4,snapshot-e2e-3,snapshot-e2e-2,snapshot-e2e-1"
+  );
+  await page.evaluate(() => {
+    readerState.toolUndoStates["snapshot-e2e-1|snapshot-e2e-2|snapshot-e2e-3|snapshot-e2e-4|snapshot-e2e-5"] = "undone";
+    renderReaderChatMessages({ forceScrollToBottom: false });
+  });
+  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute("data-tool-toggle", "snapshot-e2e-1");
+  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute(
+    "data-tool-toggle-snapshots",
+    "snapshot-e2e-1,snapshot-e2e-2,snapshot-e2e-3,snapshot-e2e-4,snapshot-e2e-5"
+  );
+});
+
+test("reader PDF zoom keeps immediate user scroll instead of snapping back", async ({ page }) => {
+  await installStubPdfJs(page, {
+    pageCount: 12,
+    delayedZoomPage: 6,
+    delayedZoomMs: 280,
+    zoomHeightExtraByPage: { 6: 320 },
+  });
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page).toHaveTitle("Paper Reader");
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 12");
+  await expect(page.locator("#zoomLabel")).toHaveText("215%");
+
+  const pageInput = page.locator("#pdfPageInput");
+  await pageInput.fill("7");
+  await pageInput.press("Enter");
+  await expect(pageInput).toHaveValue("7");
+
+  const viewer = page.locator("#pdfViewer");
+  const beforeZoomScrollTop = await viewer.evaluate((element) => element.scrollTop);
+  await page.locator("#zoomIn").click();
+  await expect(page.locator("#zoomLabel")).toHaveText("225%");
+  await viewer.evaluate((element) => {
+    element.scrollTop += 1200;
+    element.dispatchEvent(new Event("scroll"));
+    element.scrollTop += 1200;
+    element.dispatchEvent(new Event("scroll"));
+    element.scrollTop += 1200;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  const afterUserScrollState = await viewer.evaluate((element) => {
+    const anchor = element.scrollTop + Math.max(64, Math.min(180, Math.round(element.clientHeight * 0.18)));
+    const pages = Array.from(element.querySelectorAll(".pdf-page")).map((page) => ({
+      page: Number(page.dataset.page),
+      top: page.offsetTop,
+      bottom: page.offsetTop + page.offsetHeight,
+    }));
+    const current = pages.find((page) => page.top <= anchor && page.bottom >= anchor) || null;
+    return {
+      scrollTop: element.scrollTop,
+      currentPage: current?.page || null,
+    };
+  });
+
+  await page.waitForFunction(() => !document.querySelector("#pdfViewer .pdf-page[data-rendering='true']"));
+  await expect.poll(async () => Number(await pageInput.inputValue())).toBeGreaterThanOrEqual(8);
+
+  const scrollState = await viewer.evaluate((element) => {
+    const anchor = element.scrollTop + Math.max(64, Math.min(180, Math.round(element.clientHeight * 0.18)));
+    const pages = Array.from(element.querySelectorAll(".pdf-page")).map((page) => ({
+      page: Number(page.dataset.page),
+      top: page.offsetTop,
+      bottom: page.offsetTop + page.offsetHeight,
+    }));
+    const current = pages.find((page) => page.top <= anchor && page.bottom >= anchor) || null;
+    return {
+      scrollTop: element.scrollTop,
+      currentPage: current?.page || null,
+    };
+  });
+
+  expect(scrollState.scrollTop).toBeGreaterThan(beforeZoomScrollTop + 1000);
+  expect(scrollState.scrollTop).toBeGreaterThanOrEqual(afterUserScrollState.scrollTop - 1);
+  expect(scrollState.currentPage).toBeGreaterThanOrEqual(afterUserScrollState.currentPage);
+});
+
+test("reader PDF zoom keeps immediate partial scroll within the same page", async ({ page }) => {
+  await installStubPdfJs(page, { pageCount: 12, delayedZoomPage: 7, delayedZoomMs: 280 });
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 12");
+
+  const pageInput = page.locator("#pdfPageInput");
+  await pageInput.fill("7");
+  await pageInput.press("Enter");
+  await expect(pageInput).toHaveValue("7");
+
+  const viewer = page.locator("#pdfViewer");
+  const beforeZoomScrollTop = await viewer.evaluate((element) => element.scrollTop);
+  await page.locator("#zoomIn").click();
+  await expect(page.locator("#zoomLabel")).toHaveText("225%");
+  await viewer.evaluate((element) => {
+    element.scrollTop += 420;
+    element.dispatchEvent(new Event("scroll"));
+  });
+
+  await page.waitForFunction(() => !document.querySelector("#pdfViewer .pdf-page[data-rendering='true']"));
+
+  const scrollState = await viewer.evaluate((element) => ({
+    scrollTop: element.scrollTop,
+    pageInputValue: document.querySelector("#pdfPageInput")?.value || null,
+  }));
+
+  expect(scrollState.scrollTop).toBeGreaterThan(beforeZoomScrollTop + 250);
+  expect(scrollState.pageInputValue).toBe("7");
 });
 
 test("reader annotation sidebar divider can be resized and persists", async ({ page }) => {
@@ -663,6 +1716,90 @@ test("reader annotation sidebar divider can be resized and persists", async ({ p
   await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
   const afterReload = await sidebar.boundingBox();
   expect(afterReload.width).toBeGreaterThan(before.width + 40);
+});
+
+test("reader sticky note markers can be dragged and undone", async ({ page }) => {
+  const saves = [];
+  await openFixtureReader(page);
+  await page.unroute("**/api/annotations");
+  await page.route("**/api/annotations", async (route) => {
+    if (route.request().method() === "POST") {
+      saves.push(route.request().postDataJSON());
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+  });
+  await installPdfTextFixture(page);
+
+  await page.evaluate(() => {
+    pdfState.annotations = [normalizeAnnotation({
+      id: "draggable-sticky-note",
+      type: "note",
+      page: 8,
+      x: 0.14,
+      y: 0.2,
+      w: 0.02,
+      h: 0.02,
+      color: "yellow",
+      comment: "Drag me",
+      quote: "",
+    })];
+    renderAllAnnotations();
+    renderAnnotationList();
+  });
+
+  const marker = page.locator(".pdf-annotation-note[data-annotation-id='draggable-sticky-note']");
+  const before = await marker.boundingBox();
+  expect(before).toBeTruthy();
+
+  await page.evaluate(({ startX, startY, endX, endY }) => {
+    const item = document.querySelector(".pdf-annotation-note[data-annotation-id='draggable-sticky-note']");
+    item.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      pointerId: 1,
+      clientX: startX,
+      clientY: startY,
+    }));
+    window.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      button: 0,
+      pointerId: 1,
+      clientX: endX,
+      clientY: endY,
+    }));
+    window.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      pointerId: 1,
+      clientX: endX,
+      clientY: endY,
+    }));
+  }, {
+    startX: before.x + before.width / 2,
+    startY: before.y + before.height / 2,
+    endX: before.x + before.width / 2 + 72,
+    endY: before.y + before.height / 2 + 44,
+  });
+
+  await expect(page.locator("#annotationUndo")).toBeEnabled();
+  await expect.poll(() => saves.length).toBe(1);
+
+  const after = await marker.boundingBox();
+  expect(after.x).toBeGreaterThan(before.x + 40);
+  expect(after.y).toBeGreaterThan(before.y + 20);
+  expect(saves[0]).toMatchObject({
+    noteId: E2E_NOTE_ID,
+    annotations: [expect.objectContaining({ id: "draggable-sticky-note", type: "note", page: 8 })],
+  });
+  expect(saves[0].annotations[0].x).toBeGreaterThan(0.14);
+  expect(saves[0].annotations[0].y).toBeGreaterThan(0.2);
+
+  await page.locator("#annotationUndo").click();
+  const undone = await marker.boundingBox();
+  expect(Math.abs(undone.x - before.x)).toBeLessThanOrEqual(3);
+  expect(Math.abs(undone.y - before.y)).toBeLessThanOrEqual(3);
 });
 
 test("reader PDF copy slicing preserves math Unicode characters", async ({ page }) => {

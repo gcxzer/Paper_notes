@@ -46,7 +46,7 @@ def image_input_unsupported_message(route: ImageInputRoute) -> str:
     model_label = f" ({route.model})" if route.model else ""
     return (
         f"{provider_label}{model_label} is not configured for image input in Paper Notes. "
-        "Switch to the OpenAI API key provider for image attachments or paper-image analysis."
+        "Switch to a model/provider that supports image input, or remove image attachments and try again."
     )
 
 

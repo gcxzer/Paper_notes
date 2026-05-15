@@ -23,7 +23,8 @@ actions in one place:
 - Python 3.12+ runtime.
 - [uv](https://docs.astral.sh/uv/) used to install Python dependencies and run
   local commands.
-- Node.js and npm, used to install browser dependencies such as PDF.js.
+- Node.js and npm, used to install browser dependencies such as PDF.js and
+  KaTeX.
 
 On macOS, install `uv`, Node.js, and npm with Homebrew:
 
@@ -56,7 +57,8 @@ After cloning, install the frontend dependencies once:
 npm install
 ```
 
-This creates `node_modules/` for browser packages. It does not start the Paper
+This creates `node_modules/` for browser packages, including PDF.js for PDF
+rendering and KaTeX for math formulas in chat. It does not start the Paper
 Notes server.
 
 ## Quick Start
@@ -67,7 +69,8 @@ Recommended setup: install the local background service once.
 scripts/install-autostart.sh
 ```
 
-The installer runs `uv sync`, creates `.venv`, then registers:
+The installer runs `npm install` for frontend browser packages when needed,
+runs `uv sync`, creates `.venv`, then registers:
 
 - macOS: a launchd LaunchAgent named `com.paper-notes.local`
 - Linux: a user systemd service named `paper-notes.service`

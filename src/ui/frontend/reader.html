@@ -7,7 +7,8 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v1"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/reader/index.css?v=gpt-think-menu-height-v1">
+  <link rel="stylesheet" href="/node_modules/katex/dist/katex.min.css">
+  <link rel="stylesheet" href="styles/reader/index.css?v=local-link-v1">
 </head>
 <body>
   <div class="reader-shell">
@@ -96,7 +97,17 @@
 
       <aside class="ask-pane" id="askPane" aria-label="Ask Paper Notes Agent">
         <header class="ask-pane-header">
-          <button class="ask-icon-button" type="button" id="chatSessionMenuButton" aria-label="Switch session" aria-haspopup="dialog" aria-expanded="false">☰</button>
+          <div class="ask-session-tabs" aria-label="Chat session views">
+            <button class="ask-session-tab" type="button" id="chatSessionTrashButton" data-session-view="trashed" aria-label="Trash chats" aria-haspopup="dialog" aria-expanded="false" title="Trash chats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 10v8"/><path d="M12 10v8"/><path d="M16 10v8"/><path d="M7 7l1 13h8l1-13"/></svg>
+            </button>
+            <button class="ask-session-tab" type="button" id="chatSessionArchivedButton" data-session-view="archived" aria-label="Archived chats" aria-haspopup="dialog" aria-expanded="false" title="Archived chats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h16"/><path d="M6 7.5v11h12v-11"/><path d="M8 4.5h8l1.5 3h-11z"/><path d="M10 11.5h4"/></svg>
+            </button>
+            <button class="ask-session-tab" type="button" id="chatSessionMenuButton" data-session-view="active" aria-label="Chats" aria-haspopup="dialog" aria-expanded="false" title="Chats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.5h10"/><path d="M7 11.5h10"/><path d="M7 16.5h7"/><path d="M4.5 6.5h.01"/><path d="M4.5 11.5h.01"/><path d="M4.5 16.5h.01"/></svg>
+            </button>
+          </div>
           <button class="ask-icon-button ask-context-button" type="button" id="readerContextButton" aria-label="Show context window" aria-haspopup="dialog" aria-expanded="false">
             <span class="ask-context-ring" aria-hidden="true"></span>
           </button>
@@ -108,8 +119,8 @@
           <div class="ask-session-popover-header">
             <strong id="chatSessionPopoverTitle">Sessions</strong>
             <div class="ask-session-header-actions">
-              <button class="ask-session-trash-toggle" type="button" id="toggleChatSessionTrash" aria-pressed="false">Trash</button>
               <button class="ask-session-new" type="button" id="newChatSession">New chat</button>
+              <button class="ask-session-clear" type="button" id="clearTrashSessions" hidden>Clear all</button>
             </div>
           </div>
           <label class="ask-session-search">
@@ -421,6 +432,19 @@
     </div>
   </dialog>
 
+  <dialog class="saved-prompts-confirm-modal" id="readerClearTrashDialog">
+    <div class="saved-prompts-confirm-card">
+      <div class="saved-prompts-confirm-copy">
+        <h3>Clear trash?</h3>
+        <p id="readerClearTrashMessage">All trashed chats will be permanently deleted.</p>
+      </div>
+      <div class="saved-prompts-confirm-actions">
+        <button type="button" id="readerCancelClearTrash">Cancel</button>
+        <button type="button" class="saved-prompts-danger" id="readerConfirmClearTrash">Clear all</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="debug-modal" id="readerDebugDialog">
     <div class="debug-card">
       <div class="debug-header">
@@ -451,6 +475,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="scripts/reader/loader.js?v=provider-native-search-v1"></script>
+  <script src="/node_modules/katex/dist/katex.min.js"></script>
+  <script type="module" src="scripts/reader/loader.js?v=local-link-v1"></script>
 </body>
 </html>

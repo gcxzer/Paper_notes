@@ -144,28 +144,13 @@ def test_registry_availability_cache_and_dynamic_schema():
 def test_toolset_resolution_composes_builtin_toolsets_and_disables_groups():
     registry = ToolRegistry()
     for name, toolset in (
-        ("paper_notes_search", "paper_notes"),
-        ("paper_notes_context", "paper_notes"),
-        ("paper_notes_read_paper", "paper_notes"),
-        ("paper_notes_edit", "paper_notes"),
-        ("paper_notes_review", "paper_notes"),
-        ("search_library", "paper_notes_internal"),
-        ("get_note", "paper_notes_internal"),
-        ("read_annotations", "paper_notes_internal"),
-        ("read_note_html", "paper_notes_internal"),
-        ("list_note_sections", "paper_notes_internal"),
-        ("search_paper_text", "paper_notes_internal"),
-        ("read_paper_text", "paper_notes_internal"),
-        ("render_paper_page", "paper_notes_internal"),
-        ("extract_paper_images", "paper_notes_internal"),
-        ("build_note_context", "paper_notes_internal"),
-        ("validate_note_html", "paper_notes_internal"),
-        ("preview_note_diff", "paper_notes_internal"),
-        ("write_note_from_paper_image", "paper_notes_internal"),
-        ("write_note_section", "paper_notes_internal"),
-        ("append_note_section", "paper_notes_internal"),
-        ("replace_note_section", "paper_notes_internal"),
-        ("update_note_metadata", "paper_notes_internal"),
+        ("search_notes", "paper_notes"),
+        ("get_note_context", "paper_notes"),
+        ("read_paper", "paper_notes"),
+        ("write_note", "paper_notes"),
+        ("manage_annotations", "paper_notes"),
+        ("write_note_media", "paper_notes"),
+        ("review_note", "paper_notes"),
         ("persistent_memory", "persistent_memory"),
         ("session_search", "session_search"),
         ("todo", "todo"),
@@ -184,17 +169,19 @@ def test_toolset_resolution_composes_builtin_toolsets_and_disables_groups():
 
     default_resolution = resolve_toolsets(registry)
     paper_notes_only = resolve_toolsets(registry, enabled_toolsets=["paper_notes"])
-    paper_notes_internal = resolve_toolsets(registry, enabled_toolsets=["paper_notes_internal"])
     without_todo = resolve_toolsets(registry, disabled_toolsets=["todo"])
     old_alias = resolve_toolsets(registry, enabled_toolsets=["paper", "planning"], default_toolsets=None)
     custom = resolve_toolsets(registry, enabled_toolsets=["custom"], default_toolsets=None)
     readonly = resolve_toolsets(registry, enabled_toolsets=["readonly"], default_toolsets=None)
 
     assert set(default_resolution.tool_names) == {
-        "paper_notes_search",
-        "paper_notes_context",
-        "paper_notes_read_paper",
-        "paper_notes_review",
+        "search_notes",
+        "get_note_context",
+        "read_paper",
+        "write_note",
+        "manage_annotations",
+        "write_note_media",
+        "review_note",
         "persistent_memory",
         "session_search",
         "todo",
@@ -203,20 +190,23 @@ def test_toolset_resolution_composes_builtin_toolsets_and_disables_groups():
         "execute_code",
     }
     assert set(paper_notes_only.tool_names) == {
-        "paper_notes_search",
-        "paper_notes_context",
-        "paper_notes_read_paper",
-        "paper_notes_review",
+        "search_notes",
+        "get_note_context",
+        "read_paper",
+        "write_note",
+        "manage_annotations",
+        "write_note_media",
+        "review_note",
     }
     assert set(readonly.tool_names) == {
-        "paper_notes_search",
-        "paper_notes_context",
-        "paper_notes_read_paper",
-        "paper_notes_review",
+        "search_notes",
+        "get_note_context",
+        "read_paper",
+        "review_note",
         "session_search",
     }
-    assert "paper_notes_edit" not in readonly.tool_names
-    assert "write_note_section" in paper_notes_internal.tool_names
+    assert "write_note" not in readonly.tool_names
+    assert resolve_toolsets(registry, enabled_toolsets=["paper_notes_internal"]).unknown_toolsets == ("paper_notes_internal",)
     assert "todo" not in without_todo.tool_names
     assert old_alias.tool_names == ()
     assert old_alias.unknown_toolsets == ("paper", "planning")

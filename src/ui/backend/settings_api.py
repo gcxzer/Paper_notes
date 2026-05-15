@@ -14,13 +14,14 @@ from app_config.ai_settings import (
     TAVILY_API_KEY,
     delete_local_ai_api_key,
     resolve_ai_provider,
+    resolve_model_for_provider,
     resolve_brave_search_api_key,
     resolve_ai_settings,
     resolve_tavily_api_key,
     save_local_ai_settings,
 )
 from model_providers.codex.auth import CodexAuthStore, CodexDeviceAuthClient
-from model_providers.profiles import get_provider_profile
+from model_providers.profiles import capabilities_for_provider_model, get_provider_profile
 from tools.catalog import ToolCatalog
 from app_infra.storage import atomic_write_json
 
@@ -911,7 +912,8 @@ def _native_web_search_enabled(stored: dict[str, Any]) -> bool:
         return False
     active_provider = _active_ai_provider()
     profile = get_provider_profile(active_provider)
-    if profile is not None and not profile.default_capabilities.supports_web_search:
+    active_model = resolve_model_for_provider(active_provider).value or (profile.default_model if profile is not None else "")
+    if not capabilities_for_provider_model(active_provider, active_model).supports_web_search:
         return False
     openai_codex = native_provider.get("openaiCodex", native_provider.get("openai_codex"))
     openai_api_key = native_provider.get("openaiAPIKey", native_provider.get("openai_api_key"))

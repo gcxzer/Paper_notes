@@ -156,6 +156,14 @@ function renderToolRootMenu() {
         </div>
       </div>
     </div>
+    <div class="ask-tool-menu-section">
+      <button class="ask-tool-menu-option" type="button" data-tool-action="new-chat">
+        ${renderAskToolMenuIcon("new_chat")}
+        <span>
+          <strong>New chat</strong>
+        </span>
+      </button>
+    </div>
   `;
 }
 
@@ -185,6 +193,7 @@ const ASK_TOOL_ICON_PATHS = {
   bookmark: `<path d="M7 4.75A2.75 2.75 0 0 1 9.75 2h4.5A2.75 2.75 0 0 1 17 4.75v16l-5-3.25-5 3.25v-16Z"/>`,
   image: `<rect x="4" y="6" width="14" height="12" rx="2.5"/><path d="m6.5 15 2.8-2.8a1.2 1.2 0 0 1 1.7 0l1.1 1.1 1.8-2a1.2 1.2 0 0 1 1.8.1L18 14"/><path d="M8 4.5 18.5 2.6a2 2 0 0 1 2.3 1.6l1.4 8.1"/>`,
   file: `<path d="M7 3.75h6.5L18 8.25v12H7a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/><path d="M13.5 4v4.25H18M8.5 12h6M8.5 15.5h5"/>`,
+  new_chat: `<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h8.5A2.5 2.5 0 0 1 18.5 5.5v6A2.5 2.5 0 0 1 16 14H11l-4.5 4v-4A2.5 2.5 0 0 1 4 11.5v-6Z"/><path d="M11.25 6.75v4.5M9 9h4.5"/>`,
   edit: `<path d="m5 16.8-.7 3 3-.7L18.5 7.9a2.1 2.1 0 0 0-3-3L5 16.8Z"/><path d="m14 6.3 3.2 3.2"/>`,
   settings: `<path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7.5 7.5 0 0 0-1.8-1L14.4 3h-4.8l-.3 3.1a7.5 7.5 0 0 0-1.8 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.5 7.5 0 0 0 1.8 1l.3 3.1h4.8l.3-3.1a7.5 7.5 0 0 0 1.8-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/>`,
   prompt: `<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h9A2.5 2.5 0 0 1 19 5.5v7A2.5 2.5 0 0 1 16.5 15H11l-4.5 4v-4A2.5 2.5 0 0 1 4 12.5v-7Z"/><path d="M8 7h8M8 10.5h5"/>`,
@@ -234,7 +243,7 @@ function renderToolSnapshotRow(snapshot) {
     snapshot.failed ? "failed" : ""
   ].filter(Boolean).join(" · ");
   const actioning = readerState.toolSnapshotActionId === snapshot.snapshotId;
-  const canUndo = snapshot.undoable && !snapshot.restored && !snapshot.failed;
+  const canUndo = snapshot.undoable && snapshot.canUndo && !snapshot.failed;
   return `
     <div class="ask-snapshot-row">
       <div class="ask-snapshot-copy">
@@ -248,7 +257,7 @@ function renderToolSnapshotRow(snapshot) {
             class="ask-snapshot-undo"
             type="button"
             data-tool-snapshot-undo="${escapeHtml(snapshot.snapshotId)}"
-            ${actioning ? "disabled" : ""}
+            ${actioning || !canUndo ? "disabled" : ""}
           >${actioning ? "Working" : "Undo"}</button>
         ` : ""}
       </div>
@@ -335,6 +344,7 @@ async function loadReaderToolSnapshots({ silent = false } = {}) {
   if (!sessionId) {
     readerState.toolSnapshots = [];
     readerState.toolDiffs = {};
+    readerState.toolDiffOpen = {};
     readerState.toolSnapshotsLoading = false;
     readerState.toolSnapshotStatus = "";
     readerState.toolSnapshotStatusLevel = "";
@@ -359,6 +369,7 @@ async function loadReaderToolSnapshots({ silent = false } = {}) {
   } finally {
     readerState.toolSnapshotsLoading = false;
     renderReaderToolControls();
+    renderReaderChatMessages({ preserveScrollTop: true });
   }
 }
 
@@ -439,7 +450,7 @@ async function restoreReaderToolSnapshot(snapshotId, { sessionId = getChatSessio
   }
 }
 
-async function redoReaderToolSnapshot(snapshotId, { sessionId = getChatSessionId(), force = true } = {}) {
+async function redoReaderToolSnapshot(snapshotId, { sessionId = getChatSessionId(), force = false } = {}) {
   const targetSnapshotId = normalizeText(snapshotId);
   const targetSessionId = normalizeText(sessionId);
   if (!targetSnapshotId || !targetSessionId) return null;
@@ -458,6 +469,12 @@ async function redoReaderToolSnapshot(snapshotId, { sessionId = getChatSessionId
     renderReaderToolControls();
     return payload;
   } catch (error) {
+    if (error?.code === "snapshot_conflict") {
+      markToolSnapshotConflict(targetSnapshotId, "Newer file changes detected.");
+      readerState.toolSnapshotStatus = "Redo paused. Force only if you want to overwrite newer changes.";
+      readerState.toolSnapshotStatusLevel = "snapshots";
+      throw error;
+    }
     readerState.toolSnapshotStatus = sanitizeVisibleAgentError(error.message || "Could not redo snapshot.");
     readerState.toolSnapshotStatusLevel = "snapshots";
     throw error;
@@ -548,6 +565,12 @@ function handleReaderToolPopoverClick(event) {
     setReaderGenerationMode("image");
     closeReaderToolMenu();
     elements.readerChatInput?.focus();
+    return;
+  }
+  if (action === "new-chat") {
+    event.preventDefault();
+    closeReaderToolMenu();
+    void createReaderChatSession();
     return;
   }
 

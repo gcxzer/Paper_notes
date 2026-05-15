@@ -10,11 +10,10 @@ from tools.registry import ToolDefinition, ToolRegistry
 
 
 ALLOWED_INNER_TOOL_NAMES = (
-    "paper_notes_search",
-    "paper_notes_context",
-    "paper_notes_read_paper",
-    "paper_notes_edit",
-    "paper_notes_review",
+    "search_notes",
+    "get_note_context",
+    "read_paper",
+    "review_note",
     "session_search",
     "skills_list",
     "skill_view",
@@ -23,11 +22,10 @@ ALLOWED_INNER_TOOL_NAMES = (
 )
 
 _INNER_TOOL_SUMMARIES = {
-    "paper_notes_search": "paper_notes_search(query='', limit=None)",
-    "paper_notes_context": "paper_notes_context(note_id, query='', include_html=False, html_mode='body', max_paper_matches=4)",
-    "paper_notes_read_paper": "paper_notes_read_paper(action, note_id, ...)",
-    "paper_notes_edit": "paper_notes_edit(action, note_id, **kwargs)",
-    "paper_notes_review": "paper_notes_review(action, note_id, heading='', html='', position='append')",
+    "search_notes": "search_notes(query='', limit=None)",
+    "get_note_context": "get_note_context(note_id, query='', include_html=False, html_mode='body', max_paper_matches=4)",
+    "read_paper": "read_paper(action, note_id, ...)",
+    "review_note": "review_note(action, note_id, heading='', html='', position='append')",
     "session_search": "session_search(query='', role_filter='', limit=5, include_recap=True)",
     "skills_list": "skills_list(category='')",
     "skill_view": "skill_view(name, file_path='')",
@@ -41,6 +39,8 @@ def register_code_execution_tool(
     *,
     available_tool_names_provider: Callable[[], Iterable[str]] | None = None,
     cancel_check_provider: Callable[[], bool] | None = None,
+    snapshot_manager_provider: Callable[[], Any] | None = None,
+    session_id_provider: Callable[[], str] | None = None,
 ) -> None:
     registry.register_group(TOOL_GROUP)
     if registry.get(TOOL_NAME) is not None:
@@ -60,6 +60,8 @@ def register_code_execution_tool(
             code,
             registry=registry,
             allowed_tools=set(allowed_tools),
+            snapshot_manager=snapshot_manager_provider() if snapshot_manager_provider is not None else None,
+            session_id=session_id_provider() if session_id_provider is not None else "",
             cancel_check=cancel_check_provider,
         )
 
@@ -137,15 +139,13 @@ def resolve_inner_tool_names(
 
 
 def _hidden_inner_tool_enabled(name: str, visible: set[str]) -> bool:
-    if name != "paper_notes_edit":
-        return False
-    return bool({"paper_notes_context", "paper_notes_read_paper", "paper_notes_review"} & visible)
+    return False
 
 
 def _is_allowed_inner_tool_definition(name: str, definition: ToolDefinition) -> bool:
     if definition.read_only and not definition.mutating and definition.risk == "read":
         return True
-    return name == "paper_notes_edit" and definition.mutating and definition.risk == "write"
+    return False
 
 
 def schema_with_dynamic_description(

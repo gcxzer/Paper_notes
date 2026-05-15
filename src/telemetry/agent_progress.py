@@ -525,24 +525,33 @@ def _tool_start_detail(name: str, data: dict[str, Any]) -> str:
         file_path = _clean_text(args.get("file_path") or args.get("filePath"))
         target = skill_name or "skill instructions"
         return f"Loading skill: {target}{f' -> {file_path}' if file_path else ''}."
-    if name == "paper_notes_search":
+    if name == "search_notes":
         query = _clean_text(args.get("query"))
         return f"Searching paper notes{f': {query}' if query else ''}."
-    if name == "paper_notes_context":
+    if name == "get_note_context":
         return f"Reading note context{f' for {note_id}' if note_id else ''}."
     if name == "create_image_artifact":
         return "Generating image."
-    if name == "paper_notes_read_paper":
+    if name == "read_paper":
         action = _clean_text(args.get("action") or "read")
         return f"Reading paper source ({action}){f' for {note_id}' if note_id else ''}."
-    if name == "paper_notes_review":
+    if name == "review_note":
         action = _clean_text(args.get("action") or "validate_html")
         return f"Reviewing note ({action}){f' for {note_id}' if note_id else ''}."
-    if name == "paper_notes_edit":
+    if name == "write_note":
         action = _clean_text(args.get("action"))
         target = f": {heading}" if heading else ""
         note = f" in {note_id}" if note_id else ""
-        return f"Editing paper note{target}{note}{f' ({action})' if action else ''}."
+        return f"Updating paper note{target}{note}{f' ({action})' if action else ''}."
+    if name == "manage_annotations":
+        action = _clean_text(args.get("action"))
+        note = f" in {note_id}" if note_id else ""
+        return f"Updating annotation{note}{f' ({action})' if action else ''}."
+    if name == "write_note_media":
+        action = _clean_text(args.get("action"))
+        target = f": {heading}" if heading else ""
+        note = f" in {note_id}" if note_id else ""
+        return f"Updating note media{target}{note}{f' ({action})' if action else ''}."
     if name in {"write_note_section", "append_note_section", "replace_note_section"}:
         action = "Writing" if name != "replace_note_section" else "Replacing"
         target = f": {heading}" if heading else ""
@@ -567,19 +576,23 @@ def _visible_tool_start_detail(name: str, data: dict[str, Any]) -> str:
         file_path = _clean_text(args.get("file_path") or args.get("filePath"))
         target = skill_name or "skill instructions"
         return f"Loading skill: {target}{f' -> {file_path}' if file_path else ''}..."
-    if name == "paper_notes_search":
+    if name == "search_notes":
         query = _clean_text(args.get("query"))
         return f"Searching paper notes{f': {query}' if query else ''}..."
-    if name == "paper_notes_context":
+    if name == "get_note_context":
         return "Reading note context..."
     if name == "create_image_artifact":
         return "Generating image..."
-    if name == "paper_notes_read_paper":
+    if name == "read_paper":
         return "Reading paper source..."
-    if name == "paper_notes_review":
+    if name == "review_note":
         return "Reviewing note..."
-    if name == "paper_notes_edit":
+    if name == "write_note":
         return "Updating note..."
+    if name == "manage_annotations":
+        return "Updating annotation..."
+    if name == "write_note_media":
+        return "Updating note media..."
     if name in {"write_note_section", "append_note_section", "replace_note_section"}:
         return "Updating note content..."
     if name == "update_note_metadata":

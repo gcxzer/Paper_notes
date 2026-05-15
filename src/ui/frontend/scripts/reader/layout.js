@@ -297,10 +297,58 @@ function persistPdfScrollPosition() {
 }
 
 function schedulePersistPdfScrollPosition() {
-  if (pdfState.suppressScrollSave) return;
+  if (pdfState.suppressScrollSave) {
+    capturePdfScrollRestoreOverride();
+    return;
+  }
   updatePdfPageControl();
   window.clearTimeout(pdfState.scrollSaveTimer);
   pdfState.scrollSaveTimer = window.setTimeout(persistPdfScrollPosition, 120);
+}
+
+function clearPendingPdfScrollRestore() {
+  window.cancelAnimationFrame(pdfState.scrollRestoreFrame);
+  window.clearTimeout(pdfState.scrollRestoreTimer);
+  pdfState.scrollRestoreFrame = 0;
+  pdfState.scrollRestoreTimer = 0;
+}
+
+function beginPdfScrollRestore() {
+  clearPendingPdfScrollRestore();
+  pdfState.scrollRestoreGeneration += 1;
+  pdfState.scrollRestoreInterrupted = false;
+  pdfState.scrollRestoreOverridePosition = null;
+  return pdfState.scrollRestoreGeneration;
+}
+
+function interruptPdfScrollRestore() {
+  if (!pdfState.suppressScrollSave || pdfState.scrollRestoreInterrupted) return;
+  pdfState.scrollRestoreInterrupted = true;
+  clearPendingPdfScrollRestore();
+}
+
+function capturePdfScrollRestoreOverride() {
+  const viewer = elements.pdfViewer;
+  if (!pdfState.suppressScrollSave || !viewer) return;
+  const position = currentPdfScrollPosition();
+  if (!position) return;
+  pdfState.scrollRestoreInterrupted = true;
+  pdfState.scrollRestoreOverridePosition = position;
+  clearPendingPdfScrollRestore();
+  updatePdfPageControl(position.page);
+}
+
+function canRestorePdfScroll(generation) {
+  return generation === pdfState.scrollRestoreGeneration && !pdfState.scrollRestoreInterrupted;
+}
+
+function finalizePdfScrollRestore(generation) {
+  clearPendingPdfScrollRestore();
+  if (generation !== pdfState.scrollRestoreGeneration) return;
+  pdfState.suppressScrollSave = false;
+  pdfState.scrollRestoreOverridePosition = null;
+  persistPdfScrollPosition();
+  updatePdfPageControl();
 }
 
 function pdfScrollTopFromPosition(position) {
@@ -346,34 +394,43 @@ function restorePdfScrollPosition(position) {
   scrollToPdfPosition(position, "auto");
 }
 
-function finishPdfScrollRestore(position) {
-  restorePdfScrollPosition(position);
+function finishPdfScrollRestore(position, generation = pdfState.scrollRestoreGeneration) {
+  if (canRestorePdfScroll(generation)) restorePdfScrollPosition(position);
   updatePdfPageControl();
-  window.requestAnimationFrame(() => {
-    restorePdfScrollPosition(position);
+  clearPendingPdfScrollRestore();
+  pdfState.scrollRestoreFrame = window.requestAnimationFrame(() => {
+    pdfState.scrollRestoreFrame = 0;
+    if (canRestorePdfScroll(generation)) restorePdfScrollPosition(position);
     updatePdfPageControl();
-    window.setTimeout(() => {
-      pdfState.suppressScrollSave = false;
-      persistPdfScrollPosition();
-      updatePdfPageControl();
+    pdfState.scrollRestoreTimer = window.setTimeout(() => {
+      pdfState.scrollRestoreTimer = 0;
+      finalizePdfScrollRestore(generation);
     }, 80);
   });
 }
 
-function finishPdfScrollAfterEarlyRestore() {
+function finishPdfScrollAfterEarlyRestore(generation = pdfState.scrollRestoreGeneration) {
   updatePdfPageControl();
-  window.requestAnimationFrame(() => {
+  clearPendingPdfScrollRestore();
+  pdfState.scrollRestoreFrame = window.requestAnimationFrame(() => {
+    pdfState.scrollRestoreFrame = 0;
     updatePdfPageControl();
-    window.setTimeout(() => {
-      pdfState.suppressScrollSave = false;
-      persistPdfScrollPosition();
-      updatePdfPageControl();
+    pdfState.scrollRestoreTimer = window.setTimeout(() => {
+      pdfState.scrollRestoreTimer = 0;
+      finalizePdfScrollRestore(generation);
     }, 80);
   });
 }
 
 function initializePdfScrollPersistence() {
   elements.pdfViewer?.addEventListener("scroll", schedulePersistPdfScrollPosition, { passive: true });
+  elements.pdfViewer?.addEventListener("wheel", interruptPdfScrollRestore, { passive: true });
+  elements.pdfViewer?.addEventListener("touchstart", interruptPdfScrollRestore, { passive: true });
+  elements.pdfViewer?.addEventListener("pointerdown", interruptPdfScrollRestore, { passive: true });
+  elements.pdfViewer?.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Spacebar"].includes(event.key)) return;
+    interruptPdfScrollRestore();
+  });
   window.addEventListener("beforeunload", persistPdfScrollPosition);
 }
 

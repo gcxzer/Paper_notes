@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class RpcSnapshot:
     tool_calls_made: int
+    snapshots: tuple[dict[str, Any], ...] = ()
 
 
 class CodeExecutionRpcServer:
@@ -29,14 +30,19 @@ class CodeExecutionRpcServer:
         allowed_tools: set[str],
         token: str,
         max_tool_calls: int,
+        snapshot_manager: Any = None,
+        session_id: str = "",
     ) -> None:
         self.registry = registry
         self.allowed_tools = set(allowed_tools)
         self.token = token
         self.max_tool_calls = max(0, int(max_tool_calls))
+        self.snapshot_manager = snapshot_manager
+        self.session_id = str(session_id or "").strip()
         self.host = "127.0.0.1"
         self.port = 0
         self._calls = 0
+        self._snapshots: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._socket: socket.socket | None = None
@@ -69,7 +75,8 @@ class CodeExecutionRpcServer:
     def snapshot(self) -> RpcSnapshot:
         with self._lock:
             calls = self._calls
-        return RpcSnapshot(tool_calls_made=calls)
+            snapshots = tuple(dict(snapshot) for snapshot in self._snapshots)
+        return RpcSnapshot(tool_calls_made=calls, snapshots=snapshots)
 
     def __enter__(self) -> "CodeExecutionRpcServer":
         return self.start()
@@ -142,8 +149,43 @@ class CodeExecutionRpcServer:
             if self._calls >= self.max_tool_calls:
                 return _rpc_error("execute_code inner tool call limit exceeded.", "tool_call_limit_exceeded", tool=tool_name)
             self._calls += 1
+        snapshot_handle = self._start_snapshot(tool_name, arguments)
         result = self.registry.dispatch(tool_name, arguments)
+        snapshot = self._finalize_snapshot(snapshot_handle, failed=result.is_error)
+        if snapshot:
+            with self._lock:
+                self._snapshots.append(snapshot)
         return _payload_from_dispatch_result(result)
+
+    def _start_snapshot(self, tool_name: str, arguments: dict[str, Any]) -> object | None:
+        if not self.session_id or self.snapshot_manager is None:
+            return None
+        start = getattr(self.snapshot_manager, "start", None)
+        if not callable(start):
+            return None
+        try:
+            return start(
+                session_id=self.session_id,
+                tool_call_id=f"execute-code-{tool_name}-{self._calls}",
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+        except Exception:
+            logger.debug("execute_code inner snapshot start failed for %s", tool_name, exc_info=True)
+            return None
+
+    def _finalize_snapshot(self, snapshot_handle: object | None, *, failed: bool) -> dict[str, Any] | None:
+        if snapshot_handle is None or self.snapshot_manager is None:
+            return None
+        finalize = getattr(self.snapshot_manager, "finalize", None)
+        if not callable(finalize):
+            return None
+        try:
+            snapshot = finalize(snapshot_handle, failed=failed)
+            return snapshot if isinstance(snapshot, dict) else None
+        except Exception:
+            logger.debug("execute_code inner snapshot finalize failed.", exc_info=True)
+            return None
 
 
 def _is_safe_inner_tool(definition: ToolDefinition | None) -> bool:
@@ -151,7 +193,7 @@ def _is_safe_inner_tool(definition: ToolDefinition | None) -> bool:
         return False
     if definition.read_only and not definition.mutating and definition.risk == "read":
         return True
-    return definition.name == "paper_notes_edit" and definition.mutating and definition.risk == "write"
+    return False
 
 
 def _payload_from_dispatch_result(result: ToolDispatchResult) -> dict[str, Any]:

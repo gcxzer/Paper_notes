@@ -47,7 +47,7 @@ def test_gemini_provider_generates_text_response():
 def test_gemini_provider_translates_tool_call_response():
     session = FakeGeminiSession(FakeGeminiResponse(payload={
         "candidates": [{
-            "content": {"parts": [{"functionCall": {"name": "paper_notes_search", "args": {"query": "attention"}}, "thoughtSignature": "sig_123"}]},
+            "content": {"parts": [{"functionCall": {"name": "search_notes", "args": {"query": "attention"}}, "thoughtSignature": "sig_123"}]},
             "finishReason": "STOP",
         }],
     }))
@@ -56,7 +56,7 @@ def test_gemini_provider_translates_tool_call_response():
     result = provider.generate(ModelRequest(messages=[{"role": "user", "content": "Search"}]))
 
     assert result.finish_reason == "tool_calls"
-    assert result.tool_calls[0].name == "paper_notes_search"
+    assert result.tool_calls[0].name == "search_notes"
     assert '"attention"' in result.tool_calls[0].arguments
     assert result.tool_calls[0].provider_data["thought_signature"] == "sig_123"
 

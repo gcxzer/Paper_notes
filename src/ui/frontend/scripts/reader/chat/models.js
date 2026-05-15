@@ -150,7 +150,7 @@ function modelStatusLabelWithThink(provider, label, model = currentReaderModel()
     return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
   }
   if (providerSupportsGptThinkMode(normalizedProvider)) {
-    const thinkMode = currentGptThinkMode();
+    const thinkMode = currentGptThinkMode(model, normalizedProvider);
     return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
   }
   if (providerSupportsGeminiThinkMode(normalizedProvider)) {
@@ -183,8 +183,10 @@ function modelButtonHtml({ provider, label, loading }) {
       ? currentGeminiThinkMode(currentReaderModel())
       : providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())
         ? currentAnthropicThinkMode(currentReaderModel())
-      : currentGptThinkMode();
-  const thinkLabel = thinkMode.enabled ? `Think ${thinkModeLabel(normalizedProvider, thinkMode.effort)}` : "Think off";
+      : currentGptThinkMode(currentReaderModel(), normalizedProvider);
+  const thinkLabel = thinkMode.enabled || !gptReasoningOffSupported(normalizedProvider, currentReaderModel())
+    ? `Think ${thinkModeLabel(normalizedProvider, thinkMode.effort)}`
+    : "Think off";
   return `
     <span class="ask-model-button-stack">
       <span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>
@@ -201,11 +203,13 @@ function renderThinkSettings(provider, model = currentReaderModel()) {
       ? currentGeminiThinkMode(model)
       : providerSupportsAnthropicThinkMode(normalizedProvider, model)
         ? currentAnthropicThinkMode(model)
-      : currentGptThinkMode();
+      : currentGptThinkMode(model, normalizedProvider);
   const section = document.createElement("section");
   section.className = "ask-think-settings";
+  const gptOffSupported = !providerSupportsGptThinkMode(normalizedProvider)
+    || gptReasoningOffSupported(normalizedProvider, model);
 
-  if (!geminiProUsesAlwaysOnThink(normalizedProvider, model)) {
+  if (!geminiProUsesAlwaysOnThink(normalizedProvider, model) && gptOffSupported) {
     const toggle = document.createElement("button");
     toggle.className = "ask-think-toggle";
     toggle.classList.toggle("is-active", thinkMode.enabled);
@@ -229,7 +233,7 @@ function renderThinkSettings(provider, model = currentReaderModel()) {
     heading.innerHTML = `
       <span>
         <strong>Think mode</strong>
-        <small>${thinkModeLabel(normalizedProvider, thinkMode.effort)} reasoning</small>
+        <small>${geminiProUsesAlwaysOnThink(normalizedProvider, model) ? thinkModeLabel(normalizedProvider, thinkMode.effort) + " reasoning" : "Required for this model"}</small>
       </span>
     `;
     section.appendChild(heading);
@@ -306,7 +310,7 @@ function setThinkMode(provider, mode, model = currentReaderModel()) {
       ? normalizeGeminiThinkMode(mode?.enabled ? mode.effort : "off", model)
       : providerSupportsAnthropicThinkMode(normalizedProvider, model)
         ? normalizeAnthropicThinkMode(mode?.enabled ? mode.effort : "off", model)
-      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off");
+      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off", model, normalizedProvider);
   if (getChatSessionId()) {
     updateReaderSessionThinkMode(normalizedProvider, nextMode, model).catch((error) => {
       readerState.modelStatus = sanitizeVisibleAgentError(error.message || "Could not save think mode.");
@@ -327,7 +331,11 @@ function setThinkMode(provider, mode, model = currentReaderModel()) {
   } else {
     readerState.pendingChatProvider = normalizedProvider;
     readerState.pendingChatModel = model;
-    readerState.gptThinkMode = writeStoredGptThinkMode(nextMode.enabled ? nextMode.effort : "off");
+    readerState.gptThinkMode = writeStoredGptThinkMode(
+      nextMode.enabled ? nextMode.effort : "off",
+      model,
+      normalizedProvider,
+    );
   }
   readerState.modelStatus = nextMode.enabled
     ? `Think mode: ${thinkModeLabel(normalizedProvider, nextMode.effort)}.`
@@ -357,7 +365,7 @@ async function updateReaderSessionThinkMode(provider, mode, model = currentReade
       ? normalizeGeminiThinkMode(mode?.enabled ? mode.effort : "off", model)
       : providerSupportsAnthropicThinkMode(normalizedProvider, model)
         ? normalizeAnthropicThinkMode(mode?.enabled ? mode.effort : "off", model)
-      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off");
+      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off", model, normalizedProvider);
   const metadata = normalizedProvider === "deepseek"
     ? { deepseekThinkMode: normalized.enabled ? normalized.effort : "off" }
     : providerSupportsGeminiThinkMode(normalizedProvider)

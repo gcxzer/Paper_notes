@@ -13,14 +13,21 @@ def test_prompt_includes_identity_and_available_tool_names():
 
     assert "You are Paper Notes Agent" in prompt
     assert "Available local tools:" in prompt
-    assert "paper_notes_search" in prompt
-    assert "paper_notes_context" in prompt
+    assert "search_notes" in prompt
+    assert "get_note_context" in prompt
     assert "paper_notes_edit" not in extract_tool_names(tools)
+    assert "write_note" in extract_tool_names(tools)
     assert "search_library" not in prompt
-    assert "# Tool persistence" in prompt
+    assert "# Tool use and grounding" in prompt
+    assert "If local Paper Notes context is insufficient" in prompt
+    assert "external search is unavailable" in prompt
     assert "# Paper library search queries" in prompt
     assert "English-first paper keywords" in prompt
-    assert "# Paper note-writing workflow" not in prompt
+    assert "# Paper note-writing workflow" in prompt
+    assert "do not change h2 to h1" in prompt
+    assert "Preserve existing heading levels" in prompt
+    assert "Paper_Notes/.paper-notes/media" in prompt
+    assert "do not ask them for an upload artifact id" in prompt
     assert "refresh that information with the appropriate available tool" in prompt
 
 
@@ -77,14 +84,14 @@ def test_prompt_includes_todo_guidance_when_todo_tool_available_without_context(
 
 def test_openai_persistence_guidance_only_mentions_available_tools():
     prompt = build_agent_instructions(
-        tools=[{"type": "function", "function": {"name": "paper_notes_search"}}],
+        tools=[{"type": "function", "function": {"name": "search_notes"}}],
         model="gpt-5.4",
     )
 
-    assert "# Tool persistence" in prompt
+    assert "# Tool use and grounding" in prompt
     assert "# Paper library search queries" in prompt
     assert "English-first paper keywords" in prompt
-    assert "paper_notes_search" in prompt
+    assert "search_notes" in prompt
     assert "paper_notes_edit" not in prompt
     assert "session_search" not in prompt
     assert "# Paper note-writing workflow" not in prompt
@@ -130,7 +137,7 @@ def test_prompt_includes_code_execution_boundaries_when_tool_available():
     assert "# Code execution" in prompt
     assert "bounded Python work" in prompt
     assert "not Docker or OS-level isolation" in prompt
-    assert "outside the provided Paper Notes edit helper" in prompt
+    assert "Paper Notes content, or other durable state" in prompt
     assert "Paper Notes or skill data" in prompt
     assert "paper_notes_tools" in prompt
 
@@ -163,16 +170,15 @@ def test_prompt_includes_web_fetch_flow_with_native_web_search():
 def test_prompt_includes_tool_use_enforcement_and_grounding_rules():
     prompt = build_agent_instructions(
         tools=[
-            {"type": "function", "function": {"name": "paper_notes_context"}},
+            {"type": "function", "function": {"name": "get_note_context"}},
             {"type": "function", "function": {"name": "session_search"}},
             {"type": "function", "function": {"name": "web_search"}},
         ],
         model="gpt-5.4",
     )
 
-    assert "# Tool-use enforcement" in prompt
+    assert "# Tool use and grounding" in prompt
     assert "call it immediately" in prompt
-    assert "# Mandatory grounding rules" in prompt
     assert "Local paper library facts" in prompt
     assert "Previous chat/session history requires an available session history search tool" in prompt
     assert "Current external facts" in prompt
@@ -186,13 +192,13 @@ def test_prompt_includes_native_web_search_grounding_even_without_local_tools():
     )
 
     assert "# Provider-native web search" in prompt
-    assert "# Mandatory grounding rules" in prompt
+    assert "# Tool use and grounding" in prompt
     assert "Current external facts" in prompt
 
 
 def test_prompt_omits_search_query_rewrite_when_search_tool_unavailable():
     prompt = build_agent_instructions(
-        tools=[{"type": "function", "function": {"name": "paper_notes_context"}}],
+        tools=[{"type": "function", "function": {"name": "get_note_context"}}],
         model="gpt-5.4",
     )
 

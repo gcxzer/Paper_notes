@@ -479,6 +479,7 @@ body.is-resizing-reader {
   gap: 18px;
   height: 100%;
   overflow: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   padding: 18px;
   background: var(--document-bg, var(--input-bg));
@@ -572,6 +573,7 @@ body.is-resizing-reader {
   position: relative;
   background: var(--pdf-page-bg, #fff);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow-anchor: none;
   user-select: text;
 }
 

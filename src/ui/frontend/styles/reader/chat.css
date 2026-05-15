@@ -8,6 +8,24 @@
   background: var(--panel-alt);
 }
 
+.ask-empty-chat {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.ask-empty-chat p {
+  max-width: 280px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .ask-message {
   display: flex;
 }
@@ -190,6 +208,28 @@
 
 .ask-bubble .chat-markdown-table tr:last-child td {
   border-bottom: 0;
+}
+
+.ask-bubble .chat-math-block {
+  max-width: 100%;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.ask-bubble .chat-math-block .katex-display {
+  margin: 0;
+}
+
+.ask-bubble .chat-math-inline {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: -0.08em;
+}
+
+.ask-bubble .chat-math-fallback {
+  font-family: Georgia, "Times New Roman", serif;
+  white-space: pre-wrap;
 }
 
 .ask-stream-caret {

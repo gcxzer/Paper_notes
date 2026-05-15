@@ -483,11 +483,11 @@
 
 .ask-tool-diff-file {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
-  padding: 8px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--panel);
 }
 
@@ -501,21 +501,109 @@
 }
 
 .ask-tool-diff-header strong,
-.ask-tool-diff-header span {
+.ask-tool-diff-stats {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ask-tool-diff-header span {
-  color: var(--danger, #b24b4b);
+.ask-tool-diff-stats {
+  color: var(--muted);
   font-weight: 700;
+}
+
+.ask-tool-diff-stat.is-removed {
+  color: #b84a42;
+}
+
+.ask-tool-diff-stat.is-added {
+  color: #318557;
+}
+
+.ask-tool-diff-stat-separator {
+  margin: 0 6px;
+  color: var(--muted);
+}
+
+.ask-tool-diff-viewer {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #161716;
+  font: 0.72rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.ask-tool-diff-row {
+  display: grid;
+  grid-template-columns: 4.2ch 4.2ch 2ch minmax(0, 1fr);
+  min-width: max-content;
+  color: #d7d1c8;
+}
+
+.ask-tool-diff-row.has-no-lines {
+  grid-template-columns: 2ch minmax(0, 1fr);
+}
+
+.ask-tool-diff-row.has-no-lines .ask-tool-diff-line {
+  display: none;
+}
+
+.ask-tool-diff-row.is-removed {
+  background: rgba(126, 45, 42, 0.48);
+}
+
+.ask-tool-diff-row.is-added {
+  background: rgba(37, 96, 56, 0.52);
+}
+
+.ask-tool-diff-row.is-hunk {
+  background: rgba(83, 79, 70, 0.36);
+  color: #bfb8aa;
+}
+
+.ask-tool-diff-line,
+.ask-tool-diff-marker,
+.ask-tool-diff-row code {
+  min-height: 1.55em;
+  padding: 0 7px;
+}
+
+.ask-tool-diff-line {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  color: #9d968d;
+  text-align: right;
+  user-select: none;
+}
+
+.ask-tool-diff-row.is-removed .ask-tool-diff-line,
+.ask-tool-diff-row.is-removed .ask-tool-diff-marker {
+  color: #ff817c;
+}
+
+.ask-tool-diff-row.is-added .ask-tool-diff-line,
+.ask-tool-diff-row.is-added .ask-tool-diff-marker {
+  color: #54d68a;
+}
+
+.ask-tool-diff-marker {
+  color: #8d867c;
+  text-align: center;
+  user-select: none;
+}
+
+.ask-tool-diff-row code {
+  display: block;
+  overflow-wrap: normal;
+  white-space: pre;
+  color: inherit;
+  background: transparent;
 }
 
 .ask-tool-diff pre {
   max-height: 220px;
-  margin: 0;
+  margin: 8px 0 0;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -839,4 +927,3 @@
   font-size: 0.76rem;
   text-align: center;
 }
-

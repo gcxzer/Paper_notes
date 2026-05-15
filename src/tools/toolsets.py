@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+# Built-in tool catalog wiring.
+#
+# BUILTIN_TOOLSETS defines executable bundles: each entry names the concrete
+# tools that become available when that toolset is enabled, plus any included
+# toolsets. This is the source of truth for tool availability.
+#
+# BUILTIN_TOOL_GROUPS defines UI/config metadata for those bundles: display
+# names, descriptions, default policy, capabilities, and settings visibility.
+# This is the source of truth for how users and higher-level configuration see
+# the tools, not for dispatch behavior itself.
+
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -20,44 +31,23 @@ BUILTIN_TOOLSETS: dict[str, ToolsetDefinition] = {
         name="paper_notes",
         description="Paper Notes library, PDF text and images, note, annotation retrieval, and safe note-writing tools.",
         tools=(
-            "paper_notes_search",
-            "paper_notes_context",
-            "paper_notes_read_paper",
-            "paper_notes_review",
-        ),
-    ),
-    "paper_notes_internal": ToolsetDefinition(
-        name="paper_notes_internal",
-        description="Internal low-level Paper Notes tools for tests and debugging.",
-        tools=(
-            "search_library",
-            "get_note",
-            "read_annotations",
-            "read_note_html",
-            "list_note_sections",
-            "search_paper_text",
-            "read_paper_text",
-            "render_paper_page",
-            "extract_paper_images",
-            "analyze_paper_image",
-            "build_note_context",
-            "validate_note_html",
-            "preview_note_diff",
-            "write_note_from_paper_image",
-            "write_note_section",
-            "append_note_section",
-            "replace_note_section",
-            "update_note_metadata",
+            "search_notes",
+            "get_note_context",
+            "read_paper",
+            "write_note",
+            "manage_annotations",
+            "write_note_media",
+            "review_note",
         ),
     ),
     "readonly": ToolsetDefinition(
         name="readonly",
         description="Read-only tools for library, note, annotation, and past-session lookup.",
         tools=(
-            "paper_notes_search",
-            "paper_notes_context",
-            "paper_notes_read_paper",
-            "paper_notes_review",
+            "search_notes",
+            "get_note_context",
+            "read_paper",
+            "review_note",
             "session_search",
         ),
     ),
@@ -115,7 +105,7 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         name="paper_notes",
         display_name="Paper Notes",
         description=BUILTIN_TOOLSETS["paper_notes"].description,
-        default_policy="ask",
+        default_policy="auto",
         tools=BUILTIN_TOOLSETS["paper_notes"].tools,
         capabilities=(
             "library_search",
@@ -134,7 +124,7 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         name="persistent_memory",
         display_name="Persistent Memory",
         description=BUILTIN_TOOLSETS["persistent_memory"].description,
-        default_policy="ask",
+        default_policy="auto",
         tools=BUILTIN_TOOLSETS["persistent_memory"].tools,
         capabilities=("cross_session_memory", "project_memory", "user_profile"),
     ),
@@ -150,7 +140,7 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         name="todo",
         display_name="Todo",
         description=BUILTIN_TOOLSETS["todo"].description,
-        default_policy="ask",
+        default_policy="auto",
         tools=BUILTIN_TOOLSETS["todo"].tools,
         capabilities=("session_planning", "compression_reinjection"),
     ),
@@ -166,7 +156,7 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         name="code_execution",
         display_name="Code Execution",
         description=BUILTIN_TOOLSETS["code_execution"].description,
-        default_policy="ask",
+        default_policy="auto",
         tools=BUILTIN_TOOLSETS["code_execution"].tools,
         capabilities=("local_python", "rpc_tools", "light_sandbox"),
     ),
@@ -182,7 +172,7 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         name="generated_artifacts",
         display_name="Generated Artifacts",
         description=BUILTIN_TOOLSETS["generated_artifacts"].description,
-        default_policy="disabled",
+        default_policy="auto",
         tools=BUILTIN_TOOLSETS["generated_artifacts"].tools,
         capabilities=("image_generation", "file_generation", "artifact_download"),
         metadata={"ui_hidden": True},

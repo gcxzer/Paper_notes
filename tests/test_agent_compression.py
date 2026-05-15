@@ -71,6 +71,7 @@ def test_context_length_resolution_uses_hermes_provider_fallbacks():
     assert resolve_context_length_for_model("codex-oauth", "gpt-5.5") == 400_000
     assert resolve_context_length_for_model("codex-oauth", "gpt-5.4-mini") == 400_000
     assert resolve_context_length_for_model("codex-oauth", "gpt-5.4") == 272_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.3-codex-spark") == 128_000
     assert resolve_context_length_for_model("openai", "gpt-5.5") == 1_050_000
     assert resolve_context_length_for_model("openai", "gpt-5.4-mini") == 400_000
     assert resolve_context_length_for_model("anthropic", "claude-opus-4-7") == 1_000_000

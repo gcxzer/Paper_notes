@@ -5,6 +5,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+SESSION_STATES = {"active", "archived", "trashed"}
+
+
+def normalize_session_state(value: Any, *, archived: bool = False) -> str:
+    state = str(value or "").strip().lower()
+    if state in SESSION_STATES:
+        return state
+    return "trashed" if archived else "active"
+
 
 def now_iso(now: datetime | None = None) -> str:
     value = now or datetime.now().astimezone()
@@ -88,9 +97,11 @@ class AgentSessionMetadata:
     model: str | None = None
     message_count: int = 0
     archived: bool = False
+    state: str = "active"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        state = normalize_session_state(self.state, archived=self.archived)
         return {
             "session_id": self.session_id,
             "title": self.title,
@@ -101,13 +112,16 @@ class AgentSessionMetadata:
             "provider": self.provider,
             "model": self.model,
             "message_count": self.message_count,
-            "archived": self.archived,
+            "archived": state == "archived",
+            "state": state,
             "metadata": copy.deepcopy(self.metadata),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgentSessionMetadata:
         created_at = str(data.get("created_at") or now_iso())
+        legacy_archived = bool(data.get("archived", False))
+        state = normalize_session_state(data.get("state"), archived=legacy_archived)
         return cls(
             session_id=str(data["session_id"]),
             title=str(data.get("title") or "New chat"),
@@ -118,7 +132,8 @@ class AgentSessionMetadata:
             provider=data.get("provider"),
             model=data.get("model"),
             message_count=int(data.get("message_count") or 0),
-            archived=bool(data.get("archived", False)),
+            archived=state == "archived",
+            state=state,
             metadata=copy.deepcopy(data.get("metadata") or {}),
         )
 

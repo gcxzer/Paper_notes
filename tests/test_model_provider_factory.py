@@ -102,6 +102,7 @@ def test_builtin_provider_profiles_are_registered() -> None:
     assert get_provider_profile("google").name == "gemini"
     assert profiles["openai"].default_model == "gpt-5.5"
     assert profiles["codex-oauth"].models[0].value == "gpt-5.5"
+    assert "gpt-5.3-codex-spark" in [model.value for model in profiles["codex-oauth"].models]
     assert profiles["anthropic"].default_model == "claude-sonnet-4-6"
     assert profiles["deepseek"].default_model == "deepseek-v4-flash"
     assert profiles["gemini"].default_model == "gemini-3-flash-preview"

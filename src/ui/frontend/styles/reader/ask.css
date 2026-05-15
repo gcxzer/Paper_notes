@@ -45,6 +45,42 @@
   background: var(--panel-alt);
 }
 
+.ask-session-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ask-session-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ask-session-tab svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.85;
+}
+
+.ask-session-tab:hover,
+.ask-session-tab:focus-visible,
+.ask-session-tab.is-active {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-hover) 72%, transparent);
+}
+
 .ask-icon-button {
   display: inline-flex;
   align-items: center;
@@ -867,7 +903,7 @@
 }
 
 .ask-session-new,
-.ask-session-trash-toggle,
+.ask-session-clear,
 .ask-session-mini {
   display: inline-flex;
   align-items: center;
@@ -883,7 +919,7 @@
 }
 
 .ask-session-new,
-.ask-session-trash-toggle,
+.ask-session-clear,
 .ask-session-mini {
   padding: 0 10px;
   font-weight: 700;
@@ -891,23 +927,27 @@
 
 .ask-session-new:hover,
 .ask-session-new:focus-visible,
-.ask-session-trash-toggle:hover,
-.ask-session-trash-toggle:focus-visible,
+.ask-session-clear:hover,
+.ask-session-clear:focus-visible,
 .ask-session-mini:hover,
 .ask-session-mini:focus-visible {
   border-color: var(--accent);
   background: var(--panel-hover);
 }
 
-.ask-session-trash-toggle.is-active {
-  border-color: var(--accent);
-  color: var(--text);
-  background: var(--panel-hover);
-}
-
-.ask-session-new:disabled {
+.ask-session-new:disabled,
+.ask-session-clear:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.ask-session-new[hidden],
+.ask-session-clear[hidden] {
+  display: none;
+}
+
+.ask-session-clear {
+  color: var(--danger, #ff8f98);
 }
 
 .ask-session-search input {
@@ -946,17 +986,28 @@
 }
 
 .ask-session-row {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   gap: 6px;
+}
+
+.ask-session-row.is-menu-open {
+  z-index: 5;
+}
+
+.ask-session-rename-form .ask-session-row-actions {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
 }
 
 .ask-session-item {
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 9px 46px 9px 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--panel-alt);
@@ -973,13 +1024,16 @@
   background: var(--panel-soft);
 }
 
-.ask-session-row.is-trashed .ask-session-item {
+.ask-session-row.is-trashed .ask-session-item,
+.ask-session-row.is-archived .ask-session-item {
   cursor: default;
   opacity: 0.82;
 }
 
 .ask-session-row.is-trashed .ask-session-item:hover,
-.ask-session-row.is-trashed .ask-session-item:focus-visible {
+.ask-session-row.is-trashed .ask-session-item:focus-visible,
+.ask-session-row.is-archived .ask-session-item:hover,
+.ask-session-row.is-archived .ask-session-item:focus-visible {
   border-color: var(--line);
   background: var(--panel-alt);
 }
@@ -1001,21 +1055,94 @@
   font-size: 0.68rem;
 }
 
-.ask-session-row-actions {
+.ask-session-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
   display: inline-flex;
-  align-items: stretch;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-alt) 86%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(4px);
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 
-.ask-session-mini {
-  min-width: 0;
-  padding: 0 7px;
-  color: var(--muted);
-  font-size: 0.7rem;
+.ask-session-more svg {
+  width: 21px;
+  height: 21px;
+  display: block;
+  fill: currentColor;
+}
+
+.ask-session-row:hover .ask-session-more,
+.ask-session-row:focus-within .ask-session-more,
+.ask-session-row.is-menu-open .ask-session-more {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.ask-session-more:hover,
+.ask-session-more:focus-visible,
+.ask-session-row.is-menu-open .ask-session-more {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.ask-session-action-menu {
+  position: absolute;
+  z-index: 90;
+  display: grid;
+  gap: 4px;
+  min-width: 168px;
+  padding: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 90%, var(--panel-alt));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+}
+
+.ask-session-action-menu[hidden] {
+  display: none;
+}
+
+.ask-session-menu-option {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: left;
+  padding: 0 10px;
+}
+
+.ask-session-menu-option:hover,
+.ask-session-menu-option:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--panel-hover);
 }
 
 .ask-session-delete {
   color: #ff9999;
+}
+
+.ask-session-archive {
+  color: #9fb4ff;
 }
 
 .ask-session-restore {
@@ -1023,30 +1150,66 @@
 }
 
 .ask-session-row.is-delete-confirming .ask-session-delete {
-  border-color: rgba(255, 153, 153, 0.5);
-  color: #ffb0b0;
+  border-color: color-mix(in srgb, currentColor 48%, transparent);
+  background: color-mix(in srgb, currentColor 11%, var(--panel-soft));
 }
 
 .ask-session-rename-form {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
+  display: block;
+  min-width: 0;
 }
 
-.ask-session-rename-form input {
+.ask-session-rename-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+  min-height: 57px;
+  padding: 8px;
   border: 1px solid var(--accent);
   border-radius: 9px;
-  background: var(--input-bg);
+  background: var(--panel-soft);
+}
+
+.ask-session-rename-card input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 0.82rem;
-  padding: 0 9px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.ask-session-rename-card input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  background: var(--input-bg);
 }
 
 .ask-session-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
   color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.ask-session-save:hover,
+.ask-session-save:focus-visible {
+  border-color: var(--accent);
+  background: var(--panel-hover);
 }
 
 .ask-provider-list {

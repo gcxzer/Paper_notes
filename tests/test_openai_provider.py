@@ -67,6 +67,19 @@ class QuotaRaisingResponses:
         )
 
 
+class ImageInputUnsupportedResponses:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        raise FakeAPIError(
+            "Model 'gpt-test' does not support image inputs. Try again with a vision model.",
+            status_code=400,
+            body={"error": {"message": "Model 'gpt-test' does not support image inputs.", "type": "invalid_request_error"}},
+        )
+
+
 class RaisingClient:
     def __init__(self) -> None:
         self.responses = RaisingResponses()
@@ -75,6 +88,11 @@ class RaisingClient:
 class QuotaRaisingClient:
     def __init__(self) -> None:
         self.responses = QuotaRaisingResponses()
+
+
+class ImageInputUnsupportedClient:
+    def __init__(self) -> None:
+        self.responses = ImageInputUnsupportedResponses()
 
 
 class FlakyImageResponses:
@@ -279,6 +297,10 @@ def test_openai_provider_profile_exposes_image_capabilities():
     assert codex is not None
     assert codex.to_public_dict()["capabilities"]["supportsVision"] is True
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.5").supports_image_generation is False
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_vision is False
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").image_input_mode == "unsupported"
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_web_search is False
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_reasoning_off is False
 
 
 def test_openai_provider_normalizes_function_calls():
@@ -326,7 +348,7 @@ def test_openai_provider_keeps_commentary_out_of_visible_content_when_calling_to
                 type="function_call",
                 id="fc_1",
                 call_id="call_1",
-                name="paper_notes_read_paper",
+                name="read_paper",
                 arguments='{"action":"read_pages"}',
             ),
         ],
@@ -445,17 +467,59 @@ def test_openai_provider_maps_image_attachments_to_responses_input(tmp_path):
     provider.generate(ModelRequest(
         messages=[{"role": "user", "content": "What is this?", "attachments": [artifact.to_dict()]}],
         request_options={
-            "_paper_notes_media_store": media_store,
+            "_write_note_media_store": media_store,
             "_paper_notes_session_id": "session-1",
         },
     ))
 
     payload = client.responses.calls[0]
-    assert "_paper_notes_media_store" not in payload
+    assert "_write_note_media_store" not in payload
     content = payload["input"][0]["content"]
     assert content[0] == {"type": "input_text", "text": "What is this?"}
     assert content[1]["type"] == "input_image"
     assert content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_openai_provider_rejects_image_attachments_for_non_vision_model(tmp_path):
+    response = SimpleNamespace(id="resp_1", status="completed", output=[], output_text="Done", usage=None)
+    client = FakeClient(response)
+    provider = OpenAIModelProvider(client=client, default_model="gpt-5.3-codex-spark")
+    media_store = MediaStore(tmp_path / ".paper-notes" / "media")
+    artifact = media_store.create_upload(PNG_DATA_URL, file_name="tiny.png", scope="test")
+
+    with pytest.raises(ModelProviderConfigError) as exc_info:
+        provider.generate(ModelRequest(
+            messages=[{"role": "user", "content": "What is this?", "attachments": [artifact.to_dict()]}],
+            request_options={
+                "_write_note_media_store": media_store,
+                "_paper_notes_provider": "codex-oauth",
+            },
+        ))
+
+    assert client.responses.calls == []
+    assert "gpt-5.3-codex-spark" in str(exc_info.value)
+    assert "supports image input" in str(exc_info.value)
+
+
+def test_openai_provider_classifies_upstream_image_input_rejection():
+    client = ImageInputUnsupportedClient()
+    provider = OpenAIModelProvider(client=client, default_model="gpt-test")
+
+    with pytest.raises(ModelProviderAPIError) as exc_info:
+        provider.generate(ModelRequest(
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Analyze this."},
+                    {"type": "input_image", "image_url": PNG_DATA_URL},
+                ],
+            }],
+        ))
+
+    assert client.responses.calls
+    assert exc_info.value.provider_data["code"] == "image_input_unavailable"
+    assert "vision-capable model" in str(exc_info.value)
+    assert "platform.openai.com" not in str(exc_info.value)
 
 
 def test_openai_provider_maps_file_attachments_to_text_input(tmp_path):
@@ -468,7 +532,7 @@ def test_openai_provider_maps_file_attachments_to_text_input(tmp_path):
     provider.generate(ModelRequest(
         messages=[{"role": "user", "content": "Summarize this.", "attachments": [artifact.to_dict()]}],
         request_options={
-            "_paper_notes_media_store": media_store,
+            "_write_note_media_store": media_store,
             "_paper_notes_session_id": "session-1",
         },
     ))
@@ -490,7 +554,7 @@ def test_openai_provider_maps_code_attachments_to_text_input(tmp_path):
     provider.generate(ModelRequest(
         messages=[{"role": "user", "content": "Summarize this.", "attachments": [artifact.to_dict()]}],
         request_options={
-            "_paper_notes_media_store": media_store,
+            "_write_note_media_store": media_store,
             "_paper_notes_session_id": "session-1",
         },
     ))
@@ -548,7 +612,7 @@ def test_openai_provider_preserves_image_generation_tool_and_saves_artifact(tmp_
         messages=[{"role": "user", "content": "Generate an image"}],
         tools=[{"type": "image_generation", "size": "1024x1024"}],
         request_options={
-            "_paper_notes_media_store": media_store,
+            "_write_note_media_store": media_store,
             "_paper_notes_session_id": "session-1",
             "_paper_notes_provider": "openai",
             "_paper_notes_image_generation": {"enabled": True, "format": "png"},

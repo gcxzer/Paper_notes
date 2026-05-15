@@ -316,20 +316,34 @@ function prioritizedPdfPageNumbers(pageCount, anchorPage) {
   return numbers;
 }
 
+function stabilizedPdfPageNumbers(pageCount, anchorPage) {
+  const anchor = clamp(Math.round(Number(anchorPage) || 1), 1, Math.max(1, pageCount));
+  const numbers = [];
+  for (let pageNumber = 1; pageNumber < anchor; pageNumber += 1) {
+    numbers.push(pageNumber);
+  }
+  numbers.push(anchor);
+  for (let pageNumber = anchor + 1; pageNumber <= pageCount; pageNumber += 1) {
+    numbers.push(pageNumber);
+  }
+  return numbers;
+}
+
 async function renderPdfIntoExistingPlaceholders(renderToken, scale, positionToRestore, pageCount) {
   const previousPages = new Map(Array.from(elements.pdfViewer.querySelectorAll(".pdf-page"))
     .map((pageElement) => [Number(pageElement.dataset.page), pageElement]));
   const restorePage = clamp(Number(positionToRestore?.page) || 1, 1, Math.max(1, pageCount));
+  const restoreGeneration = pdfState.scrollRestoreGeneration;
   const placeholders = [];
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
     placeholders.push(createPdfPagePlaceholder(pageNumber, scale, previousPages.get(pageNumber)));
   }
   elements.pdfViewer.replaceChildren(...placeholders);
-  restorePdfScrollPosition(positionToRestore);
+  if (canRestorePdfScroll(restoreGeneration)) restorePdfScrollPosition(positionToRestore);
   updatePdfPageControl(restorePage);
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
 
-  for (const pageNumber of prioritizedPdfPageNumbers(pageCount, restorePage)) {
+  for (const pageNumber of stabilizedPdfPageNumbers(pageCount, restorePage)) {
     const pageElement = targetPageElement(pageNumber);
     if (!pageElement || renderToken !== pdfState.renderToken) {
       pdfState.suppressScrollSave = false;
@@ -344,7 +358,7 @@ async function renderPdfIntoExistingPlaceholders(renderToken, scale, positionToR
       return false;
     }
     if (pageNumber === restorePage) {
-      restorePdfScrollPosition(positionToRestore);
+      if (canRestorePdfScroll(restoreGeneration)) restorePdfScrollPosition(positionToRestore);
       updatePdfPageControl(restorePage);
     }
   }
@@ -355,6 +369,7 @@ async function renderPdf() {
   if (!pdfState.document) return;
   const positionToRestore = currentPdfScrollPosition() || storedPdfScrollPosition();
   const renderToken = pdfState.renderToken + 1;
+  const restoreGeneration = beginPdfScrollRestore();
   const scale = pdfState.scale;
   const hasRenderedPages = Boolean(elements.pdfViewer.querySelector(".pdf-page"));
   const renderTarget = hasRenderedPages ? document.createDocumentFragment() : elements.pdfViewer;
@@ -377,7 +392,7 @@ async function renderPdf() {
       throw error;
     }
     schedulePdfSelectionOverlayRender();
-    finishPdfScrollRestore(positionToRestore);
+    finishPdfScrollRestore(positionToRestore, restoreGeneration);
     return;
   }
   const restorePage = clamp(Number(positionToRestore?.page) || 1, 1, Math.max(1, pageCount));
@@ -393,10 +408,10 @@ async function renderPdf() {
       }
       if (!hasRenderedPages && positionToRestore && !restoredEarly && pageNumber >= restorePage) {
         restoredEarly = true;
-        restorePdfScrollPosition(positionToRestore);
+        if (canRestorePdfScroll(restoreGeneration)) restorePdfScrollPosition(positionToRestore);
         updatePdfPageControl(restorePage);
         window.requestAnimationFrame(() => {
-          restorePdfScrollPosition(positionToRestore);
+          if (canRestorePdfScroll(restoreGeneration)) restorePdfScrollPosition(positionToRestore);
           updatePdfPageControl(restorePage);
         });
       }
@@ -411,9 +426,9 @@ async function renderPdf() {
   }
   schedulePdfSelectionOverlayRender();
   if (restoredEarly && !hasRenderedPages) {
-    finishPdfScrollAfterEarlyRestore();
+    finishPdfScrollAfterEarlyRestore(restoreGeneration);
   } else {
-    finishPdfScrollRestore(positionToRestore);
+    finishPdfScrollRestore(positionToRestore, restoreGeneration);
   }
 }
 

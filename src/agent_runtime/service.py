@@ -213,6 +213,8 @@ class AgentService:
                 self.tool_registry,
                 available_tool_names_provider=self._current_tool_available_names,
                 cancel_check_provider=self._current_tool_cancelled,
+                snapshot_manager_provider=lambda: self.tool_snapshot_manager,
+                session_id_provider=self._current_tool_session_id,
             )
             register_generated_file_tool(
                 self.tool_registry,
@@ -1327,7 +1329,7 @@ class AgentService:
         media_store: MediaStore,
     ) -> dict[str, Any]:
         options = dict(request.request_options or {})
-        options["_paper_notes_media_store"] = media_store
+        options["_write_note_media_store"] = media_store
         options["_paper_notes_session_id"] = session_id
         options["_paper_notes_provider"] = provider_name
         image_generation = _normalize_image_generation_config(request.image_generation)
@@ -1615,16 +1617,16 @@ def _work_trace_tool_detail(name: str, data: dict[str, Any]) -> str:
         skill_name = str(args.get("name") or "").strip()
         file_path = str(args.get("file_path") or args.get("filePath") or "").strip()
         return f"Loading skill: {skill_name or 'instructions'}{f' -> {file_path}' if file_path else ''}..."
-    if name == "paper_notes_search":
+    if name == "search_notes":
         query = str(args.get("query") or "").strip()
         return f"Searching paper notes{f': {query}' if query else ''}..."
-    if name == "paper_notes_context":
+    if name == "get_note_context":
         return "Reading note context..."
     if name == "create_image_artifact":
         return "Generating image..."
-    if name == "paper_notes_read_paper":
+    if name == "read_paper":
         return "Reading paper source..."
-    if name in {"paper_notes_edit", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:
+    if name in {"write_note", "manage_annotations", "write_note_media", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:
         return "Updating note..."
     if name == "read_note_html":
         return "Reading note HTML..."
@@ -1776,26 +1778,42 @@ def _tool_activity_from_events(events: list[AgentEvent], *, session_id: str) -> 
         if event.type != "tool_result":
             continue
         data = event.data or {}
-        snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
-        changed_files = snapshot.get("changedFiles") if isinstance(snapshot.get("changedFiles"), list) else []
-        if not changed_files:
-            continue
-        snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
-        note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
-        activities.append({
-            "type": "tool_result",
-            "name": data.get("name") or snapshot.get("toolName") or "tool",
-            "sessionId": session_id,
-            "noteId": note_id or "",
-            "snapshotId": snapshot.get("snapshotId") or "",
-            "changedFiles": changed_files,
-            "undoable": bool(snapshot.get("undoable")),
-            "writeMode": data.get("write_mode") or data.get("writeMode") or "",
-            "changed": bool(data.get("changed") or snapshot.get("changed")),
-            "summary": data.get("summary") or "",
-            "toolMessage": data.get("message") or "",
-            "message": data.get("message") or event.message or "Tool completed.",
-        })
+        raw_snapshots = data.get("snapshots") if isinstance(data.get("snapshots"), list) else []
+        snapshots: list[dict[str, Any]] = []
+        seen_snapshot_ids: set[str] = set()
+        for raw_snapshot in raw_snapshots:
+            if not isinstance(raw_snapshot, dict):
+                continue
+            snapshot_id = str(raw_snapshot.get("snapshotId") or "").strip()
+            if snapshot_id and snapshot_id in seen_snapshot_ids:
+                continue
+            if snapshot_id:
+                seen_snapshot_ids.add(snapshot_id)
+            snapshots.append(raw_snapshot)
+        single_snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+        single_snapshot_id = str(single_snapshot.get("snapshotId") or "").strip()
+        if single_snapshot and (not single_snapshot_id or single_snapshot_id not in seen_snapshot_ids):
+            snapshots.append(single_snapshot)
+        for snapshot in snapshots:
+            changed_files = snapshot.get("changedFiles") if isinstance(snapshot.get("changedFiles"), list) else []
+            if not changed_files:
+                continue
+            snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
+            note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
+            activities.append({
+                "type": "tool_result",
+                "name": snapshot.get("toolName") or data.get("name") or "tool",
+                "sessionId": session_id,
+                "noteId": note_id or "",
+                "snapshotId": snapshot.get("snapshotId") or "",
+                "changedFiles": changed_files,
+                "undoable": bool(snapshot.get("undoable")),
+                "writeMode": data.get("write_mode") or data.get("writeMode") or "",
+                "changed": bool(data.get("changed") or snapshot.get("changed")),
+                "summary": data.get("summary") or "",
+                "toolMessage": data.get("message") or "",
+                "message": data.get("message") or event.message or "Tool completed.",
+            })
     return activities
 
 

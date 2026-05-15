@@ -4,18 +4,18 @@ import json
 
 
 _STUB_FUNCTIONS: dict[str, str] = {
-    "paper_notes_search": '''
-def paper_notes_search(query="", limit=None):
+    "search_notes": '''
+def search_notes(query="", limit=None):
     """Search the Paper Notes library and return matching notes."""
     args = {"query": query}
     if limit is not None:
         args["limit"] = limit
-    return _call("paper_notes_search", args)
+    return _call("search_notes", args)
 ''',
-    "paper_notes_context": '''
-def paper_notes_context(note_id, query="", include_html=False, html_mode="body", max_paper_matches=4):
+    "get_note_context": '''
+def get_note_context(note_id, query="", include_html=False, html_mode="body", max_paper_matches=4):
     """Build focused paper/note context for a Paper Notes note."""
-    return _call("paper_notes_context", {
+    return _call("get_note_context", {
         "note_id": note_id,
         "query": query,
         "include_html": include_html,
@@ -23,8 +23,8 @@ def paper_notes_context(note_id, query="", include_html=False, html_mode="body",
         "max_paper_matches": max_paper_matches,
     })
 ''',
-    "paper_notes_read_paper": '''
-def paper_notes_read_paper(
+    "read_paper": '''
+def read_paper(
     action,
     note_id,
     query="",
@@ -51,19 +51,12 @@ def paper_notes_read_paper(
         "path": path,
     }
     args.update({key: value for key, value in optional.items() if value not in (None, "")})
-    return _call("paper_notes_read_paper", args)
+    return _call("read_paper", args)
 ''',
-    "paper_notes_edit": '''
-def paper_notes_edit(action, note_id, **kwargs):
-    """Modify Paper Notes content through the parent paper_notes_edit tool."""
-    args = {"action": action, "note_id": note_id}
-    args.update({key: value for key, value in kwargs.items() if value is not None})
-    return _call("paper_notes_edit", args)
-''',
-    "paper_notes_review": '''
-def paper_notes_review(action, note_id, heading="", html="", position="append"):
+    "review_note": '''
+def review_note(action, note_id, heading="", html="", position="append"):
     """Preview or validate a Paper Notes HTML edit without writing it."""
-    return _call("paper_notes_review", {
+    return _call("review_note", {
         "action": action,
         "note_id": note_id,
         "heading": heading,

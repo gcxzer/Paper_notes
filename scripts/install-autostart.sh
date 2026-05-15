@@ -91,11 +91,17 @@ prepare_frontend_environment() {
     echo "Skipping frontend dependency install because SKIP_NPM_INSTALL=1."
     return 0
   fi
-  if [[ -d "$APP_DIR/node_modules/pdfjs-dist" ]]; then
+  local missing_frontend_packages=()
+  for package in pdfjs-dist katex; do
+    if [[ ! -d "$APP_DIR/node_modules/$package" ]]; then
+      missing_frontend_packages+=("$package")
+    fi
+  done
+  if [[ "${#missing_frontend_packages[@]}" -eq 0 ]]; then
     return 0
   fi
   if [[ -z "$NPM_BIN" || ! -x "$NPM_BIN" ]]; then
-    echo "Could not find npm, and node_modules/pdfjs-dist is missing." >&2
+    echo "Could not find npm, and frontend dependencies are missing: ${missing_frontend_packages[*]}." >&2
     echo "Install Node.js/npm first, then run: npm install" >&2
     exit 1
   fi

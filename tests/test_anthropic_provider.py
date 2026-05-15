@@ -48,7 +48,7 @@ def test_anthropic_provider_generates_text_response():
 
 def test_anthropic_provider_translates_tool_call_response():
     session = FakeAnthropicSession(FakeAnthropicResponse(payload={
-        "content": [{"type": "tool_use", "id": "toolu_1", "name": "paper_notes_search", "input": {"query": "attention"}}],
+        "content": [{"type": "tool_use", "id": "toolu_1", "name": "search_notes", "input": {"query": "attention"}}],
         "stop_reason": "tool_use",
     }))
     provider = AnthropicModelProvider(api_key="test-key", default_model="claude-test", session=session)
@@ -57,7 +57,7 @@ def test_anthropic_provider_translates_tool_call_response():
 
     assert result.finish_reason == "tool_calls"
     assert result.tool_calls[0].id == "toolu_1"
-    assert result.tool_calls[0].name == "paper_notes_search"
+    assert result.tool_calls[0].name == "search_notes"
     assert '"attention"' in result.tool_calls[0].arguments
 
 

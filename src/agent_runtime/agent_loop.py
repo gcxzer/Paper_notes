@@ -1389,6 +1389,14 @@ def _tool_result_data(tool_result: ToolResult) -> dict[str, Any]:
         ):
             if key in payload:
                 data[key] = _safe_event_value(payload.get(key))
+        if isinstance(payload.get("snapshot"), dict):
+            data["snapshot"] = _safe_snapshot_value(payload["snapshot"])
+        if isinstance(payload.get("snapshots"), list):
+            data["snapshots"] = [
+                snapshot
+                for snapshot in (_safe_snapshot_value(item) for item in payload["snapshots"] if isinstance(item, dict))
+                if snapshot
+            ][:20]
     if tool_result.metadata:
         data.update(tool_result.metadata)
     return data
@@ -1441,6 +1449,30 @@ def _safe_event_value(value: Any) -> Any:
                 safe[str(key)] = item
         return safe
     return str(value)[:500]
+
+
+def _safe_snapshot_value(value: dict[str, Any]) -> dict[str, Any]:
+    changed_files = value.get("changedFiles") if isinstance(value.get("changedFiles"), list) else []
+    arguments = value.get("arguments") if isinstance(value.get("arguments"), dict) else {}
+    return {
+        "snapshotId": str(value.get("snapshotId") or "")[:200],
+        "toolName": str(value.get("toolName") or "")[:200],
+        "changed": bool(value.get("changed")),
+        "undoable": bool(value.get("undoable")),
+        "changedFiles": [
+            {
+                "path": str(file.get("path") or "")[:500],
+                "beforeBytes": int(file.get("beforeBytes") or 0),
+                "afterBytes": int(file.get("afterBytes") or 0),
+            }
+            for file in changed_files[:20]
+            if isinstance(file, dict)
+        ],
+        "arguments": {
+            str(key)[:100]: str(item)[:500]
+            for key, item in list(arguments.items())[:20]
+        },
+    }
 
 
 def _tool_guardrail_event(decision: ToolGuardrailDecision, event_type: str) -> AgentEvent:

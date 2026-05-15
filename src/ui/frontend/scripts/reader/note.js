@@ -19,12 +19,131 @@ function absolutizeEmbeddedAssetUrls(root, baseHref) {
   });
 }
 
+function localFilePathFromHref(href) {
+  const value = String(href || "").trim();
+  if (!value) return "";
+  if (value.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(value).pathname);
+    } catch {
+      return "";
+    }
+  }
+  if (/^\/(?:Users|Volumes|Applications|opt|private|tmp|var|home)\//.test(value)) return value;
+  return "";
+}
+
+function enableLocalFileLinks(root) {
+  if (!root) return;
+  root.querySelectorAll("a[href]").forEach((link) => {
+    const path = localFilePathFromHref(link.getAttribute("href"));
+    if (!path) return;
+    link.dataset.localFilePath = path;
+    link.setAttribute("title", `Open local file: ${path}`);
+  });
+}
+
+async function handleNoteLocalFileLinkClick(event) {
+  const link = event.target?.closest?.(".note-body a[data-local-file-path]");
+  if (!link) return;
+  const path = link.dataset.localFilePath || "";
+  if (!path) return;
+  event.preventDefault();
+  try {
+    const response = await fetch(getApiUrl("/api/open-local-file"), {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Paper-Notes-Local-Action": "open-local-file",
+      },
+      body: JSON.stringify({ path }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || "Could not open local file.");
+    }
+  } catch (error) {
+    console.warn("Failed to open local file link.", error);
+  }
+}
+
 function extractGeneratedNoteBody(html, baseHref = window.location.href) {
   if (!html) return "";
   const documentBody = new DOMParser().parseFromString(html, "text/html");
   const note = documentBody.querySelector("main.note") || documentBody.body;
   absolutizeEmbeddedAssetUrls(note, baseHref);
   return note ? note.innerHTML : "";
+}
+
+function renderNoteMathExpression(source, displayMode = false) {
+  const formula = String(source || "").trim();
+  if (!formula) return null;
+  const wrapper = document.createElement("span");
+  wrapper.className = displayMode ? "note-math-block" : "note-math-inline";
+  if (globalThis.katex?.renderToString) {
+    wrapper.innerHTML = globalThis.katex.renderToString(formula, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      trust: false,
+    });
+  } else {
+    wrapper.classList.add("note-math-fallback");
+    wrapper.textContent = formula;
+  }
+  return wrapper;
+}
+
+function splitNoteMathSegments(text) {
+  const segments = [];
+  const source = String(text || "");
+  const pattern = /\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$|\\\(([\s\S]*?)\\\)|(^|[^\\])\$([^\s$][^$\n]*?)\$/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const fullMatch = match[0];
+    const prefix = match[4] || "";
+    const start = match.index + prefix.length;
+    const rawFormula = match[1] ?? match[2] ?? match[3] ?? match[5] ?? "";
+    const displayMode = match[1] !== undefined || match[2] !== undefined;
+    const formulaEnd = match.index + fullMatch.length;
+    if (!rawFormula.trim()) continue;
+    if (start > cursor) segments.push({ type: "text", value: source.slice(cursor, start) });
+    segments.push({ type: "math", value: rawFormula, displayMode });
+    cursor = formulaEnd;
+  }
+  if (!segments.length) return null;
+  if (cursor < source.length) segments.push({ type: "text", value: source.slice(cursor) });
+  return segments;
+}
+
+function renderMathInNote(root) {
+  if (!root) return;
+  const skipSelector = "script, style, textarea, pre, code, kbd, samp, .katex, .note-math-inline, .note-math-block";
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !/[\\$]/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest(skipSelector)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach((node) => {
+    const segments = splitNoteMathSegments(node.nodeValue);
+    if (!segments) return;
+    const fragment = document.createDocumentFragment();
+    segments.forEach((segment) => {
+      if (segment.type === "text") {
+        fragment.append(document.createTextNode(segment.value));
+        return;
+      }
+      const rendered = renderNoteMathExpression(segment.value, segment.displayMode);
+      if (rendered) fragment.append(rendered);
+    });
+    node.replaceWith(fragment);
+  });
 }
 
 function mountReaderNoteMenu() {
@@ -80,6 +199,10 @@ function renderReaderNoteBody(note, collectionPath, generatedNoteBody, notePosit
     ${renderSection("Experiments")}
     ${renderSection("Questions")}
   `;
+  renderMathInNote(elements.notePage);
+  enableLocalFileLinks(elements.notePage);
+  elements.notePage.removeEventListener("click", handleNoteLocalFileLinkClick);
+  elements.notePage.addEventListener("click", handleNoteLocalFileLinkClick);
   if (typeof window.buildNoteMenu === "function") window.buildNoteMenu(elements.notePage);
   mountReaderNoteMenu();
   finishNoteScrollRestore(notePositionToRestore);

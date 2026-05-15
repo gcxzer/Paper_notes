@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -88,7 +91,7 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Paper-Notes-Local-Action")
         self.send_header("Access-Control-Allow-Methods", "GET,HEAD,POST,DELETE,OPTIONS")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
@@ -226,6 +229,7 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/chat/tool-snapshots/cleanup": self.handle_cleanup_chat_tool_snapshots,
             "/api/chat/tool-approvals/respond": self.handle_respond_chat_tool_approval,
             "/api/chat/session/model": self.handle_update_chat_session_model,
+            "/api/open-local-file": self.handle_open_local_file,
             "/api/memory": self.handle_update_memory,
             "/api/settings/ai": self.handle_update_ai_settings,
             "/api/settings/tools": self.handle_update_tool_settings,
@@ -463,6 +467,36 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_get_model_providers(self) -> None:
         self.send_json(HTTPStatus.OK, get_model_providers())
+
+    def handle_open_local_file(self) -> None:
+        if self.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":
+            raise AgentAPIError(HTTPStatus.FORBIDDEN, "missing_local_action_header", "Local file open requests require a trusted reader header.")
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
+        raw_target = normalize_text(body.get("path") or body.get("href"))
+        if not raw_target:
+            raise AgentAPIError(HTTPStatus.BAD_REQUEST, "path_required", "path is required.")
+        parsed = urlparse(raw_target)
+        if parsed.scheme and parsed.scheme != "file":
+            raise AgentAPIError(HTTPStatus.BAD_REQUEST, "unsupported_scheme", "Only local filesystem paths can be opened.")
+        raw_path = unquote(parsed.path if parsed.scheme == "file" else raw_target)
+        target = Path(raw_path).expanduser()
+        if not target.is_absolute():
+            raise AgentAPIError(HTTPStatus.BAD_REQUEST, "absolute_path_required", "Local file links must use an absolute path.")
+        target = target.resolve()
+        if not target.exists():
+            raise AgentAPIError(HTTPStatus.NOT_FOUND, "file_not_found", f"File not found: {target}")
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(target)])
+            elif os.name == "nt":
+                os.startfile(str(target))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(target)])
+        except OSError as error:
+            raise AgentAPIError(HTTPStatus.INTERNAL_SERVER_ERROR, "open_failed", str(error)) from error
+        self.send_json(HTTPStatus.OK, {"success": True, "path": str(target)})
 
     def handle_get_media(self, path: str) -> None:
         parts = [part for part in path.split("/") if part]
