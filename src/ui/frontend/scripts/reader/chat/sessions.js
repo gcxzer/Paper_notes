@@ -20,6 +20,9 @@ function chatSessionMatchesQuery(session) {
 }
 
 function renderChatSessionControls() {
+  if (elements.chatSessionPopoverTitle) {
+    elements.chatSessionPopoverTitle.textContent = readerState.chatSessionTrashOpen ? "Trash" : "Sessions";
+  }
   if (elements.newChatSession) elements.newChatSession.disabled = readerState.chatSessionTrashOpen;
   if (elements.toggleChatSessionTrash) {
     elements.toggleChatSessionTrash.classList.toggle("is-active", readerState.chatSessionTrashOpen);
@@ -179,6 +182,10 @@ function setChatSessionMenuOpen(open) {
   if (elements.chatSessionPopover) elements.chatSessionPopover.hidden = !open;
   elements.chatSessionMenuButton?.setAttribute("aria-expanded", String(open));
   if (open) {
+    readerState.chatSessionTrashOpen = false;
+    readerState.chatSessionQuery = "";
+    readerState.confirmingDeleteSessionId = "";
+    readerState.renamingSessionId = "";
     renderChatSessionList();
     void fetchReaderChatSessions({ silent: true });
     requestAnimationFrame(() => elements.chatSessionSearch?.focus());
@@ -195,9 +202,15 @@ async function fetchReaderChatSessions({ silent = false } = {}) {
     const query = readerState.chatSessionTrashOpen ? "?includeArchived=true" : "";
     const payload = await fetchAgentJson(`/api/chat/sessions${query}`);
     const sessions = normalizeReaderChatSessions(payload.sessions);
+    const activeSession = readerState.currentChatSession?.id === getChatSessionId()
+      ? readerState.currentChatSession
+      : readerState.chatSessions.find((session) => session.id === getChatSessionId());
     readerState.chatSessions = sessions.filter((session) => (
       readerState.chatSessionTrashOpen ? session.archived : !session.archived
     ));
+    if (activeSession && activeSession.id === getChatSessionId()) {
+      readerState.currentChatSession = activeSession;
+    }
     readerState.chatSessionsLoading = false;
     renderChatSessionList();
     renderReaderModelControls();
@@ -236,7 +249,6 @@ async function loadReaderChatSession(sessionId, { closeMenu = true, refreshList 
   try {
     const payload = await fetchAgentJson(`/api/chat/session?id=${encodeURIComponent(nextSessionId)}`);
     const session = upsertReaderChatSession(payload.session);
-    if (session?.provider && session?.model) writeStoredReaderModelSelection(session.provider, session.model);
     readerState.chatMessages = normalizeApiChatMessages(payload.session?.messages);
     readerState.chatEditingIndex = -1;
     readerState.chatEditingText = "";
@@ -439,8 +451,8 @@ async function recoverReaderChatFromSession({ sessionId = "", requestId = "" } =
     const payload = await fetchAgentJson(`/api/chat/session?id=${encodeURIComponent(targetSessionId)}`);
     const messages = normalizeApiChatMessages(payload.session?.messages);
     if (!hasCompletedAssistantAfterLatestUser(messages)) return false;
-    setCurrentChatSessionId(payload.session?.id || targetSessionId);
-    upsertReaderChatSession(payload.session);
+    const session = upsertReaderChatSession(payload.session);
+    setCurrentChatSessionId(session?.id || payload.session?.id || targetSessionId);
     readerState.chatMessages = messages;
     readerState.chatEditingIndex = -1;
     readerState.chatEditingText = "";

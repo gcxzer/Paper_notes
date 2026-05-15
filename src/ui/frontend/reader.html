@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v1"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/reader/index.css?v=button-press-v1">
+  <link rel="stylesheet" href="styles/reader/index.css?v=gpt-think-menu-height-v1">
 </head>
 <body>
   <div class="reader-shell">
@@ -106,7 +106,7 @@
         <div class="ask-context-popover" id="readerContextPopover" role="dialog" aria-label="Context window" hidden></div>
         <div class="ask-session-popover" id="chatSessionPopover" role="dialog" aria-label="Ask sessions" hidden>
           <div class="ask-session-popover-header">
-            <strong>Sessions</strong>
+            <strong id="chatSessionPopoverTitle">Sessions</strong>
             <div class="ask-session-header-actions">
               <button class="ask-session-trash-toggle" type="button" id="toggleChatSessionTrash" aria-pressed="false">Trash</button>
               <button class="ask-session-new" type="button" id="newChatSession">New chat</button>
@@ -122,7 +122,7 @@
           <div class="ask-model-popover-header">
             <button class="ask-model-back" type="button" id="readerModelBack" aria-label="Back to providers" hidden>‹</button>
             <strong id="readerModelTitle">Model</strong>
-            <span id="readerModelProvider">Provider</span>
+            <button class="ask-model-save" type="button" id="readerModelProvider">Save</button>
           </div>
           <div class="ask-provider-list" id="readerProviderList"></div>
           <div class="ask-model-list" id="readerModelList"></div>
@@ -441,7 +441,7 @@
             <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
           </div>
         </div>
-        <button type="button" id="readerCopyDebugRun">Copy JSON</button>
+        <button type="button" id="readerCopyDebugRun">Copy</button>
       </div>
       <p class="debug-error" id="readerDebugError" hidden></p>
       <div class="debug-layout">
@@ -451,6 +451,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="scripts/reader/loader.js?v=note-drag-persist-v1"></script>
+  <script type="module" src="scripts/reader/loader.js?v=provider-native-search-v1"></script>
 </body>
 </html>

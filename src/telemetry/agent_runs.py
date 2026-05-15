@@ -130,19 +130,20 @@ class AgentRunCoordinator:
                 )
 
             handle.control.cancel(reason)
-            result = AgentRunCancelResult(
-                cancelled=True,
-                status="cancelled",
-                request_id=handle.request_id,
-                session_id=handle.session_id,
-            )
             if handle.status == "queued":
                 self._remove_handle_locked(handle)
                 self._cleanup_session_locked(handle.session_id)
+                status = "cancelled"
             else:
                 handle.status = "cancelling"
+                status = "cancelling"
             self._condition.notify_all()
-            return result
+            return AgentRunCancelResult(
+                cancelled=True,
+                status=status,
+                request_id=handle.request_id,
+                session_id=handle.session_id,
+            )
 
     def clear(self) -> None:
         with self._condition:

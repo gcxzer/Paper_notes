@@ -164,7 +164,7 @@ def handle_chat_request(
         write_tool_mode=_write_tool_mode(body),
         max_turns=_int_value(body.get("maxTurns", body.get("max_turns")), default=90, minimum=1, maximum=200),
         max_output_tokens=_optional_int(body.get("maxOutputTokens", body.get("max_output_tokens")), minimum=1),
-        request_options=body.get("requestOptions") if isinstance(body.get("requestOptions"), dict) else {},
+        request_options=_request_options(body),
         attachments=attachments,
         image_generation=_image_generation_config(body.get("imageGeneration") or body.get("image_generation")),
         file_generation=_file_generation_config(body.get("fileGeneration") or body.get("file_generation")),
@@ -404,7 +404,10 @@ def cancel_chat_request(
     runs = run_coordinator or get_agent_run_coordinator()
     result = runs.cancel(request_id=request_id, session_id=session_id, reason=reason)
     if result.cancelled and result.request_id:
-        progress.cancelled(result.request_id)
+        if result.status == "cancelling":
+            progress.cancelling(result.request_id)
+        else:
+            progress.cancelled(result.request_id)
     return {
         "cancelled": result.cancelled,
         "status": result.status,
@@ -575,6 +578,10 @@ def update_chat_session_model(body: Any, *, service: AgentService | None = None)
             provider=provider,
             model=model if "model" in body else None,
         )
+        metadata_updates = _session_metadata_updates(body)
+        if metadata_updates:
+            agent_service.session_store.update_session_metadata(session_id, metadata_updates)
+            session = agent_service.session_store.require_session(session_id)
     except SessionNotFoundError as error:
         raise AgentAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
     return {"session": serialize_session(session, debug_store=_debug_store_for_service(agent_service))}
@@ -818,7 +825,10 @@ def serialize_chat_result(result: AgentServiceResult, *, debug_store: DebugRunSt
     run_trace = _last_assistant_run_trace(messages)
     if run_trace:
         assistant_message["runTrace"] = run_trace
-    work_trace = _last_assistant_work_trace(messages)
+    work_trace = _work_trace_with_reasoning(
+        _last_assistant_work_trace(messages),
+        _last_assistant_reasoning_content(result.messages),
+    )
     if work_trace:
         assistant_message["workTrace"] = work_trace
     if tool_activity:
@@ -889,6 +899,28 @@ def _last_assistant_work_trace(messages: list[dict[str, Any]]) -> dict[str, Any]
         trace = message.get("workTrace")
         return trace if isinstance(trace, dict) else None
     return None
+
+
+def _last_assistant_reasoning_content(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        value = message.get("reasoning_content")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _work_trace_with_reasoning(work_trace: dict[str, Any] | None, reasoning_content: str) -> dict[str, Any] | None:
+    if not reasoning_content:
+        return work_trace
+    trace = dict(work_trace or {})
+    raw_items = trace.get("items")
+    items = list(raw_items) if isinstance(raw_items, list) else []
+    if not any(isinstance(item, dict) and item.get("type") == "reasoning" and item.get("text") == reasoning_content for item in items):
+        items.append({"type": "reasoning", "text": reasoning_content, "source": "deepseek"})
+    trace["items"] = items
+    return trace
 
 
 def serialize_compact_result(result: AgentCompactResult) -> dict[str, Any]:
@@ -969,10 +1001,22 @@ def serialize_message(message: dict[str, Any]) -> dict[str, Any]:
     content = message.get("content", "")
     text = _normalize_public_message_links(_message_text(content))
     serialized = dict(message)
+    reasoning_content = serialized.pop("reasoning_content", None)
+    if isinstance(reasoning_content, str) and reasoning_content.strip():
+        serialized["workTrace"] = _work_trace_with_reasoning(
+            serialized.get("workTrace") if isinstance(serialized.get("workTrace"), dict) else None,
+            reasoning_content.strip(),
+        )
     for internal_key in ("codex_reasoning_items", "codex_message_items", "provider_data"):
         serialized.pop(internal_key, None)
     tool_calls = serialized.get("tool_calls")
-    if isinstance(tool_calls, list):
+    run_trace = serialized.get("runTrace") if isinstance(serialized.get("runTrace"), dict) else {}
+    work_trace = serialized.get("workTrace") if isinstance(serialized.get("workTrace"), dict) else {}
+    trace_status = str(run_trace.get("status") or work_trace.get("status") or "").strip().lower()
+    if message.get("role") == "assistant" and isinstance(tool_calls, list) and trace_status == "cancelled" and not text:
+        serialized.pop("tool_calls", None)
+        serialized.pop("toolCalls", None)
+    elif isinstance(tool_calls, list):
         serialized["tool_calls"] = [_public_tool_call_message(tool_call) for tool_call in tool_calls]
     serialized["text"] = text
     return serialized
@@ -1115,23 +1159,28 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
             continue
         event_type = str(event.get("type") or "")
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
-        if event_type == "work_trace_item":
+        if event_type in {"work_trace_delta", "work_trace_item"}:
             text = str(data.get("text") or event.get("message") or "").strip()
             item_type = str(data.get("trace_type") or "summary").strip() or "summary"
+            item_source = str(data.get("source") or "provider").strip() or "provider"
         elif event_type == "tool_call":
             name = str(data.get("name") or "tool")
             text = _work_trace_tool_start_detail(name, data)
             item_type = "skill" if _is_skill_tool(name) else "tool"
+            item_source = "runtime"
         elif event_type == "tool_result":
             name = str(data.get("name") or "tool")
             text = _work_trace_tool_result_detail(name, data)
             item_type = "skill" if _is_skill_tool(name) else "tool"
+            item_source = "runtime"
         elif event_type == "tool_error":
             text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
             item_type = "status"
+            item_source = "runtime"
         elif event_type in {"cancelled", "halted", "tool_halted", "tool_approval_requested"}:
             text = str(event.get("message") or "").strip()
             item_type = "status"
+            item_source = "runtime"
         else:
             continue
         if not text:
@@ -1140,13 +1189,36 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
         if key in seen:
             continue
         seen.add(key)
-        items.append({"type": item_type, "text": text, "source": "runtime"})
+        _merge_run_work_trace_item(items, {"type": item_type, "text": text, "source": item_source})
     if not items:
         return None
     return {
         "status": str(run_trace.get("status") or "completed"),
         "items": items,
     }
+
+
+def _merge_run_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:
+    item_type = str(item.get("type") or "summary").strip() or "summary"
+    item_source = str(item.get("source") or "").strip()
+    item_text = str(item.get("text") or "").strip()
+    if not item_text:
+        return
+    for index in range(len(items) - 1, -1, -1):
+        existing = items[index]
+        if str(existing.get("type") or "summary") != item_type:
+            continue
+        if str(existing.get("source") or "").strip() != item_source:
+            continue
+        existing_text = str(existing.get("text") or "").strip()
+        if existing_text == item_text or item_text.startswith(existing_text) or existing_text.startswith(item_text):
+            items[index] = {
+                "type": item_type,
+                "text": item_text if len(item_text) >= len(existing_text) else existing_text,
+                "source": item_source,
+            }
+            return
+    items.append({"type": item_type, "text": item_text, "source": item_source})
 
 
 def _work_trace_tool_start_detail(name: str, data: dict[str, Any]) -> str:
@@ -1289,6 +1361,8 @@ def _public_tool_call_message(tool_call: Any) -> Any:
     public = dict(tool_call)
     public.pop("response_item_id", None)
     public.pop("call_id", None)
+    public.pop("thoughtSignature", None)
+    public.pop("thought_signature", None)
     return public
 
 
@@ -1409,6 +1483,133 @@ def _request_metadata(body: dict[str, Any]) -> dict[str, Any]:
     if note_id:
         metadata.setdefault("note_id", note_id)
     return metadata
+
+
+def _request_options(body: dict[str, Any]) -> dict[str, Any]:
+    options = dict(body.get("requestOptions")) if isinstance(body.get("requestOptions"), dict) else {}
+    provider = (_provider_or_none(body.get("provider")) or "").lower()
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+
+    if provider in {"openai", "codex-oauth"}:
+        think_mode = _optional_text(metadata.get("gptThinkMode") or metadata.get("gpt_think_mode"))
+        if not think_mode:
+            return options
+        normalized = think_mode.strip().lower()
+        if normalized == "off":
+            options["reasoning"] = {"effort": "none"}
+        elif normalized in {"low", "medium", "high", "xhigh"}:
+            reasoning = dict(options.get("reasoning")) if isinstance(options.get("reasoning"), dict) else {}
+            options["reasoning"] = {**reasoning, "effort": normalized, "summary": reasoning.get("summary") or "auto"}
+        return options
+
+    if provider == "gemini":
+        model = _optional_text(body.get("model")).lower()
+        think_mode = _optional_text(metadata.get("geminiThinkMode") or metadata.get("gemini_think_mode"))
+        if not think_mode:
+            return options
+        normalized = _normalize_gemini_think_mode(think_mode, model)
+        thinking_config: dict[str, Any]
+        if model == "gemini-3-pro-preview":
+            thinking_config = {"thinkingLevel": normalized}
+        elif normalized == "off":
+            thinking_config = {"thinkingLevel": "minimal"}
+        else:
+            thinking_config = {"thinkingLevel": normalized}
+        if normalized != "off":
+            thinking_config["includeThoughts"] = True
+        options["thinkingConfig"] = thinking_config
+        options.pop("thinking_config", None)
+        return options
+
+    if provider == "anthropic":
+        model = _optional_text(body.get("model")).lower()
+        think_mode = _optional_text(metadata.get("anthropicThinkMode") or metadata.get("anthropic_think_mode"))
+        normalized = _normalize_anthropic_think_mode(think_mode, model)
+        if not _anthropic_model_supports_think_mode(model):
+            options.pop("thinking", None)
+            options.pop("output_config", None)
+            options.pop("outputConfig", None)
+            return options
+        if not think_mode or normalized == "off":
+            options["thinking"] = {"type": "disabled"}
+            options.pop("output_config", None)
+            options.pop("outputConfig", None)
+            return options
+        output_config = dict(options.get("output_config")) if isinstance(options.get("output_config"), dict) else {}
+        options["thinking"] = {"type": "adaptive", "display": "summarized"}
+        options["output_config"] = {**output_config, "effort": normalized}
+        options.pop("outputConfig", None)
+        return options
+
+    if provider != "deepseek":
+        return options
+
+    options.pop("_paper_notes_native_web_search", None)
+    options.pop("_paper_notes_provider_native_web_search", None)
+    think_mode = _optional_text(metadata.get("deepseekThinkMode") or metadata.get("deepseek_think_mode"))
+    if not think_mode:
+        return options
+
+    normalized = think_mode.strip().lower()
+    if normalized == "off":
+        options["thinking"] = {"type": "disabled"}
+        options.pop("reasoning_effort", None)
+        options.pop("reasoningEffort", None)
+    elif normalized in {"high", "max"}:
+        options["thinking"] = {"type": "enabled"}
+        options["reasoning_effort"] = normalized
+        options.pop("reasoningEffort", None)
+    return options
+
+
+def _session_metadata_updates(body: dict[str, Any]) -> dict[str, Any]:
+    metadata = body.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    updates: dict[str, Any] = {}
+    think_mode = _optional_text(metadata.get("deepseekThinkMode") or metadata.get("deepseek_think_mode"))
+    if think_mode:
+        normalized = think_mode.strip().lower()
+        updates["deepseekThinkMode"] = normalized if normalized in {"off", "high", "max"} else "off"
+    gpt_think_mode = _optional_text(metadata.get("gptThinkMode") or metadata.get("gpt_think_mode"))
+    if gpt_think_mode:
+        normalized = gpt_think_mode.strip().lower()
+        updates["gptThinkMode"] = normalized if normalized in {"off", "low", "medium", "high", "xhigh"} else "off"
+    gemini_think_mode = _optional_text(metadata.get("geminiThinkMode") or metadata.get("gemini_think_mode"))
+    if gemini_think_mode:
+        model = _optional_text(body.get("model")).lower()
+        updates["geminiThinkMode"] = _normalize_gemini_think_mode(gemini_think_mode, model)
+    anthropic_think_mode = _optional_text(metadata.get("anthropicThinkMode") or metadata.get("anthropic_think_mode"))
+    if anthropic_think_mode:
+        model = _optional_text(body.get("model")).lower()
+        updates["anthropicThinkMode"] = _normalize_anthropic_think_mode(anthropic_think_mode, model)
+    return updates
+
+
+def _normalize_gemini_think_mode(value: str, model: str = "") -> str:
+    normalized = value.strip().lower()
+    if model == "gemini-3-pro-preview":
+        return normalized if normalized in {"low", "high"} else "high"
+    if normalized in {"off", "low", "medium", "high"}:
+        return normalized
+    return "off"
+
+
+def _anthropic_model_supports_think_mode(model: str) -> bool:
+    return model in {"claude-opus-4-7", "claude-sonnet-4-6"}
+
+
+def _normalize_anthropic_think_mode(value: str, model: str = "") -> str:
+    normalized = value.strip().lower()
+    if model == "claude-opus-4-7":
+        if normalized in {"off", "low", "medium", "high", "xhigh", "max"}:
+            return normalized
+        return "medium"
+    if model == "claude-sonnet-4-6":
+        if normalized in {"off", "low", "medium", "high", "max"}:
+            return normalized
+        return "medium"
+    return "off"
 
 
 def _chat_attachments(value: Any) -> list[dict[str, Any]]:
@@ -1661,6 +1862,19 @@ def _debug_status_from_result(result: AgentServiceResult) -> str:
 def _debug_request_metadata(body: dict[str, Any]) -> dict[str, Any]:
     attachments = body.get("attachments")
     safe_attachments = []
+    request_metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    deepseek_think_mode = _optional_text(
+        request_metadata.get("deepseekThinkMode") or request_metadata.get("deepseek_think_mode")
+    )
+    gemini_think_mode = _optional_text(
+        request_metadata.get("geminiThinkMode") or request_metadata.get("gemini_think_mode")
+    )
+    gpt_think_mode = _optional_text(
+        request_metadata.get("gptThinkMode") or request_metadata.get("gpt_think_mode")
+    )
+    anthropic_think_mode = _optional_text(
+        request_metadata.get("anthropicThinkMode") or request_metadata.get("anthropic_think_mode")
+    )
     if isinstance(attachments, list):
         for attachment in attachments:
             if isinstance(attachment, dict):
@@ -1678,6 +1892,11 @@ def _debug_request_metadata(body: dict[str, Any]) -> dict[str, Any]:
         "writeToolMode": body.get("writeToolMode") or body.get("write_tool_mode"),
         "toolWriteModes": body.get("toolWriteModes") or body.get("tool_write_modes"),
         "maxTurns": body.get("maxTurns") or body.get("max_turns"),
+        "requestOptions": _request_options(body),
+        "deepseekThinkMode": deepseek_think_mode or None,
+        "gptThinkMode": gpt_think_mode or None,
+        "geminiThinkMode": gemini_think_mode or None,
+        "anthropicThinkMode": anthropic_think_mode or None,
         "attachments": safe_attachments,
         "imageGeneration": body.get("imageGeneration") or body.get("image_generation"),
         "editLatestUserMessage": body.get("editLatestUserMessage") or body.get("edit_latest_user_message"),

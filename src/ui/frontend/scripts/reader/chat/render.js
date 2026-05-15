@@ -50,7 +50,7 @@ function normalizeRunTrace(rawTrace) {
 
 function normalizeWorkTrace(rawTrace) {
   if (!rawTrace || typeof rawTrace !== "object") return null;
-  const items = Array.isArray(rawTrace.items)
+  const rawItems = Array.isArray(rawTrace.items)
     ? rawTrace.items.map((item) => ({
       type: normalizeText(item?.type) || "summary",
       text: sanitizeChatProgressDetail(item?.text || item?.detail),
@@ -58,11 +58,50 @@ function normalizeWorkTrace(rawTrace) {
       source: normalizeText(item?.source)
     })).filter((item) => item.text)
     : [];
+  const items = compactWorkTraceItems(rawItems);
   if (!items.length) return null;
   return {
     status: normalizeText(rawTrace.status) || "completed",
     items
   };
+}
+
+function compactWorkTraceItems(items) {
+  const compacted = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const type = normalizeText(item?.type) || "summary";
+    const text = sanitizeChatProgressDetail(item?.text || item?.detail);
+    if (!text) continue;
+    const source = normalizeText(item?.source);
+    const duplicateIndex = compacted.findIndex((existing) => (
+      existing.type === type
+      && existing.source === source
+      && existing.text === text
+    ));
+    if (duplicateIndex !== -1) continue;
+    const relatedIndex = ["summary", "commentary", "reasoning"].includes(type)
+      ? compacted.findLastIndex((existing) => (
+        existing.type === type
+        && existing.source === source
+        && workTraceTextsOverlap(existing.text, text)
+      ))
+      : -1;
+    if (relatedIndex !== -1) {
+      if (text.length >= compacted[relatedIndex].text.length) {
+        compacted[relatedIndex] = { ...item, type, text, source };
+      }
+      continue;
+    }
+    compacted.push({ ...item, type, text, source });
+  }
+  return compacted;
+}
+
+function workTraceTextsOverlap(first, second) {
+  const a = normalizeText(first);
+  const b = normalizeText(second);
+  if (!a || !b) return false;
+  return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
 }
 
 function safeChatLinkHref(rawHref) {
@@ -751,13 +790,14 @@ function renderChatProgress() {
       : [{ stage: progress.stage, detail: progress.detail }];
   const pendingApproval = pendingApprovalFromProgress(progress);
   const canCancel = ["queued", "running", "waiting"].includes(progress.status) && Boolean(progress.requestId || currentChatProgressRequestId());
+  const showSpinner = !["cancelled", "failed", "stopped"].includes(progress.status);
   return `
     <div class="ask-message ask-message-assistant ask-message-progress">
       <div class="ask-message-stack">
         <div class="ask-progress-card" role="status" aria-live="polite">
           <div class="ask-progress-header">
             <span class="ask-progress-copy">
-              <span class="ask-progress-spinner" aria-hidden="true"></span>
+              ${showSpinner ? `<span class="ask-progress-spinner" aria-hidden="true"></span>` : ""}
               <strong>${escapeHtml(progress.detail)}</strong>
             </span>
             ${canCancel ? `<button class="ask-progress-cancel" type="button" data-chat-cancel>Cancel</button>` : ""}

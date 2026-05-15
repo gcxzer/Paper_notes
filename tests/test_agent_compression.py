@@ -68,8 +68,18 @@ def test_compression_defaults_use_project_thresholds():
 
 
 def test_context_length_resolution_uses_hermes_provider_fallbacks():
-    assert resolve_context_length_for_model("codex-oauth", "gpt-5.5") == 272_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.5") == 400_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4-mini") == 400_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4") == 272_000
     assert resolve_context_length_for_model("openai", "gpt-5.5") == 1_050_000
+    assert resolve_context_length_for_model("openai", "gpt-5.4-mini") == 400_000
+    assert resolve_context_length_for_model("anthropic", "claude-opus-4-7") == 1_000_000
+    assert resolve_context_length_for_model("anthropic", "claude-sonnet-4-6") == 1_000_000
+    assert resolve_context_length_for_model("anthropic", "claude-haiku-4-5-20251001") == 200_000
+    assert resolve_context_length_for_model("gemini", "gemini-3.1-pro-preview") == 1_048_576
+    assert resolve_context_length_for_model("gemini", "gemini-2.5-flash-lite") == 1_048_576
+    assert resolve_context_length_for_model("deepseek", "deepseek-v4-flash") == 1_000_000
+    assert resolve_context_length_for_model("deepseek", "deepseek-v4-pro") == 1_000_000
     assert resolve_context_length_for_model("openai", "unknown-model") == DEFAULT_FALLBACK_CONTEXT_LENGTH
 
 

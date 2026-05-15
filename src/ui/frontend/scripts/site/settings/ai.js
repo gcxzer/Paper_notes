@@ -47,57 +47,164 @@ function isCodexProvider(provider = state.aiSettings?.provider) {
   return normalizeText(provider) === "codex-oauth";
 }
 
+function isGeminiProvider(provider = state.aiSettings?.provider) {
+  return normalizeText(provider) === "gemini";
+}
+
+function isAnthropicProvider(provider = state.aiSettings?.provider) {
+  return normalizeText(provider) === "anthropic";
+}
+
+function isDeepSeekProvider(provider = state.aiSettings?.provider) {
+  return normalizeText(provider) === "deepseek";
+}
+
+function normalizeAiProvider(provider) {
+  const value = normalizeText(provider);
+  if (isCodexProvider(value)) return "codex-oauth";
+  if (isAnthropicProvider(value) || value === "claude") return "anthropic";
+  if (isGeminiProvider(value)) return "gemini";
+  if (isDeepSeekProvider(value)) return "deepseek";
+  return "openai";
+}
+
+function aiProviderProfile(provider) {
+  const target = normalizeAiProvider(provider);
+  const providers = Array.isArray(state.aiProviderCatalog?.providers) ? state.aiProviderCatalog.providers : [];
+  return providers.find((profile) => normalizeAiProvider(profile?.name) === target) || null;
+}
+
 function openAiProviderConfigured(settings = state.aiSettings) {
+  const profile = aiProviderProfile("openai");
+  if (profile) return Boolean(profile.configured);
   const normalized = settings || normalizeAiSettings({});
   return Boolean(
     normalized.localKeyConfigured
     || normalized.environmentKeyConfigured
-    || (!isCodexProvider(normalized.provider) && normalized.configured)
+    || (normalizeAiProvider(normalized.provider) === "openai" && normalized.configured)
   );
 }
 
 function codexProviderConfigured(settings = state.aiSettings) {
+  const profile = aiProviderProfile("codex-oauth");
+  if (profile) return Boolean(profile.configured);
   return Boolean((settings || normalizeAiSettings({})).codexAuth.loggedIn);
 }
 
+function geminiProviderConfigured(settings = state.aiSettings) {
+  const profile = aiProviderProfile("gemini");
+  if (profile) return Boolean(profile.configured);
+  const normalized = settings || normalizeAiSettings({});
+  return Boolean(isGeminiProvider(normalized.provider) && normalized.configured);
+}
+
+function anthropicProviderConfigured(settings = state.aiSettings) {
+  const profile = aiProviderProfile("anthropic");
+  if (profile) return Boolean(profile.configured);
+  const normalized = settings || normalizeAiSettings({});
+  return Boolean(isAnthropicProvider(normalized.provider) && normalized.configured);
+}
+
+function deepSeekProviderConfigured(settings = state.aiSettings) {
+  const profile = aiProviderProfile("deepseek");
+  if (profile) return Boolean(profile.configured);
+  const normalized = settings || normalizeAiSettings({});
+  return Boolean(isDeepSeekProvider(normalized.provider) && normalized.configured);
+}
+
+function providerLocalKeyConfigured(provider, settings = state.aiSettings) {
+  const normalizedProvider = normalizeAiProvider(provider);
+  const profile = aiProviderProfile(normalizedProvider);
+  if (profile) return Boolean(profile.localKeyConfigured);
+  const normalized = settings || normalizeAiSettings({});
+  return Boolean(normalized.provider === normalizedProvider && normalized.localKeyConfigured);
+}
+
 function providerDisplayName(provider) {
-  return isCodexProvider(provider) ? "Codex OAuth" : "OpenAI API key";
+  if (isCodexProvider(provider)) return "Codex OAuth";
+  if (isAnthropicProvider(provider)) return "Anthropic";
+  if (isGeminiProvider(provider)) return "Google Gemini";
+  if (isDeepSeekProvider(provider)) return "DeepSeek";
+  return "OpenAI API key";
+}
+
+function sortedAiProviders() {
+  return ["openai", "codex-oauth", "anthropic", "gemini", "deepseek"]
+    .sort((a, b) => providerDisplayName(a).localeCompare(providerDisplayName(b), undefined, { sensitivity: "base" }));
+}
+
+function aiProviderPanel(provider) {
+  if (isAnthropicProvider(provider)) return elements.anthropicSettingsPanel;
+  if (isCodexProvider(provider)) return elements.codexSettingsPanel;
+  if (isDeepSeekProvider(provider)) return elements.deepSeekSettingsPanel;
+  if (isGeminiProvider(provider)) return elements.geminiSettingsPanel;
+  return elements.openAiSettingsPanel;
+}
+
+function orderAiProviderPanels() {
+  const parent = elements.openAiSettingsPanel?.parentElement;
+  if (!parent) return;
+  sortedAiProviders().forEach((provider) => {
+    const panel = aiProviderPanel(provider);
+    if (panel) parent.appendChild(panel);
+  });
+}
+
+function providerKeyName(provider) {
+  if (isAnthropicProvider(provider)) return "Anthropic";
+  if (isGeminiProvider(provider)) return "Gemini";
+  if (isDeepSeekProvider(provider)) return "DeepSeek";
+  return "OpenAI";
 }
 
 function providerStatusLabel(provider, settings = state.aiSettings) {
   if (isCodexProvider(provider)) {
     return codexProviderConfigured(settings) ? "connected" : "not connected";
   }
+  if (isGeminiProvider(provider)) {
+    return geminiProviderConfigured(settings) ? "key configured" : "key not configured";
+  }
+  if (isAnthropicProvider(provider)) {
+    return anthropicProviderConfigured(settings) ? "key configured" : "key not configured";
+  }
+  if (isDeepSeekProvider(provider)) {
+    return deepSeekProviderConfigured(settings) ? "key configured" : "key not configured";
+  }
   return openAiProviderConfigured(settings) ? "key configured" : "key not configured";
 }
 
 function renderDefaultProviderOptions(provider, settings) {
   if (!elements.aiProviderInput) return;
-  const selectedProvider = isCodexProvider(provider) ? "codex-oauth" : "openai";
-  const options = [
-    {
-      value: "openai",
-      label: `OpenAI API key (${providerStatusLabel("openai", settings)})`
-    },
-    {
-      value: "codex-oauth",
-      label: `Codex OAuth (${providerStatusLabel("codex-oauth", settings)})`
-    }
-  ];
+  const selectedProvider = normalizeAiProvider(provider);
+  const options = sortedAiProviders().map((value) => ({
+    value,
+    label: `${providerDisplayName(value)} (${providerStatusLabel(value, settings)})`
+  }));
   elements.aiProviderInput.innerHTML = options.map((option) => (
     `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`
   )).join("");
   elements.aiProviderInput.value = selectedProvider;
 }
 
+function selectedAiProvider(settings = state.aiSettings) {
+  return normalizeAiProvider(elements.aiProviderInput?.value || settings?.provider);
+}
+
 function hasModelConnection(settings = state.aiSettings) {
   const normalized = settings || normalizeAiSettings({});
   if (normalized.modelConnectionConfigured) return true;
+  if (state.aiProviderCatalog?.modelConnectionConfigured) return true;
   const hasOpenAiConnection = openAiProviderConfigured(normalized)
+    && (normalized.modelConfigured || normalized.localModelConfigured || normalized.environmentModelConfigured);
+  const hasAnthropicConnection = anthropicProviderConfigured(normalized)
+    && (normalized.modelConfigured || normalized.localModelConfigured || normalized.environmentModelConfigured);
+  const hasGeminiConnection = geminiProviderConfigured(normalized)
+    && (normalized.modelConfigured || normalized.localModelConfigured || normalized.environmentModelConfigured);
+  const hasDeepSeekConnection = deepSeekProviderConfigured(normalized)
     && (normalized.modelConfigured || normalized.localModelConfigured || normalized.environmentModelConfigured);
   const hasCodexConnection = normalized.codexAuth.loggedIn
     && (isCodexProvider(normalized.provider) ? normalized.modelConfigured : false);
-  return Boolean(hasOpenAiConnection || hasCodexConnection);
+  return Boolean(hasOpenAiConnection || hasAnthropicConnection || hasGeminiConnection || hasDeepSeekConnection || hasCodexConnection);
 }
 
 function renderModelConnectionStatus() {
@@ -112,18 +219,45 @@ function setAiSettingsError(message = "") {
   elements.aiSettingsError.hidden = !message;
 }
 
+function setAiKeyDialogError(message = "") {
+  if (!elements.providerKeyDialogError) return;
+  elements.providerKeyDialogError.textContent = message;
+  elements.providerKeyDialogError.hidden = !message;
+}
+
+function setAiKeyVisibility(visible) {
+  state.aiKeyVisible = Boolean(visible);
+  if (elements.aiKeyInput) {
+    elements.aiKeyInput.type = state.aiKeyVisible ? "text" : "password";
+  }
+  if (elements.toggleAiKeyVisibilityButton) {
+    elements.toggleAiKeyVisibilityButton.classList.toggle("is-visible", state.aiKeyVisible);
+    elements.toggleAiKeyVisibilityButton.setAttribute("aria-pressed", state.aiKeyVisible ? "true" : "false");
+    elements.toggleAiKeyVisibilityButton.setAttribute("aria-label", state.aiKeyVisible ? "Hide key" : "Show key");
+  }
+}
+
+function toggleAiKeyVisibility() {
+  setAiKeyVisibility(!state.aiKeyVisible);
+  elements.aiKeyInput?.focus({ preventScroll: true });
+}
+
 function renderAiSettings() {
   if (!elements.aiSettingsDialog) return;
+  orderAiProviderPanels();
   renderModelConnectionStatus();
   const settings = state.aiSettings || normalizeAiSettings({});
-  const provider = normalizeText(elements.aiProviderInput?.value || settings.provider || "openai");
+  const provider = selectedAiProvider(settings);
   const openAiKeyConfigured = openAiProviderConfigured(settings);
   const codexConfigured = codexProviderConfigured(settings);
+  const anthropicKeyConfigured = anthropicProviderConfigured(settings);
+  const geminiKeyConfigured = geminiProviderConfigured(settings);
+  const deepSeekKeyConfigured = deepSeekProviderConfigured(settings);
   const modelConfigured = hasModelConnection(settings);
-  const credentialsLabel = [
-    openAiKeyConfigured ? `OpenAI key from ${settingsSourceLabel(settings.keySource)}` : "OpenAI key not configured",
-    codexConfigured ? "Codex OAuth connected" : "Codex OAuth not connected"
-  ].join(" · ");
+  const connectedCount = [openAiKeyConfigured, codexConfigured, anthropicKeyConfigured, geminiKeyConfigured, deepSeekKeyConfigured].filter(Boolean).length;
+  const defaultLabel = providerDisplayName(provider);
+  const keyEditingProvider = normalizeAiProvider(state.aiKeyEditingProvider);
+  const keyDialogOpen = Boolean(state.aiKeyEditingProvider);
 
   if (state.aiSettingsLoading) {
     elements.aiSettingsStatus.innerHTML = `
@@ -134,41 +268,103 @@ function renderAiSettings() {
     elements.aiSettingsStatus.classList.toggle("is-ready", modelConfigured);
     elements.aiSettingsStatus.classList.toggle("is-missing", !modelConfigured);
     elements.aiSettingsStatus.innerHTML = `
-      <strong>${modelConfigured ? "Model configured" : "Model not configured"}</strong>
-      <span>${escapeHtml(credentialsLabel)}</span>
+      <strong>${escapeHtml(defaultLabel)}</strong>
+      <span>${modelConfigured ? "Ready" : "Not ready"} · ${connectedCount} connected</span>
     `;
   }
 
   renderDefaultProviderOptions(provider, settings);
-  elements.openAiKeyTitle.textContent = openAiKeyConfigured
-    ? "OpenAI API key configured"
-    : "OpenAI API key not configured";
-  elements.openAiKeyDetail.textContent = state.aiKeyEditing
-    ? "Paste a local key below, then save."
-    : openAiKeyConfigured
-    ? settings.environmentKeyConfigured
+  const openAiDefault = provider === "openai";
+  const codexDefault = provider === "codex-oauth";
+  const anthropicDefault = provider === "anthropic";
+  const geminiDefault = provider === "gemini";
+  const deepSeekDefault = provider === "deepseek";
+  elements.openAiSettingsPanel?.classList.toggle("is-default", openAiDefault);
+  elements.codexSettingsPanel?.classList.toggle("is-default", codexDefault);
+  elements.anthropicSettingsPanel?.classList.toggle("is-default", anthropicDefault);
+  elements.geminiSettingsPanel?.classList.toggle("is-default", geminiDefault);
+  elements.deepSeekSettingsPanel?.classList.toggle("is-default", deepSeekDefault);
+  elements.openAiDefaultBadge.hidden = !openAiDefault;
+  elements.codexDefaultBadge.hidden = !codexDefault;
+  elements.anthropicDefaultBadge.hidden = !anthropicDefault;
+  elements.geminiDefaultBadge.hidden = !geminiDefault;
+  elements.deepSeekDefaultBadge.hidden = !deepSeekDefault;
+  elements.setOpenAiDefaultButton.hidden = openAiDefault || !openAiKeyConfigured;
+  elements.setCodexDefaultButton.hidden = codexDefault || !codexConfigured;
+  elements.setAnthropicDefaultButton.hidden = anthropicDefault || !anthropicKeyConfigured;
+  elements.setGeminiDefaultButton.hidden = geminiDefault || !geminiKeyConfigured;
+  elements.setDeepSeekDefaultButton.hidden = deepSeekDefault || !deepSeekKeyConfigured;
+  elements.setOpenAiDefaultButton.disabled = state.aiSettingsLoading;
+  elements.setCodexDefaultButton.disabled = state.aiSettingsLoading;
+  elements.setAnthropicDefaultButton.disabled = state.aiSettingsLoading;
+  elements.setGeminiDefaultButton.disabled = state.aiSettingsLoading;
+  elements.setDeepSeekDefaultButton.disabled = state.aiSettingsLoading;
+  elements.openAiKeyTitle.textContent = "OpenAI API key";
+  elements.openAiKeyDetail.textContent = openAiKeyConfigured
+    ? settings.provider === "openai" && settings.environmentKeyConfigured
       ? "An environment key is active. Save a local key only if you want a local fallback."
-      : "A local key is saved. Use Replace key to update it."
+      : "A local key is saved."
     : "Add a local key to enable OpenAI.";
-  elements.openAiKeyField.hidden = !state.aiKeyEditing;
-  elements.addAiKeyButton.hidden = state.aiKeyEditing;
   elements.addAiKeyButton.textContent = openAiKeyConfigured ? "Replace key" : "Add key";
-  elements.codexSettingsPanel.hidden = false;
-  elements.deleteAiKeyButton.hidden = !settings.localKeyConfigured || state.aiKeyEditing;
+  elements.deleteAiKeyButton.hidden = !providerLocalKeyConfigured("openai", settings);
+  elements.anthropicKeyTitle.textContent = "Anthropic";
+  elements.anthropicKeyDetail.textContent = anthropicKeyConfigured
+    ? settings.provider === "anthropic" && settings.environmentKeyConfigured
+      ? "An environment key is active. Save a local key only if you want a local fallback."
+      : "An Anthropic key is saved."
+    : "Add an Anthropic API key to enable Claude.";
+  elements.addAnthropicKeyButton.textContent = anthropicKeyConfigured ? "Replace key" : "Add key";
+  elements.deleteAnthropicKeyButton.hidden = !providerLocalKeyConfigured("anthropic", settings);
+  elements.geminiKeyTitle.textContent = "Google Gemini";
+  elements.geminiKeyDetail.textContent = geminiKeyConfigured
+    ? settings.provider === "gemini" && settings.environmentKeyConfigured
+      ? "An environment key is active. Save a local key only if you want a local fallback."
+      : "A Gemini key is saved."
+    : "Add a Gemini API key to enable Google Gemini.";
+  elements.addGeminiKeyButton.textContent = geminiKeyConfigured ? "Replace key" : "Add key";
+  elements.deleteGeminiKeyButton.hidden = !providerLocalKeyConfigured("gemini", settings);
+  elements.deepSeekKeyTitle.textContent = "DeepSeek";
+  elements.deepSeekKeyDetail.textContent = deepSeekKeyConfigured
+    ? settings.provider === "deepseek" && settings.environmentKeyConfigured
+      ? "An environment key is active. Save a local key only if you want a local fallback."
+      : "A DeepSeek key is saved."
+    : "Add a DeepSeek API key to enable DeepSeek.";
+  elements.addDeepSeekKeyButton.textContent = deepSeekKeyConfigured ? "Replace key" : "Add key";
+  elements.deleteDeepSeekKeyButton.hidden = !providerLocalKeyConfigured("deepseek", settings);
+  elements.providerKeyDialog.hidden = !keyDialogOpen;
+  const keyEditButton = keyEditingProvider === "gemini"
+    ? elements.addGeminiKeyButton
+    : keyEditingProvider === "anthropic"
+      ? elements.addAnthropicKeyButton
+      : keyEditingProvider === "deepseek"
+        ? elements.addDeepSeekKeyButton
+        : elements.addAiKeyButton;
+  elements.providerKeyDialogTitle.textContent = `${keyEditButton.textContent} for ${providerDisplayName(keyEditingProvider)}`;
+  elements.providerKeyDialogDetail.textContent = keyEditingProvider === "gemini"
+    ? "Paste your Gemini API key. It will be stored locally."
+    : keyEditingProvider === "anthropic"
+      ? "Paste your Anthropic API key. It will be stored locally."
+      : keyEditingProvider === "deepseek"
+        ? "Paste your DeepSeek API key. It will be stored locally."
+        : "Paste your OpenAI API key. It will be stored locally.";
+  elements.aiKeyInput.placeholder = keyEditingProvider === "gemini"
+    ? "Paste Gemini API key"
+    : keyEditingProvider === "anthropic"
+      ? "Paste Anthropic API key"
+      : keyEditingProvider === "deepseek"
+        ? "Paste DeepSeek API key"
+        : "Paste OpenAI API key";
+  setAiKeyVisibility(keyDialogOpen && state.aiKeyVisible);
   elements.connectCodexButton.hidden = settings.codexAuth.loggedIn;
   elements.logoutCodexButton.hidden = !settings.codexAuth.loggedIn;
 
   const flow = state.codexAuthFlow;
-  elements.codexAuthTitle.textContent = settings.codexAuth.loggedIn
-    ? "Codex OAuth connected"
-    : flow ? "Complete Codex sign-in"
-    : "Codex OAuth not connected";
+  elements.codexAuthTitle.textContent = flow && !settings.codexAuth.loggedIn ? "Complete Codex sign-in" : "Codex OAuth";
   elements.codexAuthDetail.textContent = settings.codexAuth.loggedIn
     ? [
         settings.codexAuth.accountEmail,
         settings.codexAuth.planType ? `Plan: ${settings.codexAuth.planType}` : "",
-        settings.codexAuth.lastRefresh ? `Last refresh: ${settings.codexAuth.lastRefresh}` : ""
-      ].filter(Boolean).join(" · ") || "Local Codex OAuth credentials are present."
+      ].filter(Boolean).join(" · ") || "Signed in locally."
     : flow
       ? "Open the Codex sign-in page, enter the code below, then keep this dialog open. Cancel here if you closed the sign-in page."
       : "Connect with your ChatGPT/Codex account. The token is stored locally and is never sent to the frontend.";
@@ -176,13 +372,18 @@ function renderAiSettings() {
   elements.codexAuthCode.textContent = flow ? flow.userCode : "";
   elements.codexAuthLink.hidden = !flow || settings.codexAuth.loggedIn || !safeLinkHref(flow.verificationUri);
   elements.codexAuthLink.href = flow ? safeLinkHref(flow.verificationUri) || "#" : "#";
-  elements.aiSettingsSource.textContent = [
-    `Local settings are stored in ${settings.localSecretsPath}.`,
-    `Codex auth uses ${settings.codexAuth.authStorePath}.`
-  ].join(" ");
+  elements.aiSettingsSource.textContent = "Image generation is currently only available through OpenAI API key and Codex OAuth providers.";
   elements.saveAiSettings.disabled = state.aiSettingsLoading;
   elements.addAiKeyButton.disabled = state.aiSettingsLoading;
   elements.deleteAiKeyButton.disabled = state.aiSettingsLoading;
+  elements.cancelAiKeyEditButton.disabled = state.aiSettingsLoading;
+  elements.confirmAiKeyEditButton.disabled = state.aiSettingsLoading;
+  elements.addAnthropicKeyButton.disabled = state.aiSettingsLoading;
+  elements.deleteAnthropicKeyButton.disabled = state.aiSettingsLoading;
+  elements.addGeminiKeyButton.disabled = state.aiSettingsLoading;
+  elements.deleteGeminiKeyButton.disabled = state.aiSettingsLoading;
+  elements.addDeepSeekKeyButton.disabled = state.aiSettingsLoading;
+  elements.deleteDeepSeekKeyButton.disabled = state.aiSettingsLoading;
   elements.connectCodexButton.textContent = state.codexAuthFlow
     ? "Cancel sign-in"
     : state.codexAuthStarting ? "Starting" : "Connect";
@@ -195,10 +396,15 @@ async function loadAiSettings() {
   renderModelConnectionStatus();
   renderAiSettings();
   try {
-    const payload = await fetchJson("/api/settings/ai");
+    const [payload, providerCatalog] = await Promise.all([
+      fetchJson("/api/settings/ai"),
+      fetchJson("/api/model/providers")
+    ]);
     state.aiSettings = normalizeAiSettings(payload);
+    state.aiProviderCatalog = providerCatalog || null;
     elements.aiProviderInput.value = state.aiSettings.provider;
     elements.aiKeyInput.value = "";
+    setAiKeyVisibility(false);
     setAiSettingsError("");
   } catch (error) {
     setAiSettingsError(error.message || "Could not load AI provider settings.");
@@ -213,77 +419,161 @@ async function loadAiSettings() {
 async function openAiSettingsDialog() {
   closeSettingsMenu();
   setAiSettingsError("");
-  state.aiKeyEditing = false;
+  setAiKeyDialogError("");
+  state.aiKeyEditingProvider = "";
   elements.aiKeyInput.value = "";
+  setAiKeyVisibility(false);
   elements.aiProviderInput.value = state.aiSettings?.provider || "openai";
   elements.aiSettingsDialog.showModal();
   renderAiSettings();
   await loadAiSettings();
-  elements.aiProviderInput.focus();
+  elements.aiSettingsForm?.focus({ preventScroll: true });
 }
 
 function closeAiSettingsDialog() {
   setAiSettingsError("");
-  state.aiKeyEditing = false;
+  setAiKeyDialogError("");
+  state.aiKeyEditingProvider = "";
   elements.aiKeyInput.value = "";
+  setAiKeyVisibility(false);
   stopCodexAuthPolling();
   elements.aiSettingsDialog.close();
   clearSettingsPanelUrl();
 }
 
-function startAiKeyEdit() {
-  state.aiKeyEditing = true;
+function startAiKeyEdit(provider = "openai") {
+  state.aiKeyEditingProvider = normalizeAiProvider(provider);
   elements.aiKeyInput.value = "";
+  setAiKeyVisibility(false);
   setAiSettingsError("");
+  setAiKeyDialogError("");
   renderAiSettings();
   requestAnimationFrame(() => elements.aiKeyInput?.focus());
 }
 
-async function saveAiSettings() {
+function cancelAiKeyEdit() {
+  state.aiKeyEditingProvider = "";
+  elements.aiKeyInput.value = "";
+  setAiKeyVisibility(false);
+  setAiSettingsError("");
+  setAiKeyDialogError("");
+  renderAiSettings();
+}
+
+async function confirmAiKeyEdit(provider = state.aiKeyEditingProvider) {
+  const editingProvider = normalizeAiProvider(provider);
+  const keyInput = elements.aiKeyInput;
+  if (!normalizeText(keyInput?.value)) {
+    setAiKeyDialogError("Paste a key before saving.");
+    keyInput?.focus();
+    return;
+  }
+  setAiKeyDialogError("");
+  await saveAiSettings({ closeDialog: false, keyProvider: editingProvider });
+}
+
+async function saveAiSettings(options = {}) {
+  const { closeDialog = true, keyProvider = state.aiKeyEditingProvider } = options;
   const body = {
     provider: normalizeText(elements.aiProviderInput.value || "openai")
   };
-  const apiKey = normalizeText(elements.aiKeyInput.value);
-  if (apiKey) body.apiKey = apiKey;
+  const editingProvider = normalizeAiProvider(keyProvider);
+  const keyInput = elements.aiKeyInput;
+  const apiKey = keyProvider ? normalizeText(keyInput?.value) : "";
+  if (apiKey) {
+    body.apiKey = apiKey;
+    body.apiKeyProvider = editingProvider;
+  }
 
   elements.saveAiSettings.disabled = true;
   elements.deleteAiKeyButton.disabled = true;
+  elements.deleteAnthropicKeyButton.disabled = true;
+  elements.deleteGeminiKeyButton.disabled = true;
+  elements.deleteDeepSeekKeyButton.disabled = true;
+  elements.confirmAiKeyEditButton.disabled = true;
   try {
     const payload = await fetchJson("/api/settings/ai", { method: "POST", body });
     state.aiSettings = normalizeAiSettings(payload);
     elements.aiProviderInput.value = state.aiSettings.provider;
     elements.aiKeyInput.value = "";
-    state.aiKeyEditing = false;
+    state.aiKeyEditingProvider = "";
+    setAiKeyVisibility(false);
     setAiSettingsError("");
-    await loadToolSettings();
+    setAiKeyDialogError("");
     renderAiSettings();
-    closeAiSettingsDialog();
+    try {
+      await loadAiSettings();
+      await loadToolSettings();
+    } catch (refreshError) {
+      console.error(refreshError);
+      setAiSettingsError("Key saved, but provider status could not refresh. Reopen AI Provider settings to check it.");
+    }
+    if (closeDialog) {
+      closeAiSettingsDialog();
+    }
   } catch (error) {
-    setAiSettingsError(error.message || "Could not save AI provider settings.");
+    if (keyProvider) {
+      setAiKeyDialogError(error.message || "Could not save this API key.");
+      elements.aiKeyInput?.focus();
+    } else {
+      setAiSettingsError(error.message || "Could not save AI provider settings.");
+    }
     console.error(error);
   } finally {
     elements.saveAiSettings.disabled = false;
     elements.deleteAiKeyButton.disabled = false;
+    elements.deleteAnthropicKeyButton.disabled = false;
+    elements.deleteGeminiKeyButton.disabled = false;
+    elements.deleteDeepSeekKeyButton.disabled = false;
+    elements.confirmAiKeyEditButton.disabled = false;
   }
 }
 
-async function deleteAiKey() {
-  if (!state.aiSettings?.localKeyConfigured) return;
-  state.aiKeyEditing = false;
+async function deleteAiKey(provider = "openai") {
+  const normalizedProvider = normalizeAiProvider(provider);
+  if (!providerLocalKeyConfigured(normalizedProvider)) return;
+  openConfirmDialog({
+    eyebrow: "AI Provider",
+    title: `Delete ${providerKeyName(normalizedProvider)} key?`,
+    body: "This removes the local API key from Paper Notes.",
+    actionLabel: "Delete key",
+    danger: true,
+    action: () => {
+      void performDeleteAiKey(normalizedProvider);
+    }
+  });
+}
+
+async function performDeleteAiKey(provider = "openai") {
+  const normalizedProvider = normalizeAiProvider(provider);
+  if (!providerLocalKeyConfigured(normalizedProvider)) return;
+  state.aiKeyEditingProvider = "";
   elements.aiKeyInput.value = "";
-  elements.deleteAiKeyButton.disabled = true;
+  setAiKeyVisibility(false);
+  const deleteButton = normalizedProvider === "gemini"
+    ? elements.deleteGeminiKeyButton
+    : normalizedProvider === "anthropic"
+      ? elements.deleteAnthropicKeyButton
+      : normalizedProvider === "deepseek"
+        ? elements.deleteDeepSeekKeyButton
+        : elements.deleteAiKeyButton;
+  deleteButton.disabled = true;
   try {
-    const payload = await fetchJson("/api/settings/ai/key", { method: "DELETE" });
+    const payload = await fetchJson(`/api/settings/ai/key?provider=${encodeURIComponent(normalizedProvider)}`, {
+      method: "DELETE"
+    });
     state.aiSettings = normalizeAiSettings(payload);
     elements.aiProviderInput.value = state.aiSettings.provider;
     elements.aiKeyInput.value = "";
+    setAiKeyVisibility(false);
+    await loadAiSettings();
     setAiSettingsError("");
     renderAiSettings();
   } catch (error) {
     setAiSettingsError(error.message || "Could not delete the local key.");
     console.error(error);
   } finally {
-    elements.deleteAiKeyButton.disabled = false;
+    deleteButton.disabled = false;
   }
 }
 
@@ -291,6 +581,31 @@ function handleAiProviderChange() {
   stopCodexAuthPolling();
   setAiSettingsError("");
   renderAiSettings();
+}
+
+function selectDefaultAiProvider(provider) {
+  const nextProvider = normalizeAiProvider(provider);
+  if (elements.aiProviderInput) elements.aiProviderInput.value = nextProvider;
+  stopCodexAuthPolling();
+  setAiSettingsError("");
+  renderAiSettings();
+}
+
+function handleAiSettingsKeydown(event) {
+  if (event.key === "Enter" && state.aiKeyEditingProvider && event.target === elements.aiKeyInput) {
+    event.preventDefault();
+    event.stopPropagation();
+    void confirmAiKeyEdit();
+    return;
+  }
+  if (event.key !== " ") return;
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    return;
+  }
+  if (target === elements.aiSettingsForm || target === elements.aiSettingsDialog) {
+    event.preventDefault();
+  }
 }
 
 async function startCodexLogin() {
@@ -386,6 +701,19 @@ async function pollCodexLogin() {
 }
 
 async function logoutCodex() {
+  openConfirmDialog({
+    eyebrow: "AI Provider",
+    title: "Log out of Codex OAuth?",
+    body: "This removes the local Codex OAuth credentials from Paper Notes.",
+    actionLabel: "Log out",
+    danger: true,
+    action: () => {
+      void performLogoutCodex();
+    }
+  });
+}
+
+async function performLogoutCodex() {
   stopCodexAuthPolling();
   elements.logoutCodexButton.disabled = true;
   try {
@@ -405,4 +733,3 @@ async function logoutCodex() {
     elements.logoutCodexButton.disabled = false;
   }
 }
-

@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "note-drag-persist-v1";
+const READER_SCRIPT_VERSION = "provider-native-search-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/note/app.js?v=annotations-v6",

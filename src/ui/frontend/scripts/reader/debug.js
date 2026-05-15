@@ -45,8 +45,74 @@ function debugRunTitle(run) {
 
 function debugRunSummary(run) {
   const model = [run.provider, run.model].filter(Boolean).join(" / ") || "No model";
+  const thinkMode = debugRunThinkSummary(run);
   const duration = run.durationMs ? formatRunTraceDuration(run.durationMs) : "";
-  return [model, run.transport, duration].filter(Boolean).join(" · ");
+  return [model, thinkMode, duration].filter(Boolean).join(" · ");
+}
+
+function debugRunThinkSummary(run) {
+  const provider = normalizeText(run?.provider).toLowerCase();
+  const model = normalizeText(run?.model).toLowerCase();
+  const metadata = run?.metadata && typeof run.metadata === "object" ? run.metadata : {};
+  const requestOptions = metadata.requestOptions && typeof metadata.requestOptions === "object" ? metadata.requestOptions : {};
+  const reasoning = requestOptions.reasoning && typeof requestOptions.reasoning === "object" ? requestOptions.reasoning : {};
+  const gptMode = normalizeText(metadata.gptThinkMode || metadata.gpt_think_mode).toLowerCase();
+  const gptEffort = normalizeText(reasoning.effort).toLowerCase();
+  if (provider === "openai" || provider === "codex-oauth") {
+    const effort = gptMode || (gptEffort === "none" ? "off" : gptEffort);
+    if (effort === "off" || effort === "none") return "Think off";
+    if (["low", "medium", "high", "xhigh"].includes(effort)) return `Think ${debugThinkLabel(effort)}`;
+    return "";
+  }
+  if (provider === "gemini") {
+    const geminiMode = normalizeText(metadata.geminiThinkMode || metadata.gemini_think_mode).toLowerCase();
+    const thinkingConfig = requestOptions.thinkingConfig && typeof requestOptions.thinkingConfig === "object"
+      ? requestOptions.thinkingConfig
+      : requestOptions.thinking_config && typeof requestOptions.thinking_config === "object"
+        ? requestOptions.thinking_config
+        : {};
+    const level = normalizeText(thinkingConfig.thinkingLevel || thinkingConfig.thinking_level).toLowerCase();
+    const effort = geminiMode || (level === "minimal" ? "off" : level);
+    if (effort === "off" || effort === "minimal") return "Think off";
+    if (["low", "medium", "high"].includes(effort)) return `Think ${debugThinkLabel(effort)}`;
+    return "";
+  }
+  if (provider === "anthropic") {
+    const anthropicMode = normalizeText(metadata.anthropicThinkMode || metadata.anthropic_think_mode).toLowerCase();
+    const thinking = requestOptions.thinking && typeof requestOptions.thinking === "object" ? requestOptions.thinking : {};
+    const outputConfig = requestOptions.output_config && typeof requestOptions.output_config === "object"
+      ? requestOptions.output_config
+      : requestOptions.outputConfig && typeof requestOptions.outputConfig === "object"
+        ? requestOptions.outputConfig
+        : {};
+    const thinkingType = normalizeText(thinking.type).toLowerCase();
+    if (anthropicMode === "off" || thinkingType === "disabled") return "Think off";
+    const effort = anthropicMode || normalizeText(outputConfig.effort).toLowerCase();
+    if (["low", "medium", "high", "xhigh", "max"].includes(effort)) return `Think ${debugThinkLabel(effort)}`;
+    if (thinkingType === "adaptive") return "Think on";
+    return "";
+  }
+  const thinking = requestOptions.thinking && typeof requestOptions.thinking === "object" ? requestOptions.thinking : {};
+  const explicitMode = normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode).toLowerCase();
+  const reasoningEffort = normalizeText(requestOptions.reasoning_effort || requestOptions.reasoningEffort).toLowerCase();
+  const thinkingType = normalizeText(thinking.type).toLowerCase();
+  const hasThinkSignal = Boolean(explicitMode || reasoningEffort || thinkingType);
+  if (provider !== "deepseek" || (!model.includes("pro") && !hasThinkSignal)) return "";
+  if (explicitMode === "off" || thinkingType === "disabled") return "Think off";
+  const effort = explicitMode || reasoningEffort;
+  if (effort === "high" || effort === "max") return `Think ${debugThinkLabel(effort)}`;
+  if (thinkingType === "enabled") return "Think on";
+  return "";
+}
+
+function debugThinkLabel(effort) {
+  return {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "XHigh",
+    max: "Max",
+  }[normalizeText(effort).toLowerCase()] || normalizeText(effort);
 }
 
 function renderReaderDebugDialog() {
@@ -99,11 +165,12 @@ function renderReaderDebugRunDetail(rawRun) {
   const run = normalizeDebugRun(rawRun);
   if (!run) return `<p class="debug-empty">Select a run to inspect its events.</p>`;
   const error = run.error ? JSON.stringify(run.error, null, 2) : "";
-  const events = run.events.length
-    ? run.events.map((event, index) => {
+  const debugEvents = run.events.filter((event) => normalizeText(event?.type) !== "work_trace_delta");
+  const events = debugEvents.length
+    ? debugEvents.map((event, index) => {
       const type = normalizeText(event?.type) || "event";
       const message = normalizeText(event?.message);
-      const data = event?.data && typeof event.data === "object" ? JSON.stringify(event.data, null, 2) : "";
+      const data = debugEventDataForDisplay(event);
       return `
         <li>
           <strong>${escapeHtml(type)}</strong>
@@ -128,6 +195,19 @@ function renderReaderDebugRunDetail(rawRun) {
       <ol class="debug-events">${events}</ol>
     </section>
   `;
+}
+
+function debugEventDataForDisplay(event) {
+  if (!event?.data || typeof event.data !== "object") return "";
+  const type = normalizeText(event.type);
+  const data = { ...event.data };
+  if (type === "work_trace_item" || type === "work_trace_delta") {
+    delete data.text;
+    delete data.delta;
+  }
+  const keys = Object.keys(data);
+  if (!keys.length) return "";
+  return JSON.stringify(data, null, 2);
 }
 
 async function loadReaderDebugRuns({ selectId = "" } = {}) {
@@ -217,8 +297,7 @@ async function copyActiveReaderDebugRun() {
   try {
     await copyTextToClipboard(JSON.stringify(readerState.activeDebugRun, null, 2));
   } catch (error) {
-    readerState.debugError = "Could not copy debug JSON.";
+    readerState.debugError = "Could not copy debug log.";
     renderReaderDebugDialog();
   }
 }
-

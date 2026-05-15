@@ -6,7 +6,7 @@ metadata.
 ## Files
 
 - `__init__.py`: Public exports for provider factories and shared types.
-- `base.py`: Provider protocol shared by OpenAI API key and Codex OAuth providers.
+- `base.py`: Provider protocol shared by runtime model providers.
 - `errors.py`: Provider-specific exception types.
 - `factory.py`: Builds the active provider from local AI settings.
 - `image_routing.py`: Chooses whether image generation should use OpenAI API key or Codex OAuth.
@@ -16,6 +16,9 @@ metadata.
 
 ## Subdirectories
 
+- `anthropic/`: Anthropic Messages API provider, including vision input and tool-call normalization.
 - `codex/`: Codex OAuth auth flow, credentials, provider implementation, and types.
+- `deepseek/`: DeepSeek chat-completions provider and response normalization.
+- `gemini/`: Google Gemini native REST provider, schema sanitizer, and response normalization.
 - `openai/`: OpenAI API key provider implementation.
 - `profiles/`: Built-in provider/model capability metadata and registry helpers.

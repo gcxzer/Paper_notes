@@ -1545,19 +1545,20 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
     for event in events:
         event_type = event.type
         data = event.data if isinstance(event.data, dict) else {}
-        if event_type == "work_trace_item":
+        if event_type in {"work_trace_delta", "work_trace_item"}:
             text = str(data.get("text") or event.message or "").strip()
             if not text:
                 continue
             item_type = str(data.get("trace_type") or "summary").strip() or "summary"
+            source = str(data.get("source") or "provider")
             key = (item_type, text)
             if key in seen_native:
                 continue
             seen_native.add(key)
-            items.append({
+            _merge_native_work_trace_item(items, {
                 "type": item_type,
                 "text": text,
-                "source": str(data.get("source") or "provider"),
+                "source": source,
             })
             continue
         if event_type == "tool_call":
@@ -1584,6 +1585,25 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
             "source": "runtime",
         })
     return items
+
+
+def _merge_native_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:
+    item_type = str(item.get("type") or "summary").strip() or "summary"
+    source = str(item.get("source") or "")
+    text = str(item.get("text") or "").strip()
+    if not text:
+        return
+    for index in range(len(items) - 1, -1, -1):
+        existing = items[index]
+        if str(existing.get("type") or "summary") != item_type:
+            continue
+        if str(existing.get("source") or "") != source:
+            continue
+        existing_text = str(existing.get("text") or "").strip()
+        if existing_text == text or text.startswith(existing_text) or existing_text.startswith(text):
+            items[index] = {"type": item_type, "text": text if len(text) >= len(existing_text) else existing_text, "source": source}
+            return
+    items.append({"type": item_type, "text": text, "source": source})
 
 
 def _work_trace_tool_detail(name: str, data: dict[str, Any]) -> str:

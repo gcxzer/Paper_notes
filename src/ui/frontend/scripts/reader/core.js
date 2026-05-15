@@ -156,12 +156,19 @@ async function readAgentError(response) {
 function normalizeReaderChatSession(rawSession) {
   const id = normalizeText(rawSession?.id || rawSession?.sessionId);
   if (!id) return null;
+  const metadata = rawSession?.metadata && typeof rawSession.metadata === "object" && !Array.isArray(rawSession.metadata)
+    ? rawSession.metadata
+    : {};
   return {
     id,
     title: normalizeText(rawSession?.title) || "New chat",
     noteId: normalizeText(rawSession?.noteId),
     provider: normalizeProviderName(rawSession?.provider),
     model: normalizeText(rawSession?.model),
+    deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode),
+    gptThinkMode: normalizeText(metadata.gptThinkMode || metadata.gpt_think_mode),
+    geminiThinkMode: normalizeText(metadata.geminiThinkMode || metadata.gemini_think_mode),
+    anthropicThinkMode: normalizeText(metadata.anthropicThinkMode || metadata.anthropic_think_mode),
     updatedAt: normalizeText(rawSession?.updatedAt || rawSession?.createdAt),
     createdAt: normalizeText(rawSession?.createdAt),
     trashedAt: normalizeText(rawSession?.trashedAt),
@@ -181,6 +188,9 @@ function normalizeReaderChatSessions(rawSessions) {
 function upsertReaderChatSession(rawSession) {
   const session = normalizeReaderChatSession(rawSession);
   if (!session) return null;
+  if (session.id === getChatSessionId()) {
+    readerState.currentChatSession = session;
+  }
   const index = readerState.chatSessions.findIndex((item) => item.id === session.id);
   if (index >= 0) {
     readerState.chatSessions[index] = session;
@@ -309,6 +319,7 @@ function normalizeToolSettings(payload) {
   const enabledToolsets = Array.isArray(payload?.enabledToolsets)
     ? payload.enabledToolsets.map(normalizeText).filter(Boolean)
     : customTools.filter((tool) => tool.enabled).map((tool) => tool.name);
+  const webSearchProviders = normalizeReaderWebSearchProviders(payload?.webSearchProviders || payload?.web_search_providers);
   const toolWriteModes = {};
   const rawWriteModes = payload?.toolWriteModes && typeof payload.toolWriteModes === "object"
     ? payload.toolWriteModes
@@ -325,6 +336,7 @@ function normalizeToolSettings(payload) {
     disabledToolsets,
     enabledToolsets,
     toolWriteModes,
+    webSearchProviders,
     nativeWebSearchEnabled: Boolean(
       payload?.nativeWebSearchEnabled
       || builtInTools.some((tool) => tool.name === "native_web_search" && tool.enabled)
@@ -332,18 +344,71 @@ function normalizeToolSettings(payload) {
   };
 }
 
+function normalizeReaderWebSearchProviders(raw) {
+  const providers = raw && typeof raw === "object" ? raw : {};
+  const nativeRaw = providers.native_provider || providers.nativeProvider || {};
+  const customRaw = providers.custom_provider || providers.customProvider || {};
+  const enabledEntry = (value) => ({
+    enabled: Boolean(value && typeof value === "object" && value.enabled)
+  });
+  return {
+    native_provider: {
+      openaiCodex: enabledEntry(nativeRaw.openaiCodex || nativeRaw.openai_codex),
+      openaiAPIKey: enabledEntry(nativeRaw.openaiAPIKey || nativeRaw.openai_api_key),
+      anthropic: enabledEntry(nativeRaw.anthropic || nativeRaw.Anthropic),
+      gemini: enabledEntry(nativeRaw.gemini || nativeRaw.Gemini || nativeRaw.googleGemini),
+    },
+    custom_provider: {
+      Tavily: enabledEntry(customRaw.Tavily || customRaw.tavily),
+      Brave: enabledEntry(customRaw.Brave || customRaw.brave || customRaw.braveSearch),
+    }
+  };
+}
+
 function readerToolSettingsPayload() {
   const settings = readerState.toolSettings || normalizeToolSettings({});
   const enabledToolsets = settings.enabledToolsets?.length ? ["default", ...settings.enabledToolsets] : [];
+  const nativeSearchEnabled = readerNativeWebSearchEnabledForCurrentProvider(settings);
+  const disabledTools = [...(settings.disabledTools || [])];
+  if (nativeSearchEnabled && !readerCustomWebSearchEnabled(settings) && !disabledTools.includes("web_search")) {
+    disabledTools.push("web_search");
+  }
   return {
     enabledToolsets,
     disabledToolsets: settings.disabledToolsets,
-    disabledTools: settings.disabledTools,
+    disabledTools,
     toolWriteModes: settings.toolWriteModes,
     requestOptions: {
-      _paper_notes_native_web_search: Boolean(settings.nativeWebSearchEnabled)
+      _paper_notes_native_web_search: nativeSearchEnabled
     }
   };
+}
+
+function readerNativeWebSearchEnabledForCurrentProvider(settings) {
+  const provider = currentReaderProvider();
+  const capabilities = modelCapabilitiesFor(provider, currentReaderModel());
+  if (!capabilities.supportsWebSearch) {
+    return false;
+  }
+  const native = settings?.webSearchProviders?.native_provider || {};
+  if (provider === "codex-oauth") {
+    return Boolean(native.openaiCodex?.enabled || settings?.nativeWebSearchEnabled);
+  }
+  if (provider === "openai") {
+    return Boolean(native.openaiAPIKey?.enabled || settings?.nativeWebSearchEnabled);
+  }
+  if (provider === "anthropic") {
+    return Boolean(native.anthropic?.enabled || settings?.nativeWebSearchEnabled);
+  }
+  if (provider === "gemini") {
+    return Boolean(native.gemini?.enabled || settings?.nativeWebSearchEnabled);
+  }
+  return false;
+}
+
+function readerCustomWebSearchEnabled(settings) {
+  const custom = settings?.webSearchProviders?.custom_provider || {};
+  return Boolean(custom.Tavily?.enabled || custom.Brave?.enabled);
 }
 
 function readerGenerationPayload() {
@@ -499,6 +564,160 @@ function writeStoredReaderModelSelection(provider, model) {
   return selection;
 }
 
+function normalizeDeepSeekThinkMode(rawMode) {
+  const mode = normalizeText(rawMode).toLowerCase();
+  if (!mode || mode === "off" || mode === "none" || mode === "false") return { enabled: false, effort: "high" };
+  const effort = ["high", "max"].includes(mode) ? mode : "high";
+  return { enabled: true, effort };
+}
+
+function readStoredDeepSeekThinkMode() {
+  try {
+    return normalizeDeepSeekThinkMode(localStorage.getItem(DEEPSEEK_THINK_MODE_KEY) || "");
+  } catch (error) {
+    return { enabled: false, effort: "high" };
+  }
+}
+
+function writeStoredDeepSeekThinkMode(mode) {
+  const normalized = normalizeDeepSeekThinkMode(mode);
+  try {
+    localStorage.setItem(DEEPSEEK_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
+  } catch (error) {
+    console.warn("Failed to save DeepSeek think mode.", error);
+  }
+  return normalized;
+}
+
+function currentDeepSeekThinkMode() {
+  const sessionMode = normalizeText(currentReaderSession()?.deepSeekThinkMode);
+  if (sessionMode) return normalizeDeepSeekThinkMode(sessionMode);
+  return normalizeDeepSeekThinkMode(readerState.deepSeekThinkMode?.enabled ? readerState.deepSeekThinkMode.effort : "off");
+}
+
+function normalizeGptThinkMode(rawMode) {
+  const mode = normalizeText(rawMode).toLowerCase();
+  if (!mode || mode === "off" || mode === "none" || mode === "false") return { enabled: false, effort: "medium" };
+  const effort = ["low", "medium", "high", "xhigh"].includes(mode) ? mode : "medium";
+  return { enabled: true, effort };
+}
+
+function readStoredGptThinkMode() {
+  try {
+    return normalizeGptThinkMode(localStorage.getItem(GPT_THINK_MODE_KEY) || "");
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
+function writeStoredGptThinkMode(mode) {
+  const normalized = normalizeGptThinkMode(mode);
+  try {
+    localStorage.setItem(GPT_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
+  } catch (error) {
+    console.warn("Failed to save GPT think mode.", error);
+  }
+  return normalized;
+}
+
+function providerSupportsGptThinkMode(provider) {
+  const normalized = normalizeProviderName(provider);
+  return normalized === "openai" || normalized === "codex-oauth";
+}
+
+function currentGptThinkMode() {
+  const sessionMode = normalizeText(currentReaderSession()?.gptThinkMode);
+  if (sessionMode) return normalizeGptThinkMode(sessionMode);
+  return normalizeGptThinkMode(readerState.gptThinkMode?.enabled ? readerState.gptThinkMode.effort : "off");
+}
+
+function normalizeGeminiThinkMode(rawMode, model = currentReaderModel()) {
+  const normalizedModel = normalizeText(model);
+  const mode = normalizeText(rawMode).toLowerCase();
+  if (normalizedModel === "gemini-3-pro-preview") {
+    const effort = ["low", "high"].includes(mode) ? mode : "high";
+    return { enabled: true, effort };
+  }
+  if (!mode || mode === "off" || mode === "minimal" || mode === "none" || mode === "false") {
+    return { enabled: false, effort: "medium" };
+  }
+  const effort = ["low", "medium", "high"].includes(mode) ? mode : "medium";
+  return { enabled: true, effort };
+}
+
+function readStoredGeminiThinkMode() {
+  try {
+    return normalizeGeminiThinkMode(localStorage.getItem(GEMINI_THINK_MODE_KEY) || "", "gemini-3-flash-preview");
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
+function writeStoredGeminiThinkMode(mode, model = currentReaderModel()) {
+  const normalized = normalizeGeminiThinkMode(mode, model);
+  try {
+    localStorage.setItem(GEMINI_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
+  } catch (error) {
+    console.warn("Failed to save Gemini think mode.", error);
+  }
+  return normalized;
+}
+
+function providerSupportsGeminiThinkMode(provider) {
+  return normalizeProviderName(provider) === "gemini";
+}
+
+function currentGeminiThinkMode(model = currentReaderModel()) {
+  const sessionMode = normalizeText(currentReaderSession()?.geminiThinkMode);
+  if (sessionMode) return normalizeGeminiThinkMode(sessionMode, model);
+  return normalizeGeminiThinkMode(readerState.geminiThinkMode?.enabled ? readerState.geminiThinkMode.effort : "off", model);
+}
+
+function anthropicThinkEffortsForModel(model = currentReaderModel()) {
+  const normalizedModel = normalizeText(model);
+  if (normalizedModel === "claude-opus-4-7") return ["low", "medium", "high", "xhigh", "max"];
+  if (normalizedModel === "claude-sonnet-4-6") return ["low", "medium", "high", "max"];
+  return [];
+}
+
+function normalizeAnthropicThinkMode(rawMode, model = currentReaderModel()) {
+  const efforts = anthropicThinkEffortsForModel(model);
+  const mode = normalizeText(rawMode).toLowerCase();
+  if (!efforts.length || !mode || mode === "off" || mode === "none" || mode === "false") {
+    return { enabled: false, effort: "medium" };
+  }
+  const effort = efforts.includes(mode) ? mode : "medium";
+  return { enabled: true, effort };
+}
+
+function readStoredAnthropicThinkMode() {
+  try {
+    return normalizeAnthropicThinkMode(localStorage.getItem(ANTHROPIC_THINK_MODE_KEY) || "");
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
+function writeStoredAnthropicThinkMode(mode, model = currentReaderModel()) {
+  const normalized = normalizeAnthropicThinkMode(mode, model);
+  try {
+    localStorage.setItem(ANTHROPIC_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
+  } catch (error) {
+    console.warn("Failed to save Anthropic think mode.", error);
+  }
+  return normalized;
+}
+
+function providerSupportsAnthropicThinkMode(provider, model = currentReaderModel()) {
+  return normalizeProviderName(provider) === "anthropic" && anthropicThinkEffortsForModel(model).length > 0;
+}
+
+function currentAnthropicThinkMode(model = currentReaderModel()) {
+  const sessionMode = normalizeText(currentReaderSession()?.anthropicThinkMode);
+  if (sessionMode) return normalizeAnthropicThinkMode(sessionMode, model);
+  return normalizeAnthropicThinkMode(readerState.anthropicThinkMode?.enabled ? readerState.anthropicThinkMode.effort : "off", model);
+}
+
 function normalizeApiChatMessage(rawMessage) {
   const role = rawMessage?.role === "user" ? "user" : rawMessage?.role === "assistant" ? "assistant" : rawMessage?.role === "divider" ? "divider" : "";
   if (!role) return null;
@@ -513,6 +732,8 @@ function normalizeApiChatMessage(rawMessage) {
   const artifacts = normalizeImageArtifacts(rawMessage?.artifacts);
   const toolActivity = normalizeToolActivity(rawMessage?.toolActivity);
   const generation = normalizeGenerationRequest(rawMessage?.metadata?.generation);
+  const runTrace = normalizeRunTrace(rawMessage?.runTrace);
+  const workTrace = normalizeWorkTrace(rawMessage?.workTrace);
   if (role === "divider") {
     return {
       role,
@@ -522,7 +743,7 @@ function normalizeApiChatMessage(rawMessage) {
       warning: normalizeText(rawMessage?.metadata?.warning)
     };
   }
-  if (!text && role === "assistant" && !artifacts.length && !toolActivity.length) return null;
+  if (!text && role === "assistant" && !artifacts.length && !toolActivity.length && !runTrace && !workTrace) return null;
   return {
     role,
     text,
@@ -533,8 +754,8 @@ function normalizeApiChatMessage(rawMessage) {
     sources: rawMessage?.sources,
     noteEdit: rawMessage?.noteEdit,
     toolActivity,
-    runTrace: normalizeRunTrace(rawMessage?.runTrace),
-    workTrace: normalizeWorkTrace(rawMessage?.workTrace)
+    runTrace,
+    workTrace
   };
 }
 
@@ -573,13 +794,16 @@ function normalizeModelOption(rawOption) {
   const label = normalizeText(rawOption?.label) || value;
   const shortLabel = normalizeText(rawOption?.shortLabel || rawOption?.short_label) || label;
   const description = normalizeText(rawOption?.description || rawOption?.detail);
+  const hasCapabilities = rawOption
+    && typeof rawOption === "object"
+    && Object.prototype.hasOwnProperty.call(rawOption, "capabilities");
   return {
     value,
     label,
     shortLabel,
     description,
     detail: description,
-    capabilities: normalizeModelCapabilities(rawOption?.capabilities)
+    capabilities: hasCapabilities ? normalizeModelCapabilities(rawOption.capabilities) : null
   };
 }
 
@@ -691,7 +915,12 @@ function formatTokenCount(value) {
 function currentReaderSession() {
   const sessionId = getChatSessionId();
   if (!sessionId) return null;
-  return readerState.chatSessions.find((session) => session.id === sessionId) || null;
+  const listedSession = readerState.chatSessions.find((session) => session.id === sessionId);
+  if (listedSession) {
+    readerState.currentChatSession = listedSession;
+    return listedSession;
+  }
+  return readerState.currentChatSession?.id === sessionId ? readerState.currentChatSession : null;
 }
 
 function currentReaderModelCatalog() {
@@ -758,7 +987,9 @@ function modelOptionsForProvider(provider, selectedModel = "") {
     });
   };
   ensureOption(normalizeText(profile?.model || profile?.defaultModel), "", "Provider default");
-  ensureOption(selected, "", "Current saved model");
+  if (normalizeProviderName(provider) !== "gemini" || geminiModelIsSupported(selected)) {
+    ensureOption(selected, "", "Current saved model");
+  }
   return options;
 }
 
@@ -768,26 +999,46 @@ function defaultModelForProvider(provider) {
 }
 
 function currentReaderModel() {
+  const activeSessionId = getChatSessionId();
   const sessionModel = normalizeText(currentReaderSession()?.model);
-  if (sessionModel) return sessionModel;
   const provider = currentReaderProvider();
+  if (sessionModel) {
+    if (provider === "gemini" && !geminiModelIsSupported(sessionModel)) return defaultModelForProvider(provider);
+    return sessionModel;
+  }
+  if (activeSessionId) {
+    return defaultModelForProvider(provider)
+      || (normalizeProviderName(readerState.aiSettings?.provider) === provider ? normalizeText(readerState.aiSettings?.model) : "");
+  }
   if (normalizeProviderName(readerState.pendingChatProvider) === provider) {
     const pendingModel = normalizeText(readerState.pendingChatModel);
-    if (pendingModel) return pendingModel;
+    if (pendingModel && (provider !== "gemini" || geminiModelIsSupported(pendingModel))) return pendingModel;
   }
   const stored = readStoredReaderModelSelection();
   if (normalizeProviderName(stored.provider) === provider && normalizeText(stored.model)) {
-    return normalizeText(stored.model);
+    const storedModel = normalizeText(stored.model);
+    if (provider !== "gemini" || geminiModelIsSupported(storedModel)) return storedModel;
   }
   return defaultModelForProvider(provider)
     || (normalizeProviderName(readerState.aiSettings?.provider) === provider ? normalizeText(readerState.aiSettings?.model) : "");
 }
 
+function geminiModelIsSupported(model) {
+  return ["gemini-3-flash-preview", "gemini-3-pro-preview"].includes(normalizeText(model));
+}
+
 function currentReaderProvider() {
+  const activeSessionId = getChatSessionId();
+  const sessionProvider = normalizeProviderName(currentReaderSession()?.provider);
+  if (sessionProvider) return sessionProvider;
+  if (activeSessionId) {
+    return normalizeProviderName(currentReaderModelCatalog().defaultProvider)
+      || normalizeProviderName(readerState.aiSettings?.provider)
+      || "openai";
+  }
   const stored = readStoredReaderModelSelection();
   const storedProvider = normalizeProviderName(stored.provider);
-  return normalizeProviderName(currentReaderSession()?.provider)
-    || normalizeProviderName(readerState.pendingChatProvider)
+  return normalizeProviderName(readerState.pendingChatProvider)
     || (storedProvider && providerProfileFor(storedProvider) ? storedProvider : "")
     || normalizeProviderName(currentReaderModelCatalog().defaultProvider)
     || normalizeProviderName(readerState.aiSettings?.provider)
@@ -818,11 +1069,27 @@ function modelCapabilitiesFor(provider, model) {
 function activeProviderSupportsImageArtifacts() {
   const provider = currentReaderProvider();
   const profile = providerProfileFor(provider);
+  const capabilities = modelCapabilitiesFor(provider, currentReaderModel());
   const settings = readerState.aiSettings || normalizeReaderAiSettings({});
-  return Boolean(
+  const configured = Boolean(
     profile?.configured
     || (normalizeProviderName(settings.provider) === provider && settings.configured)
   );
+  if (!configured) return false;
+  if (provider === "codex-oauth") return true;
+  return Boolean(capabilities.supportsImageGeneration);
+}
+
+function activeProviderSupportsImageInput() {
+  const capabilities = modelCapabilitiesFor(currentReaderProvider(), currentReaderModel());
+  return Boolean(capabilities.supportsVision && capabilities.imageInputMode !== "unsupported");
+}
+
+function activeProviderImageInputUnsupportedMessage() {
+  if (normalizeProviderName(currentReaderProvider()) === "deepseek") {
+    return "DeepSeek does not support image input. Files can still be attached.";
+  }
+  return "The selected model does not support image input. Files can still be attached.";
 }
 
 function modelSourceLabel(source) {
@@ -949,6 +1216,12 @@ function migrateChatRunState(fromRunKey, toSessionId) {
 
 function setCurrentChatSessionId(sessionId) {
   readerState.chatSessionId = normalizeText(sessionId);
+  if (!readerState.chatSessionId) {
+    readerState.currentChatSession = null;
+  } else {
+    const listedSession = readerState.chatSessions.find((session) => session.id === readerState.chatSessionId);
+    if (listedSession) readerState.currentChatSession = listedSession;
+  }
   setStoredChatSessionId(readerState.chatSessionId);
   syncCurrentChatRunState();
   renderReaderChatComposerState();

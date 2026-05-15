@@ -81,7 +81,7 @@ def build_responses_payload(
             payload.get("include"),
             ["web_search_call.action.sources"],
         )
-    if _work_trace_enabled(request.request_options, provider_name=provider_name):
+    if _work_trace_enabled(request.request_options, provider_name=provider_name) and not _reasoning_effort_is_none(payload):
         reasoning = payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else {}
         payload["reasoning"] = {**reasoning, "summary": reasoning.get("summary") or "auto"}
         payload["include"] = _merge_include(payload.get("include"), ["reasoning.encrypted_content"])
@@ -298,6 +298,13 @@ def _work_trace_enabled(request_options: dict[str, Any] | None, *, provider_name
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "no", "off"}
     return True
+
+
+def _reasoning_effort_is_none(payload: dict[str, Any]) -> bool:
+    reasoning = payload.get("reasoning")
+    if not isinstance(reasoning, dict):
+        return False
+    return str(reasoning.get("effort") or "").strip().lower() == "none"
 
 
 def preflight_codex_payload(payload: dict[str, Any]) -> dict[str, Any]:

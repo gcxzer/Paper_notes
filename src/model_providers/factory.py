@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from model_providers.base import ModelProvider
+from model_providers.anthropic import AnthropicModelProvider
 from model_providers.codex import CodexModelProvider
+from model_providers.deepseek import DeepSeekModelProvider
+from model_providers.gemini import GeminiModelProvider
 from model_providers.openai import OpenAIModelProvider
 
 
@@ -9,6 +12,12 @@ def create_model_provider(name: str = "openai", **kwargs) -> ModelProvider:
     normalized = name.strip().lower().replace("_", "-")
     if normalized == "openai":
         return OpenAIModelProvider(**kwargs)
+    if normalized in {"anthropic", "claude"}:
+        return AnthropicModelProvider(**kwargs)
     if normalized in {"codex", "codex-oauth", "openai-codex"}:
         return CodexModelProvider(**kwargs)
+    if normalized == "deepseek":
+        return DeepSeekModelProvider(**kwargs)
+    if normalized in {"gemini", "google", "google-gemini", "google-ai-studio"}:
+        return GeminiModelProvider(**kwargs)
     raise ValueError(f"Unsupported model provider: {name}")
