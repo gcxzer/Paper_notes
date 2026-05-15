@@ -68,9 +68,9 @@ def test_compression_defaults_use_project_thresholds():
 
 
 def test_context_length_resolution_uses_hermes_provider_fallbacks():
-    assert resolve_context_length_for_model("codex-oauth", "gpt-5.5") == 400_000
-    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4-mini") == 400_000
-    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4") == 272_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.5") == 258_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4-mini") == 258_000
+    assert resolve_context_length_for_model("codex-oauth", "gpt-5.4") == 258_000
     assert resolve_context_length_for_model("codex-oauth", "gpt-5.3-codex-spark") == 128_000
     assert resolve_context_length_for_model("openai", "gpt-5.5") == 1_050_000
     assert resolve_context_length_for_model("openai", "gpt-5.4-mini") == 400_000

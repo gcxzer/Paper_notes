@@ -190,6 +190,151 @@ function selectedAiProvider(settings = state.aiSettings) {
   return normalizeAiProvider(elements.aiProviderInput?.value || settings?.provider);
 }
 
+function capabilityValue(capabilities, key, fallback = false) {
+  if (!capabilities || typeof capabilities !== "object") return fallback;
+  return Boolean(capabilities[key]);
+}
+
+function capabilityText(value) {
+  return value ? "Yes" : "No";
+}
+
+function modelCapabilityRows() {
+  const providers = Array.isArray(state.aiProviderCatalog?.providers) ? state.aiProviderCatalog.providers : [];
+  const rowsByModel = new Map();
+  providers.forEach((provider) => {
+    const providerCapabilities = provider?.capabilities || {};
+    const models = Array.isArray(provider?.models) ? provider.models : [];
+    models.forEach((model) => {
+      const capabilities = model?.capabilities || providerCapabilities;
+      const modelId = normalizeText(model?.value || "");
+      const modelKey = modelId || normalizeText(model?.label || "unknown-model").toLowerCase();
+      const row = rowsByModel.get(modelKey) || {
+        entries: [],
+        model: normalizeText(model?.label || model?.value || "Unknown model"),
+        modelId,
+        family: providerFamily(provider?.name),
+      };
+      row.entries.push({
+        provider: providerDisplayName(provider?.name),
+        textInput: true,
+        imageInput: capabilityValue(capabilities, "supportsVision"),
+        imageInputMode: normalizeText(capabilities?.imageInputMode || (capabilityValue(capabilities, "supportsVision") ? "native" : "unsupported")),
+        textOutput: true,
+        imageOutput: supportsPaperNotesImageGeneration(provider?.name, modelId),
+        tools: capabilityValue(capabilities, "supportsTools"),
+        nativeWebSearch: capabilityValue(capabilities, "supportsWebSearch"),
+        reasoningOff: capabilityValue(capabilities, "supportsReasoningOff"),
+        contextWindow: Number(capabilities?.contextWindow) || 0,
+      });
+      rowsByModel.set(modelKey, row);
+    });
+  });
+  return Array.from(rowsByModel.values());
+}
+
+function supportsPaperNotesImageGeneration(provider, model = "") {
+  const normalizedProvider = normalizeAiProvider(provider);
+  const normalizedModel = normalizeText(model).toLowerCase();
+  if (normalizedProvider === "codex-oauth" && normalizedModel === "gpt-5.3-codex-spark") return false;
+  return normalizedProvider === "openai" || normalizedProvider === "codex-oauth";
+}
+
+function providerFamily(provider) {
+  const normalizedProvider = normalizeAiProvider(provider);
+  if (normalizedProvider === "openai" || normalizedProvider === "codex-oauth") return "openai";
+  return normalizedProvider || "other";
+}
+
+function formatContextWindow(value) {
+  const numeric = Number(value) || 0;
+  return numeric > 0 ? numeric.toLocaleString() : "Unknown";
+}
+
+function renderProviderStack(providers) {
+  return providers.map((provider, index) => `
+    <span class="model-capability-line">
+      ${escapeHtml(provider)}${index < providers.length - 1 ? `<span class="model-capability-inline-separator">/</span>` : ""}
+    </span>
+  `).join("");
+}
+
+function renderCapabilityStack(values) {
+  const uniqueValues = Array.from(new Set(values.map((value) => normalizeText(value))));
+  return uniqueValues.map((value, index) => `
+    <span class="model-capability-line">
+      ${escapeHtml(value)}${index < uniqueValues.length - 1 ? `<span class="model-capability-inline-separator">/</span>` : ""}
+    </span>
+  `).join("");
+}
+
+function imageInputLabel(entry) {
+  return `${capabilityText(entry.imageInput)}${entry.imageInputMode ? ` (${entry.imageInputMode})` : ""}`;
+}
+
+function renderModelCapabilitiesTable() {
+  if (!elements.modelCapabilitiesTableWrap) return;
+  const rows = modelCapabilityRows();
+  if (!rows.length) {
+    elements.modelCapabilitiesTableWrap.innerHTML = `<p class="model-capabilities-empty">No model capability data is available.</p>`;
+    return;
+  }
+  elements.modelCapabilitiesTableWrap.innerHTML = `
+    <table class="model-capabilities-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Provider</th>
+          <th>Text in</th>
+          <th>Image in</th>
+          <th>Text out</th>
+          <th>Image out</th>
+          <th>Tools</th>
+          <th>Web search</th>
+          <th>Reasoning off</th>
+          <th>Context</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row, index) => {
+          const previousFamily = index > 0 ? rows[index - 1].family : "";
+          const startsFamily = index > 0 && row.family !== previousFamily;
+          return `
+          <tr class="${startsFamily ? "is-provider-family-start" : ""}">
+            <td>
+              <strong>${escapeHtml(row.model)}</strong>
+            </td>
+            <td>${renderProviderStack(row.entries.map((entry) => entry.provider))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.textInput)))}</td>
+            <td>${renderCapabilityStack(row.entries.map(imageInputLabel))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.textOutput)))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.imageOutput)))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.tools)))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.nativeWebSearch)))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => capabilityText(entry.reasoningOff)))}</td>
+            <td>${renderCapabilityStack(row.entries.map((entry) => formatContextWindow(entry.contextWindow)))}</td>
+          </tr>
+        `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+async function openModelCapabilitiesDialog() {
+  if (!elements.modelCapabilitiesDialog) return;
+  if (!state.aiProviderCatalog && !state.aiSettingsLoading) {
+    await loadAiSettings();
+  }
+  renderModelCapabilitiesTable();
+  elements.modelCapabilitiesDialog.hidden = false;
+}
+
+function closeModelCapabilitiesDialog() {
+  if (!elements.modelCapabilitiesDialog) return;
+  elements.modelCapabilitiesDialog.hidden = true;
+}
+
 function hasModelConnection(settings = state.aiSettings) {
   const normalized = settings || normalizeAiSettings({});
   if (normalized.modelConnectionConfigured) return true;
@@ -268,7 +413,6 @@ function renderAiSettings() {
     elements.aiSettingsStatus.classList.toggle("is-ready", modelConfigured);
     elements.aiSettingsStatus.classList.toggle("is-missing", !modelConfigured);
     elements.aiSettingsStatus.innerHTML = `
-      <strong>${escapeHtml(defaultLabel)}</strong>
       <span>${modelConfigured ? "Ready" : "Not ready"} · ${connectedCount} connected</span>
     `;
   }
@@ -433,6 +577,7 @@ async function openAiSettingsDialog() {
 function closeAiSettingsDialog() {
   setAiSettingsError("");
   setAiKeyDialogError("");
+  closeModelCapabilitiesDialog();
   state.aiKeyEditingProvider = "";
   elements.aiKeyInput.value = "";
   setAiKeyVisibility(false);
@@ -592,6 +737,11 @@ function selectDefaultAiProvider(provider) {
 }
 
 function handleAiSettingsKeydown(event) {
+  if (event.key === "Escape" && !elements.modelCapabilitiesDialog?.hidden) {
+    event.preventDefault();
+    closeModelCapabilitiesDialog();
+    return;
+  }
   if (event.key === "Enter" && state.aiKeyEditingProvider && event.target === elements.aiKeyInput) {
     event.preventDefault();
     event.stopPropagation();
@@ -607,6 +757,14 @@ function handleAiSettingsKeydown(event) {
     event.preventDefault();
   }
 }
+
+elements.compareModelsButton?.addEventListener("click", () => {
+  void openModelCapabilitiesDialog();
+});
+elements.closeModelCapabilitiesDialog?.addEventListener("click", closeModelCapabilitiesDialog);
+elements.modelCapabilitiesDialog?.addEventListener("click", (event) => {
+  if (event.target === elements.modelCapabilitiesDialog) closeModelCapabilitiesDialog();
+});
 
 async function startCodexLogin() {
   setAiSettingsError("");

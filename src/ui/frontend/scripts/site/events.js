@@ -155,6 +155,18 @@ elements.importMenu?.addEventListener("click", (event) => {
   }
 });
 
+elements.emptyState?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-empty-import-action]");
+  if (!actionButton) return;
+  if (actionButton.dataset.emptyImportAction === "local") {
+    elements.pdfInput.click();
+    return;
+  }
+  if (actionButton.dataset.emptyImportAction === "url") {
+    openImportUrlDialog();
+  }
+});
+
 elements.settingsButton.addEventListener("click", toggleSettingsMenu);
 elements.settingsMenu.addEventListener("click", (event) => {
   if (event.target.closest("[data-theme-option]")) closeSettingsMenu();

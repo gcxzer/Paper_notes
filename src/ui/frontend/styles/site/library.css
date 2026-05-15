@@ -340,7 +340,91 @@
 
 .empty {
   display: none;
+}
+
+.empty:not([hidden]) {
+  display: block;
+}
+
+.library-empty-card {
+  position: relative;
+  display: grid;
+  max-width: 520px;
+  margin: 32px 0 0;
+  padding: 20px 22px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+}
+
+.library-empty-card::after {
+  content: none;
+}
+
+.library-empty-art {
+  display: none;
+}
+
+.library-empty-art span {
+  display: block;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+}
+
+.library-empty-art span:nth-child(2) {
+  width: 76%;
+  background: rgba(94, 157, 118, 0.12);
+}
+
+.library-empty-art span:nth-child(3) {
+  width: 56%;
+}
+
+.library-empty-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 520px;
+  align-self: center;
+}
+
+.library-empty-kicker {
+  margin: 0 0 10px;
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.library-empty-copy h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.library-empty-copy p:not(.library-empty-kicker) {
+  max-width: 480px;
+  margin: 10px 0 0;
   color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.library-empty-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.library-empty-actions {
+  align-self: end;
+  margin-top: 16px;
 }
 
 .details-panel {

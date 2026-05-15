@@ -16,6 +16,7 @@ from app_config.ai_settings import (
     resolve_model_for_provider,
     resolve_openai_api_key,
 )
+from context_compression.model_context import resolve_context_length_for_model
 from model_providers.profiles import ModelProviderProfile, list_provider_profiles, model_options_for_provider
 
 
@@ -58,10 +59,18 @@ def _profile_payload(
         "selectedModel": selected_model,
         "modelSource": model.source if model.value else "profile",
         "models": [
-            option.to_public_dict()
+            _model_option_payload(profile, option)
             for option in model_options_for_provider(profile.name, selected_model)
         ],
     }
+
+
+def _model_option_payload(profile: ModelProviderProfile, option) -> dict[str, object]:
+    payload = option.to_public_dict()
+    capabilities = dict(payload.get("capabilities") or profile.default_capabilities.to_public_dict())
+    capabilities["contextWindow"] = resolve_context_length_for_model(profile.name, option.value)
+    payload["capabilities"] = capabilities
+    return payload
 
 
 def _provider_configured(provider: str, settings, *, secrets_path: str | Path | None = None) -> bool:

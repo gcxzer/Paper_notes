@@ -16,11 +16,11 @@ _OPENAI_CONTEXT_FALLBACK: dict[str, int] = {
 }
 
 _CODEX_OAUTH_CONTEXT_FALLBACK: dict[str, int] = {
-    "gpt-5.3-codex": 272_000,
+    "gpt-5.3-codex": 258_000,
     "gpt-5.3-codex-spark": 128_000,
-    "gpt-5.4-mini": 400_000,
-    "gpt-5.5": 400_000,
-    "gpt-5.4": 272_000,
+    "gpt-5.4-mini": 258_000,
+    "gpt-5.5": 258_000,
+    "gpt-5.4": 258_000,
 }
 
 _ANTHROPIC_CONTEXT_FALLBACK: dict[str, int] = {

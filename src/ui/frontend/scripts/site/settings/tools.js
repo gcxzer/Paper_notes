@@ -49,7 +49,7 @@ function normalizeToolSettings(payload) {
     }
     return disabledToolNames.has(tool.name) ? { ...tool, enabled: false, effectiveAccess: "disabled" } : tool;
   });
-  const visibleBuiltInTools = applyRuntimeDisabled(builtInTools);
+  const visibleBuiltInTools = applyRuntimeDisabled(builtInTools).map((tool) => ({ ...tool, enabled: true }));
   const visibleCustomTools = applyRuntimeDisabled(customTools);
   const visibleTools = applyRuntimeDisabled(tools);
   const enabledToolsets = Array.isArray(payload?.enabledToolsets)
@@ -173,20 +173,27 @@ function renderToolSettingsDialog() {
     return;
   }
   elements.builtInToolSettingsList.innerHTML = builtInTools.length
-    ? renderToolSettingsItems(builtInTools, inheritedLabel)
+    ? renderToolSettingsItems(builtInTools, inheritedLabel, { lockEnabledToggle: true })
     : `<p class="memory-empty">No built-in tools registered.</p>`;
   elements.toolSettingsList.innerHTML = customTools.length
     ? renderToolSettingsItems(customTools, inheritedLabel)
     : `<p class="memory-empty">No custom tools registered.</p>`;
 }
 
-function renderToolSettingsItems(tools, inheritedLabel) {
+function renderToolSettingsItems(tools, inheritedLabel, options = {}) {
+  const lockEnabledToggle = Boolean(options.lockEnabledToggle);
   return tools.map((tool) => {
     if (tool.name === "web_search") {
       return renderCustomWebSearchSettingsItem(tool);
     }
     const access = tool.readOnly ? "readonly" : normalizeToolAccess(tool.access);
-    const disabled = !tool.enabled;
+    const enabled = lockEnabledToggle ? true : tool.enabled;
+    const disabled = !enabled;
+    const enabledToggleAttributes = [
+      `data-tool-enabled="${escapeHtml(tool.name)}"`,
+      enabled ? "checked" : "",
+      lockEnabledToggle ? "disabled aria-disabled=\"true\" data-tool-enabled-locked=\"true\"" : ""
+    ].filter(Boolean).join(" ");
     const accessSelect = tool.mutating ? `
       <label class="tool-access-select">
         <select aria-label="Access for ${escapeHtml(tool.label || tool.name)}" data-tool-access="${escapeHtml(tool.name)}"${disabled ? " disabled" : ""}>
@@ -210,8 +217,8 @@ function renderToolSettingsItems(tools, inheritedLabel) {
         <div class="tool-settings-controls">
           ${accessSelect}
           <label class="tool-enabled-toggle">
-            <input type="checkbox" data-tool-enabled="${escapeHtml(tool.name)}"${tool.enabled ? " checked" : ""}>
-            <span>${tool.enabled ? "Enabled" : "Off"}</span>
+            <input type="checkbox" ${enabledToggleAttributes}>
+            <span>${enabled ? "Enabled" : "Off"}</span>
           </label>
         </div>
       </article>
@@ -391,6 +398,7 @@ async function saveToolSettings() {
   const settings = state.toolSettings || normalizeToolSettings({});
   elements.saveToolSettings.disabled = true;
   const allTools = [...(settings.builtInTools || []), ...(settings.customTools || [])];
+  const builtInToolNames = new Set((settings.builtInTools || []).map((tool) => tool.name));
   try {
     const payload = await fetchJson("/api/settings/tools", {
       method: "POST",
@@ -398,7 +406,9 @@ async function saveToolSettings() {
         globalAccess: settings.globalAccess,
         tools: allTools.map((tool) => ({
           name: tool.name,
-          enabled: tool.name === "web_search" ? webSearchEnabledForSave(settings) : tool.enabled,
+          enabled: builtInToolNames.has(tool.name)
+            ? true
+            : tool.name === "web_search" ? webSearchEnabledForSave(settings) : tool.enabled,
           access: tool.readOnly ? "inherit" : normalizeToolAccess(tool.access)
         })),
         webSearchProviders: webSearchProvidersForSave(settings)

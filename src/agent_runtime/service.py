@@ -59,6 +59,7 @@ from tools.web_search import register_web_search_tool
 
 
 MODEL_VISIBLE_ROLES = {"user", "assistant", "tool", "system", "developer"}
+CUSTOM_WEB_SEARCH_TOOL = "web_search"
 
 
 @dataclass(slots=True)
@@ -710,12 +711,15 @@ class AgentService:
         return self._tool_catalog_snapshot(request).model_tools
 
     def _tool_catalog_snapshot(self, request: AgentServiceRequest) -> ToolCatalogSnapshot:
+        disabled_tools = request.disabled_tools
+        if _native_web_search_requested(request.request_options):
+            disabled_tools = [*disabled_tools, CUSTOM_WEB_SEARCH_TOOL]
         return self._tool_catalog_snapshot_for_selection(
             enable_tools=request.enable_tools,
             toolset=request.toolset,
             enabled_toolsets=request.enabled_toolsets,
             disabled_toolsets=request.disabled_toolsets,
-            disabled_tools=request.disabled_tools,
+            disabled_tools=disabled_tools,
             tool_write_modes=request.tool_write_modes,
             write_tool_mode=request.write_tool_mode,
         )

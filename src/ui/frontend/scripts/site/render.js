@@ -53,7 +53,44 @@ function renderStatus() {
   const category = getSelectedCategory();
   const label = category ? category.name : "All Notes";
   elements.libraryStatus.textContent = `${notes.length} notes in ${label}`;
-  elements.emptyState.style.display = notes.length ? "none" : "block";
+  elements.emptyState.hidden = Boolean(notes.length);
+  elements.emptyState.innerHTML = notes.length ? "" : renderEmptyState(category, label);
+}
+
+function renderEmptyState(category, label) {
+  const hasQuery = Boolean(state.query);
+  const isAllNotes = !category || category.id === ALL_CATEGORY_ID;
+  const title = hasQuery
+    ? "No matching notes"
+    : isAllNotes
+      ? "Start your paper library"
+      : `No notes in ${label}`;
+  const body = hasQuery
+    ? "Try another search, or clear the filter to see everything in this collection."
+    : isAllNotes
+      ? "Import a PDF or paste a paper link. Once it lands here, you can read, annotate, and ask questions beside the paper."
+      : "Bring a paper into this collection now, or move notes here later from their details panel.";
+
+  return `
+    <div class="library-empty-card">
+      <div class="library-empty-art" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="library-empty-copy">
+        <p class="library-empty-kicker">${hasQuery ? "Search" : "Library"}</p>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(body)}</p>
+      </div>
+      ${hasQuery ? "" : `
+        <div class="library-empty-actions">
+          <button class="toolbar-button" type="button" data-empty-import-action="local">Import PDF</button>
+          <button class="toolbar-button" type="button" data-empty-import-action="url">Paste link</button>
+        </div>
+      `}
+    </div>
+  `;
 }
 
 function syncSelectedNote() {

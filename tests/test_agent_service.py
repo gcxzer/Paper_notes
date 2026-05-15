@@ -125,6 +125,37 @@ def test_service_instructions_include_native_web_search_when_requested(tmp_path)
     assert "current or external web facts" in provider.requests[0].instructions
 
 
+def test_service_hides_custom_web_search_when_native_web_search_requested(tmp_path):
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="web_search",
+        description="Search web.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda args: {"success": True},
+        toolset="web_search",
+        read_only=True,
+        risk="read",
+    ))
+    provider = FakeProvider([ModelResponse(content="A short answer.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=registry,
+        use_memory=False,
+        use_session_search=False,
+        use_compression=False,
+    )
+
+    service.run(AgentServiceRequest(
+        message="Search current web facts.",
+        title="Web chat",
+        enabled_toolsets=["web_search"],
+        request_options={"_paper_notes_native_web_search": True},
+    ))
+
+    assert all(tool["function"]["name"] != "web_search" for tool in provider.requests[0].tools)
+
+
 def test_service_edit_latest_user_message_replaces_last_turn(tmp_path):
     provider = FakeProvider([
         ModelResponse(content="First answer."),

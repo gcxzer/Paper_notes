@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v1"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=tag-add-button-v1">
+  <link rel="stylesheet" href="styles/site/index.css?v=model-capabilities-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -111,7 +111,7 @@
 
       <div class="library-status" id="libraryStatus"></div>
       <div class="notes-grid" id="notesGrid"></div>
-      <p class="empty" id="emptyState">No notes found.</p>
+      <section class="empty" id="emptyState" aria-live="polite"></section>
     </main>
 
     <div class="panel-resizer panel-resizer-right" id="rightResizer" aria-hidden="true"></div>
@@ -386,7 +386,10 @@
           <div class="modal-eyebrow">Agent</div>
           <h3>AI Provider</h3>
         </div>
-        <button class="icon-button" type="button" id="closeAiSettingsDialog" aria-label="Close AI provider settings">x</button>
+        <div class="ai-settings-header-actions">
+          <button class="toolbar-button" type="button" id="compareModelsButton">Compare models</button>
+          <button class="icon-button" type="button" id="closeAiSettingsDialog" aria-label="Close AI provider settings">x</button>
+        </div>
       </div>
 
       <div class="ai-settings-status" id="aiSettingsStatus" aria-live="polite"></div>
@@ -497,6 +500,19 @@
         </section>
       </div>
 
+      <div class="model-capabilities-backdrop" id="modelCapabilitiesDialog" hidden>
+        <section class="model-capabilities-panel" role="dialog" aria-modal="true" aria-labelledby="modelCapabilitiesTitle">
+          <div class="model-capabilities-header">
+            <div>
+              <strong id="modelCapabilitiesTitle">Model capabilities</strong>
+              <span>Capabilities are read from the current model registry.</span>
+            </div>
+            <button class="icon-button" type="button" id="closeModelCapabilitiesDialog" aria-label="Close model capabilities">x</button>
+          </div>
+          <div class="model-capabilities-table-wrap" id="modelCapabilitiesTableWrap"></div>
+        </section>
+      </div>
+
       <label class="field default-provider-field" hidden>
         <span>Default provider</span>
         <select id="aiProviderInput" autocomplete="off">
@@ -550,15 +566,15 @@
     </div>
   </dialog>
 
-  <script src="scripts/site/page_state.js?v=frontend-organized-v1"></script>
+  <script src="scripts/site/page_state.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/library.js?v=paper-url-import-v1"></script>
-  <script src="scripts/site/render.js?v=frontend-organized-v1"></script>
-  <script src="scripts/site/settings/ai.js?v=ai-provider-alpha-sort-v1"></script>
+  <script src="scripts/site/render.js?v=model-capabilities-v1"></script>
+  <script src="scripts/site/settings/ai.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/tools.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/settings/skills.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/settings/memory.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/debug.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/actions.js?v=import-url-polish-v1"></script>
-  <script src="scripts/site/events.js?v=frontend-organized-v1"></script>
+  <script src="scripts/site/events.js?v=model-capabilities-v1"></script>
 </body>
 </html>
