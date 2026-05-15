@@ -2,7 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app_config.ai_settings import CODEX_PROVIDER, OPENAI_PROVIDER, resolve_ai_settings, resolve_model_for_provider
+from app_config.ai_settings import (
+    ANTHROPIC_PROVIDER,
+    CODEX_PROVIDER,
+    DEEPSEEK_PROVIDER,
+    GEMINI_PROVIDER,
+    OPENAI_PROVIDER,
+    resolve_anthropic_api_key,
+    resolve_ai_settings,
+    resolve_api_key_for_provider,
+    resolve_deepseek_api_key,
+    resolve_gemini_api_key,
+    resolve_model_for_provider,
+    resolve_openai_api_key,
+)
 from model_providers.profiles import ModelProviderProfile, list_provider_profiles, model_options_for_provider
 
 
@@ -30,13 +43,17 @@ def _profile_payload(
     settings,
     secrets_path: str | Path | None,
 ) -> dict[str, object]:
-    configured = _provider_configured(profile.name, settings)
+    configured = _provider_configured(profile.name, settings, secrets_path=secrets_path)
     model = resolve_model_for_provider(profile.name, secrets_path=secrets_path)
+    key = resolve_api_key_for_provider(profile.name, secrets_path=secrets_path)
     selected_model = model.value or profile.default_model
     return {
         **profile.to_public_dict(),
         "configured": configured,
         "ready": bool(configured and selected_model),
+        "keySource": key.source,
+        "localKeyConfigured": key.source == "local",
+        "environmentKeyConfigured": key.source == "environment",
         "model": selected_model,
         "selectedModel": selected_model,
         "modelSource": model.source if model.value else "profile",
@@ -47,9 +64,15 @@ def _profile_payload(
     }
 
 
-def _provider_configured(provider: str, settings) -> bool:
+def _provider_configured(provider: str, settings, *, secrets_path: str | Path | None = None) -> bool:
     if provider == CODEX_PROVIDER:
         return bool(settings.codex_auth.logged_in)
     if provider == OPENAI_PROVIDER:
-        return bool(settings.api_key)
+        return bool(resolve_openai_api_key(secrets_path=secrets_path).value)
+    if provider == ANTHROPIC_PROVIDER:
+        return bool(resolve_anthropic_api_key(secrets_path=secrets_path).value)
+    if provider == DEEPSEEK_PROVIDER:
+        return bool(resolve_deepseek_api_key(secrets_path=secrets_path).value)
+    if provider == GEMINI_PROVIDER:
+        return bool(resolve_gemini_api_key(secrets_path=secrets_path).value)
     return False

@@ -1,6 +1,6 @@
 ---
-name: "image-artifact-creator"
-description: "Use when the user wants Paper Notes to generate or edit a downloadable image artifact through Reader Generate image mode, including paper diagrams, concept visuals, note illustrations, or image edits based on uploaded image attachments."
+name: image-artifact-creator
+description: Use when the user wants Paper Notes to generate or edit a downloadable image artifact through Reader Generate image mode, including paper diagrams, concept visuals, note illustrations, or image edits based on uploaded image attachments.
 tags: [image-generation, artifacts, paper-notes]
 ---
 

@@ -8,7 +8,7 @@ import pytest
 
 from agent_runtime.service import AgentService, AgentServiceRequest, AgentServiceResult
 from context_compression import ContextCompressionConfig, ContextCompressor
-from agent_sessions import AgentSessionStore
+from agent_sessions import AgentSession, AgentSessionMetadata, AgentSessionStore
 from tool_safety import PaperNotesSnapshotManager
 from library import write_library
 from backend.agent_api import (
@@ -97,6 +97,33 @@ class BlockingProvider:
         return ModelResponse(content=f"Answer {index + 1}.")
 
 
+class StreamingReasoningBlockingProvider(BlockingProvider):
+    def stream_generate(self, request: ModelRequest, event_sink=None) -> ModelResponse:
+        with self._lock:
+            index = len(self.requests)
+            self.requests.append(request)
+        if index == 0:
+            self.first_started.set()
+            if event_sink is not None:
+                event_sink(ModelStreamEvent(type="reasoning_summary_done", text="Checked page context."))
+            self.release_first.wait(timeout=2)
+        return ModelResponse(content=f"Answer {index + 1}.")
+
+
+class StreamingReasoningDeltaBlockingProvider(BlockingProvider):
+    def stream_generate(self, request: ModelRequest, event_sink=None) -> ModelResponse:
+        with self._lock:
+            index = len(self.requests)
+            self.requests.append(request)
+        if index == 0:
+            self.first_started.set()
+            if event_sink is not None:
+                event_sink(ModelStreamEvent(type="reasoning_summary_delta", delta="Checked", text="Checked"))
+                event_sink(ModelStreamEvent(type="reasoning_summary_delta", delta=" page context.", text="Checked page context."))
+            self.release_first.wait(timeout=2)
+        return ModelResponse(content=f"Answer {index + 1}.")
+
+
 def hermes_test_compressor(config: ContextCompressionConfig) -> ContextCompressor:
     def summary_provider(turns, focus_topic=None, *, previous_summary="", max_output_tokens=None):
         return "## Active Task\ncompact from API\n\n## Goal\nPreserve context."
@@ -120,6 +147,7 @@ def test_serialize_message_hides_provider_replay_metadata():
         "content": "",
         "codex_reasoning_items": [{"type": "reasoning", "encrypted_content": "opaque"}],
         "codex_message_items": [{"type": "message", "content": []}],
+        "reasoning_content": "Visible DeepSeek reasoning.",
         "provider_data": {"response_id": "resp_1"},
         "runTrace": {"status": "completed", "events": []},
         "tool_calls": [{
@@ -134,9 +162,352 @@ def test_serialize_message_hides_provider_replay_metadata():
     assert "codex_reasoning_items" not in serialized
     assert "codex_message_items" not in serialized
     assert "provider_data" not in serialized
+    assert "reasoning_content" not in serialized
+    assert "reasoningContent" not in serialized
+    assert serialized["workTrace"]["items"][-1] == {
+        "type": "reasoning",
+        "text": "Visible DeepSeek reasoning.",
+        "source": "deepseek",
+    }
     assert serialized["runTrace"]["status"] == "completed"
     assert "call_id" not in serialized["tool_calls"][0]
     assert "response_item_id" not in serialized["tool_calls"][0]
+
+
+def test_serialize_session_keeps_cancelled_tool_call_work_trace():
+    session = AgentSession(
+        metadata=AgentSessionMetadata(
+            session_id="session-1",
+            title="Cancelled",
+            created_at="2026-05-15T00:00:00+00:00",
+            updated_at="2026-05-15T00:00:01+00:00",
+            date_bucket="15_05_2026",
+            message_count=2,
+        ),
+        messages=[
+            {"role": "user", "content": "Add a highlight."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "execute_code", "arguments": "{}"},
+                }],
+                "runTrace": {"status": "cancelled", "events": []},
+                "workTrace": {
+                    "status": "cancelled",
+                    "items": [{"type": "summary", "text": "I inspected the annotation flow.", "source": "provider"}],
+                },
+            },
+        ],
+    )
+
+    serialized = serialize_session(session)
+
+    assert serialized["messages"][-1]["role"] == "assistant"
+    assert "tool_calls" not in serialized["messages"][-1]
+    assert serialized["messages"][-1]["workTrace"]["items"][0]["text"] == "I inspected the annotation flow."
+
+
+def test_serialize_chat_result_places_deepseek_reasoning_in_work_trace(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([
+            ModelResponse(
+                content="Final answer.",
+                provider_data={"provider": "deepseek", "reasoning_content": "I should answer carefully."},
+            )
+        ]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    payload = handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "requestOptions": {"thinking": {"type": "enabled"}, "reasoning_effort": "high"},
+        },
+        service=service,
+    )
+
+    assert payload["message"]["workTrace"]["items"][-1] == {
+        "type": "reasoning",
+        "text": "I should answer carefully.",
+        "source": "deepseek",
+    }
+    assert "reasoningContent" not in payload["messages"][-1]
+
+
+def test_deepseek_think_mode_off_disables_provider_thinking(tmp_path):
+    provider = FakeProvider([ModelResponse(content="No reasoning.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Answer directly.",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "metadata": {"deepseekThinkMode": "off"},
+            "requestOptions": {"thinking": {"type": "enabled"}, "reasoning_effort": "high"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in provider.requests[0].request_options
+
+
+def test_deepseek_think_mode_high_enables_provider_thinking(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Reasoned answer.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Think carefully.",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "metadata": {"deepseekThinkMode": "high"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinking"] == {"type": "enabled"}
+    assert provider.requests[0].request_options["reasoning_effort"] == "high"
+
+
+def test_openai_gpt_think_mode_off_disables_reasoning_effort(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Direct answer.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Answer directly.",
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "metadata": {"gptThinkMode": "off"},
+            "requestOptions": {"reasoning": {"effort": "high", "summary": "auto"}},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["reasoning"] == {"effort": "none"}
+
+
+def test_openai_gpt_think_mode_high_enables_reasoning_summary(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Reasoned answer.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Think carefully.",
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "metadata": {"gptThinkMode": "high"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["reasoning"] == {"effort": "high", "summary": "auto"}
+
+
+def test_gemini_flash_think_off_uses_minimal_level(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "gemini",
+            "model": "gemini-3-flash-preview",
+            "metadata": {"geminiThinkMode": "off"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinkingConfig"] == {"thinkingLevel": "minimal"}
+
+
+def test_gemini_flash_think_high_includes_thoughts(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "gemini",
+            "model": "gemini-3-flash-preview",
+            "metadata": {"geminiThinkMode": "high"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinkingConfig"] == {
+        "thinkingLevel": "high",
+        "includeThoughts": True,
+    }
+
+
+def test_gemini_pro_think_off_normalizes_to_high(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "gemini",
+            "model": "gemini-3-pro-preview",
+            "metadata": {"geminiThinkMode": "off"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinkingConfig"] == {
+        "thinkingLevel": "high",
+        "includeThoughts": True,
+    }
+
+
+def test_anthropic_think_mode_off_disables_thinking(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "metadata": {"anthropicThinkMode": "off"},
+            "requestOptions": {"output_config": {"effort": "high"}},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinking"] == {"type": "disabled"}
+    assert "output_config" not in provider.requests[0].request_options
+
+
+def test_anthropic_sonnet_think_medium_uses_adaptive_effort(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "metadata": {"anthropicThinkMode": "medium"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert provider.requests[0].request_options["output_config"] == {"effort": "medium"}
+
+
+def test_anthropic_sonnet_rejects_xhigh_to_medium(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "metadata": {"anthropicThinkMode": "xhigh"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["output_config"] == {"effort": "medium"}
+
+
+def test_anthropic_opus_allows_xhigh(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "anthropic",
+            "model": "claude-opus-4-7",
+            "metadata": {"anthropicThinkMode": "xhigh"},
+        },
+        service=service,
+    )
+
+    assert provider.requests[0].request_options["output_config"] == {"effort": "xhigh"}
+
+
+def test_anthropic_haiku_does_not_send_think_options(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Done.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+
+    handle_chat_request(
+        {
+            "message": "Explain this.",
+            "provider": "anthropic",
+            "model": "claude-haiku-4-5-20251001",
+            "metadata": {"anthropicThinkMode": "max"},
+            "requestOptions": {
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "max"},
+            },
+        },
+        service=service,
+    )
+
+    assert "thinking" not in provider.requests[0].request_options
+    assert "output_config" not in provider.requests[0].request_options
 
 
 def test_serialize_message_normalizes_sandbox_media_links():
@@ -862,7 +1233,7 @@ def test_get_chat_context_status_serializes_context_budget(tmp_path):
 
     assert payload["context"]["provider"] == "codex-oauth"
     assert payload["context"]["model"] == "gpt-5.5"
-    assert payload["context"]["contextLength"] == 272_000
+    assert payload["context"]["contextLength"] == 400_000
     assert payload["context"]["tokensUsed"] >= payload["context"]["messageTokens"]
     assert payload["context"]["percentFull"] >= 0
 
@@ -1059,7 +1430,8 @@ def test_active_chat_request_can_be_soft_cancelled(tmp_path):
         run_coordinator=run_coordinator,
     )
     assert cancel["cancelled"] is True
-    assert progress_store.get("req-active")["status"] == "cancelled"
+    assert cancel["status"] == "cancelling"
+    assert progress_store.get("req-active")["status"] == "cancelling"
 
     provider.release_first.set()
     thread.join(timeout=2)
@@ -1067,6 +1439,99 @@ def test_active_chat_request_can_be_soft_cancelled(tmp_path):
     assert results["chat"]["cancelled"] is True
     assert results["chat"]["error"] == "cancelled"
     assert [message["text"] for message in results["chat"]["messages"]] == ["First"]
+    assert progress_store.get("req-active")["status"] == "cancelled"
+
+
+def test_cancelled_stream_request_returns_partial_work_trace(tmp_path):
+    provider = StreamingReasoningBlockingProvider()
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    progress_store = AgentProgressStore()
+    run_coordinator = AgentRunCoordinator()
+    session = create_chat_session({"title": "Cancel"}, service=service)["session"]
+    results: dict[str, dict] = {}
+
+    thread = threading.Thread(target=lambda: results.setdefault(
+        "chat",
+        handle_chat_request(
+            {
+                "requestId": "req-stream-cancel",
+                "sessionId": session["id"],
+                "message": "First",
+                "model": "test-model",
+                "streamEventsEnabled": True,
+            },
+            service=service,
+            progress_store=progress_store,
+            run_coordinator=run_coordinator,
+        ),
+    ))
+    thread.start()
+    assert provider.first_started.wait(timeout=1)
+
+    cancel_chat_request(
+        {"requestId": "req-stream-cancel"},
+        progress_store=progress_store,
+        run_coordinator=run_coordinator,
+    )
+    provider.release_first.set()
+    thread.join(timeout=2)
+
+    assert results["chat"]["cancelled"] is True
+    assert results["chat"]["message"]["workTrace"]["items"][0]["text"] == "Checked page context."
+    reloaded = get_chat_session({"id": [session["id"]]}, service=service)["session"]
+    assert reloaded["messages"][-1]["role"] == "assistant"
+    assert reloaded["messages"][-1]["workTrace"]["items"][0]["text"] == "Checked page context."
+
+
+def test_cancelled_stream_request_persists_partial_work_trace_delta(tmp_path):
+    provider = StreamingReasoningDeltaBlockingProvider()
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    progress_store = AgentProgressStore()
+    run_coordinator = AgentRunCoordinator()
+    session = create_chat_session({"title": "Cancel"}, service=service)["session"]
+    results: dict[str, dict] = {}
+
+    thread = threading.Thread(target=lambda: results.setdefault(
+        "chat",
+        handle_chat_request(
+            {
+                "requestId": "req-stream-delta-cancel",
+                "sessionId": session["id"],
+                "message": "First",
+                "model": "test-model",
+                "streamEventsEnabled": True,
+            },
+            service=service,
+            progress_store=progress_store,
+            run_coordinator=run_coordinator,
+        ),
+    ))
+    thread.start()
+    assert provider.first_started.wait(timeout=1)
+
+    progress = get_chat_progress({"requestId": ["req-stream-delta-cancel"]}, progress_store=progress_store)
+    assert progress["workTrace"]["items"][0]["text"] == "Checked page context."
+
+    cancel_chat_request(
+        {"requestId": "req-stream-delta-cancel"},
+        progress_store=progress_store,
+        run_coordinator=run_coordinator,
+    )
+    provider.release_first.set()
+    thread.join(timeout=2)
+
+    assert results["chat"]["cancelled"] is True
+    assert results["chat"]["message"]["workTrace"]["items"][0]["text"] == "Checked page context."
+    reloaded = get_chat_session({"id": [session["id"]]}, service=service)["session"]
+    assert reloaded["messages"][-1]["workTrace"]["items"][0]["text"] == "Checked page context."
 
 
 def test_cancel_chat_request_requires_request_or_session_id():
@@ -1146,13 +1611,127 @@ def test_update_chat_session_model_updates_current_session_only(tmp_path):
     created = create_chat_session({"title": "Draft", "provider": "openai", "model": "gpt-5.4"}, service=service)
 
     updated = update_chat_session_model(
-        {"sessionId": created["session"]["id"], "provider": "codex-oauth", "model": "gpt-5.5"},
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "codex-oauth",
+            "model": "gpt-5.5",
+            "metadata": {"deepseekThinkMode": "max"},
+        },
         service=service,
     )
 
     assert updated["session"]["provider"] == "codex-oauth"
     assert updated["session"]["model"] == "gpt-5.5"
+    assert updated["session"]["metadata"]["deepseekThinkMode"] == "max"
     assert service.session_store.require_session(created["session"]["id"]).metadata.provider == "codex-oauth"
+    assert service.session_store.require_session(created["session"]["id"]).metadata.metadata["deepseekThinkMode"] == "max"
+
+
+def test_update_chat_session_model_saves_gpt_think_mode(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft", "provider": "openai", "model": "gpt-5.5"}, service=service)
+
+    updated = update_chat_session_model(
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "metadata": {"gptThinkMode": "xhigh"},
+        },
+        service=service,
+    )
+
+    assert updated["session"]["metadata"]["gptThinkMode"] == "xhigh"
+    assert service.session_store.require_session(created["session"]["id"]).metadata.metadata["gptThinkMode"] == "xhigh"
+
+
+def test_update_chat_session_model_rejects_unsupported_gpt_think_mode(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft", "provider": "openai", "model": "gpt-5.5"}, service=service)
+
+    updated = update_chat_session_model(
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "metadata": {"gptThinkMode": "minimal"},
+        },
+        service=service,
+    )
+
+    assert updated["session"]["metadata"]["gptThinkMode"] == "off"
+
+
+def test_update_chat_session_model_saves_gemini_flash_think_mode(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft", "provider": "gemini", "model": "gemini-3-flash-preview"}, service=service)
+
+    updated = update_chat_session_model(
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "gemini",
+            "model": "gemini-3-flash-preview",
+            "metadata": {"geminiThinkMode": "medium"},
+        },
+        service=service,
+    )
+
+    assert updated["session"]["metadata"]["geminiThinkMode"] == "medium"
+    assert service.session_store.require_session(created["session"]["id"]).metadata.metadata["geminiThinkMode"] == "medium"
+
+
+def test_update_chat_session_model_normalizes_gemini_pro_think_mode(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft", "provider": "gemini", "model": "gemini-3-pro-preview"}, service=service)
+
+    updated = update_chat_session_model(
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "gemini",
+            "model": "gemini-3-pro-preview",
+            "metadata": {"geminiThinkMode": "medium"},
+        },
+        service=service,
+    )
+
+    assert updated["session"]["metadata"]["geminiThinkMode"] == "high"
+
+
+def test_update_chat_session_model_rejects_unsupported_deepseek_think_mode(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft", "provider": "deepseek", "model": "deepseek-v4-pro"}, service=service)
+
+    updated = update_chat_session_model(
+        {
+            "sessionId": created["session"]["id"],
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "metadata": {"deepseekThinkMode": "medium"},
+        },
+        service=service,
+    )
+
+    assert updated["session"]["metadata"]["deepseekThinkMode"] == "off"
 
 
 def test_branch_and_undo_chat_session(tmp_path):

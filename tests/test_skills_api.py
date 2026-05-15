@@ -80,7 +80,29 @@ def test_skills_api_updates_skill_description_and_content(skills_root):
 
     assert updated["success"] is True
     assert updated["description"] == "New description: keep this."
-    assert 'description: "New description: keep this."' in text
+    assert "description: 'New description: keep this.'" in text
     assert "tags: [edit]" in text
     assert "# Updated" in text
     assert "Old body." not in text
+
+
+def test_skills_api_keeps_plain_frontmatter_scalars_unquoted(skills_root):
+    skill_dir = skills_root / "plain-skill"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "SKILL.md"
+    skill_md.write_text(
+        "---\nname: plain-skill\ndescription: Old plain description.\ntags: [edit]\n---\n\nOld body.",
+        encoding="utf-8",
+    )
+
+    update_skill({
+        "name": "plain-skill",
+        "description": "Clear trigger description for plain skills.",
+        "content": "# Plain\n\nUse the plain workflow.",
+    })
+    text = skill_md.read_text(encoding="utf-8")
+
+    assert "name: plain-skill" in text
+    assert "description: Clear trigger description for plain skills." in text
+    assert '"plain-skill"' not in text
+    assert '"Clear trigger description for plain skills."' not in text

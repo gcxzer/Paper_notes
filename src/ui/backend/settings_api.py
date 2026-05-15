@@ -6,11 +6,13 @@ from typing import Any
 
 from app_config.secrets import LOCAL_STATE_DIR, default_secrets_path, write_env_values
 from app_config.ai_settings import (
+    ANTHROPIC_PROVIDER,
     BRAVE_SEARCH_API_KEY,
     CODEX_PROVIDER,
+    GEMINI_PROVIDER,
     OPENAI_PROVIDER,
     TAVILY_API_KEY,
-    delete_local_openai_api_key,
+    delete_local_ai_api_key,
     resolve_ai_provider,
     resolve_brave_search_api_key,
     resolve_ai_settings,
@@ -47,13 +49,29 @@ def update_ai_settings(body: Any, *, secrets_path: str | Path | None = None) -> 
     model = _optional_string(body.get("model"), "model") if "model" in body else None
     api_key_value = body.get("apiKey", body.get("api_key"))
     api_key = _optional_string(api_key_value, "apiKey") if api_key_value is not None else None
-    settings = save_local_ai_settings(provider=provider, model=model, api_key=api_key, secrets_path=secrets_path)
+    api_key_provider_value = body.get("apiKeyProvider", body.get("api_key_provider"))
+    api_key_provider = (
+        _optional_string(api_key_provider_value, "apiKeyProvider")
+        if api_key_provider_value is not None
+        else None
+    )
+    settings = save_local_ai_settings(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        api_key_provider=api_key_provider,
+        secrets_path=secrets_path,
+    )
     _reset_agent_service()
     return _public_ai_settings(settings)
 
 
-def delete_ai_api_key(*, secrets_path: str | Path | None = None) -> dict[str, object]:
-    settings = delete_local_openai_api_key(secrets_path=secrets_path)
+def delete_ai_api_key(
+    provider: str = OPENAI_PROVIDER,
+    *,
+    secrets_path: str | Path | None = None,
+) -> dict[str, object]:
+    settings = delete_local_ai_api_key(provider, secrets_path=secrets_path)
     _reset_agent_service()
     return _public_ai_settings(settings)
 
@@ -483,6 +501,8 @@ def _native_web_search_provider_config(enabled: bool) -> dict[str, dict[str, obj
     return {
         "openaiCodex": {"enabled": enabled},
         "openaiAPIKey": {"enabled": enabled},
+        "anthropic": {"enabled": enabled},
+        "gemini": {"enabled": enabled},
     }
 
 
@@ -511,10 +531,16 @@ def _normalize_native_web_search_provider_config(raw: Any) -> dict[str, dict[str
         return default
     openai_codex = raw.get("openaiCodex", raw.get("openai_codex"))
     openai_api_key = raw.get("openaiAPIKey", raw.get("openai_api_key"))
+    anthropic = raw.get("anthropic", raw.get("Anthropic"))
+    gemini = raw.get("gemini", raw.get("Gemini", raw.get("googleGemini", raw.get("google_gemini"))))
     if not isinstance(openai_codex, dict):
         openai_codex = {}
     if not isinstance(openai_api_key, dict):
         openai_api_key = {}
+    if not isinstance(anthropic, dict):
+        anthropic = {}
+    if not isinstance(gemini, dict):
+        gemini = {}
     return {
         "openaiCodex": {
             "enabled": _bool_or_default(openai_codex.get("enabled"), False),
@@ -522,6 +548,12 @@ def _normalize_native_web_search_provider_config(raw: Any) -> dict[str, dict[str
         },
         "openaiAPIKey": {
             "enabled": _bool_or_default(openai_api_key.get("enabled"), False),
+        },
+        "anthropic": {
+            "enabled": _bool_or_default(anthropic.get("enabled"), False),
+        },
+        "gemini": {
+            "enabled": _bool_or_default(gemini.get("enabled"), False),
         },
     }
 
@@ -617,6 +649,8 @@ def _provider_config_from_openclaw_tools(raw: Any) -> dict[str, dict[str, dict[s
                 **_optional_openai_codex_search_fields(openai_codex),
             },
             "openaiAPIKey": {"enabled": native_enabled},
+            "anthropic": {"enabled": native_enabled},
+            "gemini": {"enabled": native_enabled},
         },
         "custom_provider": _default_custom_web_search_provider_config(),
     }
@@ -889,6 +923,12 @@ def _native_web_search_enabled(stored: dict[str, Any]) -> bool:
         return _bool_or_default(openai_codex.get("enabled"), False)
     if active_provider == OPENAI_PROVIDER:
         return _bool_or_default(openai_api_key.get("enabled"), False)
+    if active_provider == ANTHROPIC_PROVIDER:
+        anthropic = native_provider.get("anthropic", native_provider.get("Anthropic"))
+        return isinstance(anthropic, dict) and _bool_or_default(anthropic.get("enabled"), False)
+    if active_provider == GEMINI_PROVIDER:
+        gemini = native_provider.get("gemini", native_provider.get("Gemini", native_provider.get("googleGemini")))
+        return isinstance(gemini, dict) and _bool_or_default(gemini.get("enabled"), False)
     return False
 
 

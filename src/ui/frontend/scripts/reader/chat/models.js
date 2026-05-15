@@ -1,6 +1,5 @@
 function renderReaderModelControls() {
   const settings = readerState.aiSettings || normalizeReaderAiSettings({});
-  const session = currentReaderSession();
   const availableProviders = modelProvidersForMenu();
   const currentProvider = currentReaderProvider();
   const savedProvider = availableProviders.some((item) => item.name === currentProvider)
@@ -18,9 +17,12 @@ function renderReaderModelControls() {
   const configured = Boolean(profile?.configured || (settings.provider === provider && settings.configured));
 
   if (elements.readerModelMenuButton) {
-    elements.readerModelMenuButton.textContent = loading
-      ? "Model"
-      : selectedShortLabel || "Model";
+    const buttonLabel = loading ? "Model" : selectedShortLabel || "Model";
+    elements.readerModelMenuButton.innerHTML = modelButtonHtml({
+      provider: savedProvider,
+      label: buttonLabel,
+      loading,
+    });
     elements.readerModelMenuButton.title = savedLabel
       ? `${providerDisplayName(savedProvider)}: ${savedLabel}`
       : `${providerDisplayName(savedProvider)}: select a model`;
@@ -39,9 +41,9 @@ function renderReaderModelControls() {
     elements.readerModelTitle.textContent = isModelLevel ? providerDisplayName(provider) : "Model";
   }
   if (elements.readerModelProvider) {
-    elements.readerModelProvider.textContent = isModelLevel
-      ? configured ? "Configured" : "Not configured"
-      : providerDisplayName(savedProvider);
+    elements.readerModelProvider.hidden = !isModelLevel;
+    elements.readerModelProvider.textContent = "Save";
+    elements.readerModelProvider.disabled = readerState.modelSaving || isChatSessionPending();
   }
   if (elements.readerProviderList) {
     elements.readerProviderList.hidden = isModelLevel;
@@ -75,15 +77,21 @@ function renderReaderModelControls() {
     }
   }
   if (elements.readerModelStatus) {
+    const selectedModelLabel = modelDisplayLabel(selectedModel, provider, "label") || selectedModel;
+    const savedModelLabel = modelDisplayLabel(savedModel, savedProvider, "label")
+      || modelDisplayLabel(defaultModelForProvider(savedProvider), savedProvider, "label")
+      || savedModel
+      || defaultModelForProvider(savedProvider);
+    const savedModelStatusLabel = modelStatusLabelWithThink(savedProvider, savedModelLabel);
     const defaultStatus = isModelLevel
       ? selectedModel
         ? configured
-          ? provider === savedProvider
-            ? `Using ${session?.model ? modelSourceLabel("session") : modelSourceLabel(profile?.modelSource || settings.modelSource)} value.`
-            : `Choose a ${providerDisplayName(provider)} model to use it for this session.`
+          ? `${selectedModelLabel} is selected.`
           : `${providerDisplayName(provider)} not configured.`
         : "Select a model for the current provider."
-      : modelProvidersForMenu().length ? "Choose a provider." : "No configured providers.";
+      : modelProvidersForMenu().length
+        ? `${savedModelStatusLabel || providerDisplayName(savedProvider)} is selected.`
+        : "No configured providers.";
     const status = loading
       ? "Loading model settings..."
       : readerState.modelSaving ? "Saving model..." : readerState.modelStatus || defaultStatus;
@@ -122,6 +130,255 @@ function renderReaderModelControls() {
     button.addEventListener("click", () => selectReaderModel(option.value));
     elements.readerModelList.appendChild(button);
   });
+
+  if (
+    provider === "deepseek"
+    || providerSupportsGptThinkMode(provider)
+    || providerSupportsGeminiThinkMode(provider)
+    || providerSupportsAnthropicThinkMode(provider, selectedModel)
+  ) {
+    elements.readerModelList.appendChild(renderThinkSettings(provider, selectedModel));
+  }
+}
+
+function modelStatusLabelWithThink(provider, label, model = currentReaderModel()) {
+  const baseLabel = normalizeText(label);
+  if (!baseLabel) return "";
+  const normalizedProvider = normalizeProviderName(provider);
+  if (normalizedProvider === "deepseek") {
+    const thinkMode = currentDeepSeekThinkMode();
+    return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
+  }
+  if (providerSupportsGptThinkMode(normalizedProvider)) {
+    const thinkMode = currentGptThinkMode();
+    return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
+  }
+  if (providerSupportsGeminiThinkMode(normalizedProvider)) {
+    const thinkMode = currentGeminiThinkMode(model);
+    return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
+  }
+  if (providerSupportsAnthropicThinkMode(normalizedProvider, model)) {
+    const thinkMode = currentAnthropicThinkMode(model);
+    return `${baseLabel}-think-${thinkMode.enabled ? thinkMode.effort : "off"}`;
+  }
+  return baseLabel;
+}
+
+function modelButtonHtml({ provider, label, loading }) {
+  const normalizedProvider = normalizeProviderName(provider);
+  if (
+    loading
+    || (
+      normalizedProvider !== "deepseek"
+      && !providerSupportsGptThinkMode(normalizedProvider)
+      && !providerSupportsGeminiThinkMode(normalizedProvider)
+      && !providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())
+    )
+  ) {
+    return `<span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>`;
+  }
+  const thinkMode = normalizedProvider === "deepseek"
+    ? currentDeepSeekThinkMode()
+    : providerSupportsGeminiThinkMode(normalizedProvider)
+      ? currentGeminiThinkMode(currentReaderModel())
+      : providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())
+        ? currentAnthropicThinkMode(currentReaderModel())
+      : currentGptThinkMode();
+  const thinkLabel = thinkMode.enabled ? `Think ${thinkModeLabel(normalizedProvider, thinkMode.effort)}` : "Think off";
+  return `
+    <span class="ask-model-button-stack">
+      <span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>
+      <span class="ask-model-button-meta">${escapeHtml(thinkLabel)}</span>
+    </span>
+  `;
+}
+
+function renderThinkSettings(provider, model = currentReaderModel()) {
+  const normalizedProvider = normalizeProviderName(provider);
+  const thinkMode = normalizedProvider === "deepseek"
+    ? currentDeepSeekThinkMode()
+    : providerSupportsGeminiThinkMode(normalizedProvider)
+      ? currentGeminiThinkMode(model)
+      : providerSupportsAnthropicThinkMode(normalizedProvider, model)
+        ? currentAnthropicThinkMode(model)
+      : currentGptThinkMode();
+  const section = document.createElement("section");
+  section.className = "ask-think-settings";
+
+  if (!geminiProUsesAlwaysOnThink(normalizedProvider, model)) {
+    const toggle = document.createElement("button");
+    toggle.className = "ask-think-toggle";
+    toggle.classList.toggle("is-active", thinkMode.enabled);
+    toggle.type = "button";
+    toggle.setAttribute("aria-pressed", String(thinkMode.enabled));
+    toggle.innerHTML = `
+      <span>
+        <strong>Think mode</strong>
+        <small>${thinkMode.enabled ? `${thinkModeLabel(normalizedProvider, thinkMode.effort)} reasoning` : "Off"}</small>
+      </span>
+      <span class="ask-think-switch" aria-hidden="true"></span>
+    `;
+    toggle.addEventListener("click", () => setThinkMode(normalizedProvider, {
+      enabled: !thinkMode.enabled,
+      effort: thinkMode.effort,
+    }, model));
+    section.appendChild(toggle);
+  } else {
+    const heading = document.createElement("div");
+    heading.className = "ask-think-toggle is-active";
+    heading.innerHTML = `
+      <span>
+        <strong>Think mode</strong>
+        <small>${thinkModeLabel(normalizedProvider, thinkMode.effort)} reasoning</small>
+      </span>
+    `;
+    section.appendChild(heading);
+  }
+
+  if (thinkMode.enabled) {
+    const levels = document.createElement("div");
+    levels.className = "ask-think-levels";
+    for (const effort of thinkModeEfforts(normalizedProvider, model)) {
+      const button = document.createElement("button");
+      button.className = "ask-think-level";
+      button.classList.toggle("is-active", effort === thinkMode.effort);
+      button.type = "button";
+      button.dataset.thinkEffort = effort;
+      button.textContent = thinkModeLabel(normalizedProvider, effort);
+      button.addEventListener("click", () => setThinkMode(normalizedProvider, { enabled: true, effort }, model));
+      levels.appendChild(button);
+    }
+    section.appendChild(levels);
+  }
+  return section;
+}
+
+function thinkModeEfforts(provider, model = currentReaderModel()) {
+  const normalizedProvider = normalizeProviderName(provider);
+  if (normalizedProvider === "deepseek") return ["high", "max"];
+  if (normalizedProvider === "gemini") {
+    return normalizeText(model) === "gemini-3-pro-preview"
+      ? ["low", "high"]
+      : ["low", "medium", "high"];
+  }
+  if (normalizedProvider === "anthropic") {
+    return anthropicThinkEffortsForModel(model);
+  }
+  return ["low", "medium", "high", "xhigh"];
+}
+
+function thinkModeLabel(provider, effort) {
+  if (normalizeProviderName(provider) === "deepseek") {
+    return {
+      high: "High",
+      max: "Max",
+    }[normalizeText(effort).toLowerCase()] || "High";
+  }
+  if (normalizeProviderName(provider) === "gemini") {
+    return {
+      low: "Low",
+      medium: "Medium",
+      high: "High",
+    }[normalizeText(effort).toLowerCase()] || "Medium";
+  }
+  if (normalizeProviderName(provider) === "anthropic") {
+    return {
+      low: "Low",
+      medium: "Medium",
+      high: "High",
+      xhigh: "XHigh",
+      max: "Max",
+    }[normalizeText(effort).toLowerCase()] || "Medium";
+  }
+  return {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "XHigh",
+  }[normalizeText(effort).toLowerCase()] || "Medium";
+}
+
+function setThinkMode(provider, mode, model = currentReaderModel()) {
+  const normalizedProvider = normalizeProviderName(provider);
+  const nextMode = normalizedProvider === "deepseek"
+    ? normalizeDeepSeekThinkMode(mode?.enabled ? mode.effort : "off")
+    : providerSupportsGeminiThinkMode(normalizedProvider)
+      ? normalizeGeminiThinkMode(mode?.enabled ? mode.effort : "off", model)
+      : providerSupportsAnthropicThinkMode(normalizedProvider, model)
+        ? normalizeAnthropicThinkMode(mode?.enabled ? mode.effort : "off", model)
+      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off");
+  if (getChatSessionId()) {
+    updateReaderSessionThinkMode(normalizedProvider, nextMode, model).catch((error) => {
+      readerState.modelStatus = sanitizeVisibleAgentError(error.message || "Could not save think mode.");
+      renderReaderModelControls();
+    });
+  } else if (normalizedProvider === "deepseek") {
+    readerState.pendingChatProvider = normalizedProvider;
+    readerState.pendingChatModel = model;
+    readerState.deepSeekThinkMode = writeStoredDeepSeekThinkMode(nextMode.enabled ? nextMode.effort : "off");
+  } else if (providerSupportsGeminiThinkMode(normalizedProvider)) {
+    readerState.pendingChatProvider = normalizedProvider;
+    readerState.pendingChatModel = model;
+    readerState.geminiThinkMode = writeStoredGeminiThinkMode(nextMode.enabled ? nextMode.effort : "off", model);
+  } else if (providerSupportsAnthropicThinkMode(normalizedProvider, model)) {
+    readerState.pendingChatProvider = normalizedProvider;
+    readerState.pendingChatModel = model;
+    readerState.anthropicThinkMode = writeStoredAnthropicThinkMode(nextMode.enabled ? nextMode.effort : "off", model);
+  } else {
+    readerState.pendingChatProvider = normalizedProvider;
+    readerState.pendingChatModel = model;
+    readerState.gptThinkMode = writeStoredGptThinkMode(nextMode.enabled ? nextMode.effort : "off");
+  }
+  readerState.modelStatus = nextMode.enabled
+    ? `Think mode: ${thinkModeLabel(normalizedProvider, nextMode.effort)}.`
+    : "Think mode off.";
+  const session = currentReaderSession();
+  if (session) {
+    if (normalizedProvider === "deepseek") {
+      session.deepSeekThinkMode = nextMode.enabled ? nextMode.effort : "off";
+    } else if (providerSupportsGeminiThinkMode(normalizedProvider)) {
+      session.geminiThinkMode = nextMode.enabled ? nextMode.effort : "off";
+    } else if (providerSupportsAnthropicThinkMode(normalizedProvider, model)) {
+      session.anthropicThinkMode = nextMode.enabled ? nextMode.effort : "off";
+    } else {
+      session.gptThinkMode = nextMode.enabled ? nextMode.effort : "off";
+    }
+  }
+  renderReaderModelControls();
+}
+
+async function updateReaderSessionThinkMode(provider, mode, model = currentReaderModel()) {
+  const sessionId = getChatSessionId();
+  if (!sessionId) return null;
+  const normalizedProvider = normalizeProviderName(provider);
+  const normalized = normalizedProvider === "deepseek"
+    ? normalizeDeepSeekThinkMode(mode?.enabled ? mode.effort : "off")
+    : providerSupportsGeminiThinkMode(normalizedProvider)
+      ? normalizeGeminiThinkMode(mode?.enabled ? mode.effort : "off", model)
+      : providerSupportsAnthropicThinkMode(normalizedProvider, model)
+        ? normalizeAnthropicThinkMode(mode?.enabled ? mode.effort : "off", model)
+      : normalizeGptThinkMode(mode?.enabled ? mode.effort : "off");
+  const metadata = normalizedProvider === "deepseek"
+    ? { deepseekThinkMode: normalized.enabled ? normalized.effort : "off" }
+    : providerSupportsGeminiThinkMode(normalizedProvider)
+      ? { geminiThinkMode: normalized.enabled ? normalized.effort : "off" }
+      : providerSupportsAnthropicThinkMode(normalizedProvider, model)
+        ? { anthropicThinkMode: normalized.enabled ? normalized.effort : "off" }
+      : { gptThinkMode: normalized.enabled ? normalized.effort : "off" };
+  const payload = await fetchAgentJson("/api/chat/session/model", {
+    method: "POST",
+      body: {
+        sessionId,
+        provider: normalizedProvider,
+        model: model || undefined,
+        metadata,
+      },
+  });
+  return upsertReaderChatSession(payload.session);
+}
+
+function geminiProUsesAlwaysOnThink(provider, model) {
+  return normalizeProviderName(provider) === "gemini" && normalizeText(model) === "gemini-3-pro-preview";
 }
 
 function closeReaderModelMenu() {
@@ -210,7 +467,7 @@ async function selectReaderProvider(provider) {
   readerState.modelMenuLevel = "models";
   const profile = providerProfileFor(nextProvider);
   readerState.modelStatus = profile?.configured
-    ? `Choose a ${providerDisplayName(nextProvider)} model to use it for this session.`
+    ? `${modelDisplayLabel(defaultModelForProvider(nextProvider), nextProvider, "label") || providerDisplayName(nextProvider)} is selected.`
     : `${providerDisplayName(nextProvider)} not configured.`;
   renderReaderModelControls();
 }
@@ -219,13 +476,15 @@ async function selectReaderModel(model) {
   const nextModel = normalizeText(model);
   if (!nextModel || readerState.modelSaving) return;
   const provider = activeReaderModelProvider();
-  writeStoredReaderModelSelection(provider, nextModel);
+  const keepMenuOpen = providerKeepsModelMenuOpen(provider);
+  const selectedStatus = `${modelStatusLabelWithThink(provider, modelDisplayLabel(nextModel, provider, "label") || nextModel, nextModel)} is selected.`;
 
   if (!getChatSessionId()) {
+    writeStoredReaderModelSelection(provider, nextModel);
     readerState.pendingChatProvider = provider;
     readerState.pendingChatModel = nextModel;
-    readerState.modelStatus = "";
-    setReaderModelMenuOpen(false);
+    readerState.modelStatus = keepMenuOpen ? selectedStatus : "";
+    if (!keepMenuOpen) setReaderModelMenuOpen(false);
     setReaderChatError("");
     renderReaderModelControls();
     return;
@@ -246,8 +505,8 @@ async function selectReaderModel(model) {
     });
     const session = upsertReaderChatSession(payload.session);
     if (session?.id) setCurrentChatSessionId(session.id);
-    readerState.modelStatus = "";
-    setReaderModelMenuOpen(false);
+    readerState.modelStatus = keepMenuOpen ? selectedStatus : "";
+    if (!keepMenuOpen) setReaderModelMenuOpen(false);
     setReaderChatError("");
   } catch (error) {
     readerState.modelStatus = sanitizeVisibleAgentError(error.message || "Could not save model.");
@@ -257,3 +516,10 @@ async function selectReaderModel(model) {
   }
 }
 
+function providerKeepsModelMenuOpen(provider) {
+  const normalized = normalizeProviderName(provider);
+  return normalized === "deepseek"
+    || providerSupportsGptThinkMode(normalized)
+    || providerSupportsGeminiThinkMode(normalized)
+    || normalizeProviderName(provider) === "anthropic";
+}

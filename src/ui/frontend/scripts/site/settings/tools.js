@@ -93,12 +93,14 @@ function normalizeWebSearchProviders(raw) {
   const customProvider = value.custom_provider || value.customProvider || {};
   const openaiCodex = nativeProvider.openaiCodex || nativeProvider.openai_codex || {};
   const openaiAPIKey = nativeProvider.openaiAPIKey || nativeProvider.openai_api_key || {};
+  const anthropic = nativeProvider.anthropic || nativeProvider.Anthropic || {};
+  const gemini = nativeProvider.gemini || nativeProvider.Gemini || nativeProvider.googleGemini || nativeProvider.google_gemini || {};
   const tavily = customProvider.Tavily || customProvider.tavily || {};
   const brave = customProvider.Brave || customProvider.brave || {};
   const customProviderName = normalizeText(value.customProviderName || value.custom_provider_name || value.providerName || value.provider_name);
   let mode = normalizeText(value.mode).toLowerCase().replaceAll("-", "_");
   if (!["native", "tavily", "native_tavily"].includes(mode)) {
-    const nativeEnabled = Boolean(openaiCodex.enabled || openaiAPIKey.enabled);
+    const nativeEnabled = Boolean(openaiCodex.enabled || openaiAPIKey.enabled || anthropic.enabled || gemini.enabled);
     const tavilyEnabled = Boolean(tavily.enabled);
     mode = nativeEnabled && tavilyEnabled ? "native_tavily" : nativeEnabled ? "native" : tavilyEnabled ? "tavily" : "tavily";
   }
@@ -113,7 +115,9 @@ function normalizeWebSearchProviders(raw) {
     braveSearchKeySource: normalizeText(value.braveSearchKeySource || value.brave_search_key_source || "missing"),
     native_provider: {
       openaiCodex: { enabled: Boolean(openaiCodex.enabled) },
-      openaiAPIKey: { enabled: Boolean(openaiAPIKey.enabled) }
+      openaiAPIKey: { enabled: Boolean(openaiAPIKey.enabled) },
+      anthropic: { enabled: Boolean(anthropic.enabled) },
+      gemini: { enabled: Boolean(gemini.enabled) }
     },
     custom_provider: {
       Tavily: { enabled: Boolean(tavily.enabled) },
@@ -365,7 +369,9 @@ function webSearchProvidersForSave(settings) {
   return {
     native_provider: {
       openaiCodex: { enabled: nativeEnabled },
-      openaiAPIKey: { enabled: nativeEnabled }
+      openaiAPIKey: { enabled: nativeEnabled },
+      anthropic: { enabled: nativeEnabled },
+      gemini: { enabled: nativeEnabled }
     },
     custom_provider: {
       Tavily: { enabled: isCustomWebSearchProviderEnabled(provider, "Tavily") },
@@ -409,4 +415,3 @@ async function saveToolSettings() {
     elements.saveToolSettings.disabled = false;
   }
 }
-

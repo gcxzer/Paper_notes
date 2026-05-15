@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -140,7 +139,28 @@ def _set_frontmatter_scalar(frontmatter: str, key: str, value: str) -> str:
 
 def _yaml_scalar(value: str) -> str:
     text = str(value or "").replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
-    return json.dumps(text, ensure_ascii=False)
+    if _can_use_plain_yaml_scalar(text):
+        return text
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _can_use_plain_yaml_scalar(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    if lowered in {"null", "true", "false", "~"}:
+        return False
+    if text != text.strip():
+        return False
+    if text[0] in "-?:,[]{}#&*!|>'\"%@`":
+        return False
+    if re.search(r":(?:\s|$)|(?:^|\s)#", text):
+        return False
+    if re.search(r"\s", text):
+        return True
+    if re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text):
+        return False
+    return True
 
 
 def _reset_agent_service() -> None:

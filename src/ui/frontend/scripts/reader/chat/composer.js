@@ -81,8 +81,21 @@ async function uploadReaderAttachmentFile(file) {
 }
 
 async function handleReaderAttachmentFiles(files) {
-  const selectedFiles = Array.from(files || []).filter(isSupportedAttachmentFile);
+  let selectedFiles = Array.from(files || []).filter(isSupportedAttachmentFile);
   if (!selectedFiles.length) return;
+  const imageFiles = selectedFiles.filter(isImageFile);
+  let blockedImageMessage = "";
+  if (imageFiles.length && !activeProviderSupportsImageInput()) {
+    blockedImageMessage = activeProviderImageInputUnsupportedMessage();
+    selectedFiles = selectedFiles.filter((file) => !isImageFile(file));
+    setReaderChatError(blockedImageMessage);
+    if (!selectedFiles.length) {
+      if (elements.readerAttachmentInput) elements.readerAttachmentInput.value = "";
+      renderAttachmentTray();
+      renderReaderToolControls();
+      return;
+    }
+  }
   readerState.imageUploadPending = true;
   readerState.attachmentUploadPending = true;
   const localAttachments = selectedFiles.map(createLocalAttachment);
@@ -105,7 +118,7 @@ async function handleReaderAttachmentFiles(files) {
         renderReaderToolControls();
       }
     }
-    setReaderChatError("");
+    setReaderChatError(blockedImageMessage || "");
   } catch (error) {
     for (const localAttachment of localAttachments) {
       const current = readerState.chatAttachments.find((entry) => entry.id === localAttachment.id);
@@ -165,6 +178,10 @@ function handleReaderImagePaste(event) {
   if (!files.length) return;
   event.preventDefault();
   event.stopPropagation();
+  if (!activeProviderSupportsImageInput()) {
+    setReaderChatError(activeProviderImageInputUnsupportedMessage());
+    return;
+  }
   handleReaderAttachmentFiles(files);
 }
 
@@ -236,9 +253,11 @@ async function fetchReaderChatProgress(requestId, sessionId = getChatSessionId()
     if (readerState.chatProgressRequestIdsBySession[runKey] !== requestId) return;
     if (progress.status === "unknown") return;
     setReaderChatProgress(progress, runKey);
-    if (isTerminalChatProgressStatus(progress.status) && readerState.chatProgressTimersBySession[runKey]) {
-      clearInterval(readerState.chatProgressTimersBySession[runKey]);
-      delete readerState.chatProgressTimersBySession[runKey];
+    if (isTerminalChatProgressStatus(progress.status)) {
+      if (readerState.chatProgressTimersBySession[runKey]) {
+        clearInterval(readerState.chatProgressTimersBySession[runKey]);
+        delete readerState.chatProgressTimersBySession[runKey];
+      }
       delete readerState.chatAbortControllersBySession[runKey];
       setReaderChatPending(false, runKey);
       if (normalizeText(sessionId) && sessionId !== "__draft_chat_session__") {
@@ -268,8 +287,54 @@ function startReaderChatProgress(requestId, sessionId = getChatSessionId()) {
   fetchReaderChatProgress(requestId, runKey);
 }
 
+function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey()) {
+  const text = normalizeText(data?.text || data?.delta);
+  if (!text) return;
+  const progress = normalizeChatProgress(readerState.chatProgressBySession[runKey]) || {
+    requestId: readerState.chatProgressRequestIdsBySession[runKey],
+    status: "running",
+    stage: "thinking",
+    detail: "Thinking with local paper context...",
+    events: [],
+    workTrace: { status: "running", items: [] },
+  };
+  const trace = normalizeWorkTrace(progress.workTrace) || { status: progress.status || "running", items: [] };
+  if (normalizeText(data?.delta)) {
+    const last = trace.items[trace.items.length - 1];
+    if (last && last.type === (normalizeText(data?.traceType) || "summary") && last.source === "provider" && !last.complete) {
+      last.text = text;
+    } else {
+      trace.items.push({
+        type: normalizeText(data?.traceType) || "summary",
+        text,
+        source: "provider",
+      complete: false,
+      });
+    }
+  } else {
+    const itemType = normalizeText(data?.traceType) || "summary";
+    const last = trace.items[trace.items.length - 1];
+    if (last && last.type === itemType && last.source === "provider" && (
+      text.startsWith(normalizeText(last.text)) || normalizeText(last.text).startsWith(text)
+    )) {
+      last.text = text.length >= normalizeText(last.text).length ? text : normalizeText(last.text);
+      last.complete = true;
+    } else if (!trace.items.some((item) => item.text === text && item.type === itemType)) {
+    trace.items.push({
+      type: itemType,
+      text,
+      source: "provider",
+      complete: true,
+    });
+  }
+  }
+  progress.workTrace = trace;
+  setReaderChatProgress(progress, runKey);
+}
+
 async function cancelReaderChatRequest() {
   const runKey = chatSessionRunKey();
+  const sessionId = getChatSessionId();
   const requestId = readerState.chatProgressRequestIdsBySession[runKey];
   if (!requestId) return;
   const progress = normalizeChatProgress(readerState.chatProgressBySession[runKey]) || { events: [] };
@@ -295,22 +360,46 @@ async function cancelReaderChatRequest() {
     const draft = latestReaderStreamingAssistantMessage() || ensureReaderStreamingAssistantMessage();
     draft.streaming = false;
     draft.runTrace = cancelledTrace;
+    if (cancelledProgress.workTrace?.items?.length) {
+      draft.workTrace = cancelledProgress.workTrace;
+    }
   }
   flushReaderStreamingRender();
   clearReaderChatProgress(runKey);
   setReaderChatPending(false, runKey);
-  forgetActiveChatRun(getChatSessionId());
   renderReaderChatMessages();
 
   try {
-    await fetchAgentJson("/api/chat/cancel", {
+    const cancelResult = await fetchAgentJson("/api/chat/cancel", {
       method: "POST",
       body: {
         requestId,
-        sessionId: getChatSessionId(),
+        sessionId,
         reason: "reader_cancelled"
       }
     });
+    rememberActiveChatRun(sessionId, requestId);
+    readerState.chatProgressRequestIdsBySession[runKey] = requestId;
+    if (normalizeText(cancelResult?.status) === "cancelling") {
+      const cancellingProgress = normalizeChatProgress({
+        ...cancelledProgress,
+        status: "cancelling",
+        stage: "cancelling",
+        detail: "Cancelling agent run."
+      });
+      readerState.chatProgressBySession[runKey] = cancellingProgress;
+      setReaderChatPending(true, runKey);
+      if (!readerState.chatProgressTimersBySession[runKey]) {
+        readerState.chatProgressTimersBySession[runKey] = setInterval(() => fetchReaderChatProgress(requestId, sessionId), 800);
+      }
+    } else {
+      readerState.chatProgressBySession[runKey] = cancelledProgress;
+    }
+    window.setTimeout(() => {
+      fetchReaderChatProgress(requestId, sessionId).catch((error) => {
+        console.warn("Failed to refresh cancelled chat progress.", error);
+      });
+    }, 250);
   } catch (error) {
     setReaderChatError(error.message || GENERIC_AGENT_ERROR);
   } finally {
@@ -488,4 +577,3 @@ async function compactReaderContext() {
     renderReaderContextControls();
   }
 }
-

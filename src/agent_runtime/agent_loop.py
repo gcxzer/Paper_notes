@@ -179,19 +179,24 @@ def _call_model_turn(
             result=_finish_cancelled(request, state, event_sink, turn_index, turn_start_messages),
         )
 
+    streamed_work_events: list[AgentEvent] = []
     response = _generate_model_response(
         model_provider,
         model_request,
         request,
         turn_index,
         event_sink,
+        streamed_work_events=streamed_work_events,
     )
     _accumulate_usage(state.usage, response.usage)
     state.artifacts.extend(response.artifacts)
+    for work_event in _reasoning_trace_events_from_response(response, turn_index + 1):
+        _record_event(state.events, work_event, event_sink)
     for work_event in _work_trace_events_from_response(response, turn_index + 1):
         _record_event(state.events, work_event, event_sink)
     _record_event(state.events, _model_response_event(response, turn_index + 1), event_sink)
     if _is_cancelled(request):
+        _record_cancelled_stream_work_events(state.events, streamed_work_events)
         return _TurnResult(
             "return_result",
             result=_finish_cancelled(request, state, event_sink, turn_index + 1, turn_start_messages),
@@ -206,6 +211,8 @@ def _generate_model_response(
     request: AgentRunRequest,
     turn_index: int,
     event_sink: AgentEventSink | None,
+    *,
+    streamed_work_events: list[AgentEvent] | None = None,
 ) -> ModelResponse:
     stream_generate = getattr(model_provider, "stream_generate", None)
     if not request.stream_events_enabled or not callable(stream_generate):
@@ -222,16 +229,28 @@ def _generate_model_response(
                 event_sink(AgentEvent("model_delta", "Receiving model response.", data))
             elif event.type == "reasoning_summary_delta":
                 data.update({"delta": event.delta, "text": event.text, "trace_type": "summary"})
-                event_sink(AgentEvent("work_trace_delta", event.delta or event.text, data))
+                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
             elif event.type == "reasoning_summary_done":
                 data.update({"text": event.text, "trace_type": "summary", "source": "provider"})
-                event_sink(AgentEvent("work_trace_item", event.text, data))
+                agent_event = AgentEvent("work_trace_item", event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
             elif event.type == "assistant_commentary_delta":
                 data.update({"delta": event.delta, "text": event.text, "trace_type": "commentary"})
-                event_sink(AgentEvent("work_trace_delta", event.delta or event.text, data))
+                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
             elif event.type == "assistant_commentary_done":
                 data.update({"text": event.text, "trace_type": "commentary", "source": "provider"})
-                event_sink(AgentEvent("work_trace_item", event.text, data))
+                agent_event = AgentEvent("work_trace_item", event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
 
     return stream_generate(model_request, event_sink=on_stream_event)
 
@@ -818,9 +837,13 @@ def _finish_cancelled(
     turns: int,
     messages: list[dict[str, Any]],
 ) -> AgentRunResult:
+    has_work_trace = _has_work_trace_events(state.events)
+    result_messages = state.messages if has_work_trace and len(state.messages) > len(messages) else messages
+    if has_work_trace and not any(message.get("role") == "assistant" for message in result_messages):
+        result_messages = [*result_messages, {"role": "assistant", "content": ""}]
     return _cancelled_result(
         request,
-        messages=messages,
+        messages=result_messages,
         events=state.events,
         event_sink=event_sink,
         turns=turns,
@@ -939,6 +962,33 @@ def _is_cancelled(request: AgentRunRequest) -> bool:
     return bool(request.control and request.control.cancelled)
 
 
+def _has_work_trace_events(events: list[AgentEvent]) -> bool:
+    return any(event.type in {"work_trace_delta", "work_trace_item"} for event in events)
+
+
+def _record_cancelled_stream_work_events(events: list[AgentEvent], streamed_events: list[AgentEvent]) -> None:
+    seen = {
+        (
+            event.type,
+            str((event.data if isinstance(event.data, dict) else {}).get("trace_type") or ""),
+            str((event.data if isinstance(event.data, dict) else {}).get("text") or event.message or ""),
+        )
+        for event in events
+        if event.type in {"work_trace_delta", "work_trace_item"}
+    }
+    for event in streamed_events:
+        data = event.data if isinstance(event.data, dict) else {}
+        key = (
+            event.type,
+            str(data.get("trace_type") or ""),
+            str(data.get("text") or event.message or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        events.append(event)
+
+
 def _cancelled_result(
     request: AgentRunRequest,
     *,
@@ -1023,10 +1073,13 @@ def _assistant_message_from_response(response: ModelResponse) -> dict[str, Any] 
     codex_message_items = provider_data.get("codex_message_items")
     if isinstance(codex_message_items, list) and codex_message_items:
         message["codex_message_items"] = codex_message_items
+    reasoning_content = provider_data.get("reasoning_content")
+    if isinstance(reasoning_content, str) and reasoning_content:
+        message["reasoning_content"] = reasoning_content
     safe_provider_data = {
         key: value
         for key, value in provider_data.items()
-        if key not in {"codex_reasoning_items", "codex_message_items"} and value not in (None, False, "", [])
+        if key not in {"codex_reasoning_items", "codex_message_items", "reasoning_content"} and value not in (None, False, "", [])
     }
     if safe_provider_data:
         message["provider_data"] = safe_provider_data
@@ -1052,13 +1105,18 @@ def _tool_call_message(tool_call: ToolCall) -> dict[str, Any]:
     response_item_id = provider_data.get("response_item_id")
     if response_item_id:
         message["response_item_id"] = response_item_id
+    thought_signature = provider_data.get("thought_signature")
+    if isinstance(thought_signature, str) and thought_signature:
+        message["thoughtSignature"] = thought_signature
     return message
 
 
 def _has_replay_metadata(provider_data: dict[str, Any]) -> bool:
+    if isinstance(provider_data.get("reasoning_content"), str) and provider_data.get("reasoning_content"):
+        return True
     return any(
         isinstance(provider_data.get(key), list) and bool(provider_data.get(key))
-        for key in ("codex_reasoning_items", "codex_message_items")
+        for key in ("codex_reasoning_items", "codex_message_items", "work_trace_items")
     )
 
 
@@ -1202,6 +1260,23 @@ def _work_trace_events_from_response(response: ModelResponse, turn: int) -> list
             },
         ))
     return events
+
+
+def _reasoning_trace_events_from_response(response: ModelResponse, turn: int) -> list[AgentEvent]:
+    provider_data = response.provider_data if isinstance(response.provider_data, dict) else {}
+    text = str(provider_data.get("reasoning_content") or "").strip()
+    if not text:
+        return []
+    return [AgentEvent(
+        "work_trace_item",
+        text,
+        {
+            "turn": turn,
+            "text": text,
+            "trace_type": "reasoning",
+            "source": provider_data.get("provider") or "provider",
+        },
+    )]
 
 
 def _with_ephemeral_messages(messages: list[dict[str, Any]], request_options: dict[str, Any] | None) -> list[dict[str, Any]]:

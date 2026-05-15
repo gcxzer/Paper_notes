@@ -306,6 +306,7 @@ function renderAnnotationList() {
   updateAnnotationHistoryButtons();
   const sorted = [...pdfState.annotations].sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
   if (elements.annotationCount) elements.annotationCount.textContent = String(sorted.length);
+  elements.annotationSidebarToolbarToggle?.classList.toggle("has-annotations", sorted.length > 0);
   if (!sorted.length) {
     elements.annotationList.innerHTML = `
       <div class="annotation-empty">

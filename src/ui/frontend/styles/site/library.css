@@ -408,22 +408,22 @@
 }
 
 .details-tag-add {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel));
-  color: color-mix(in srgb, var(--accent) 54%, var(--text));
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
 }
 
 .details-tag-add:hover,
 .details-tag-add:focus-visible {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent-soft) 58%, var(--panel-hover));
+  border-color: color-mix(in srgb, var(--text) 28%, var(--line-strong));
+  background: var(--panel-hover);
   outline: none;
 }
 

@@ -25,6 +25,13 @@ from tools.registry import ToolDefinition, ToolRegistry
 
 def _isolate_ai_env(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("PAPER_NOTES_AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("CODEX_MODEL", raising=False)
@@ -73,6 +80,94 @@ def test_delete_ai_api_key_removes_only_local_key(monkeypatch, tmp_path):
     values = parse_env_file(secrets_path)
     assert "OPENAI_API_KEY" not in values
     assert values["OPENAI_MODEL"] == "gpt-test"
+
+
+def test_update_ai_settings_can_save_gemini_key_without_changing_default_provider(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "openai", "model": "gpt-test"}, secrets_path=secrets_path)
+
+    payload = update_ai_settings(
+        {"provider": "openai", "apiKeyProvider": "gemini", "apiKey": "gemini-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "openai"
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "openai"
+    assert values["GEMINI_API_KEY"] == "gemini-secret"
+    assert "OPENAI_API_KEY" not in values
+
+
+def test_update_ai_settings_can_save_anthropic_key_without_changing_default_provider(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "openai", "model": "gpt-test"}, secrets_path=secrets_path)
+
+    payload = update_ai_settings(
+        {"provider": "openai", "apiKeyProvider": "anthropic", "apiKey": "anthropic-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "openai"
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "openai"
+    assert values["ANTHROPIC_API_KEY"] == "anthropic-secret"
+    assert "OPENAI_API_KEY" not in values
+
+
+def test_update_ai_settings_can_save_deepseek_key_without_changing_default_provider(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "openai", "model": "gpt-test"}, secrets_path=secrets_path)
+
+    payload = update_ai_settings(
+        {"provider": "openai", "apiKeyProvider": "deepseek", "apiKey": "deepseek-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "openai"
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "openai"
+    assert values["DEEPSEEK_API_KEY"] == "deepseek-secret"
+    assert "OPENAI_API_KEY" not in values
+
+
+def test_delete_ai_api_key_removes_gemini_local_keys(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "gemini", "apiKey": "gemini-secret"}, secrets_path=secrets_path)
+
+    payload = delete_ai_api_key("gemini", secrets_path=secrets_path)
+
+    assert payload["provider"] == "gemini"
+    values = parse_env_file(secrets_path)
+    assert "GEMINI_API_KEY" not in values
+    assert "GOOGLE_API_KEY" not in values
+
+
+def test_delete_ai_api_key_removes_anthropic_local_key(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "anthropic", "apiKey": "anthropic-secret"}, secrets_path=secrets_path)
+
+    payload = delete_ai_api_key("anthropic", secrets_path=secrets_path)
+
+    assert payload["provider"] == "anthropic"
+    values = parse_env_file(secrets_path)
+    assert "ANTHROPIC_API_KEY" not in values
+
+
+def test_delete_ai_api_key_removes_deepseek_local_key(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "deepseek", "apiKey": "deepseek-secret"}, secrets_path=secrets_path)
+
+    payload = delete_ai_api_key("deepseek", secrets_path=secrets_path)
+
+    assert payload["provider"] == "deepseek"
+    values = parse_env_file(secrets_path)
+    assert "DEEPSEEK_API_KEY" not in values
 
 
 def test_update_ai_settings_saves_codex_provider_and_model(monkeypatch, tmp_path):
@@ -143,17 +238,83 @@ def test_codex_login_without_saved_model_counts_as_configured_and_auto_default(m
     assert catalog["modelConnectionConfigured"] is True
 
 
-def test_single_available_openai_key_auto_default_when_saved_codex_unavailable(monkeypatch, tmp_path):
+def test_explicit_provider_is_not_auto_replaced_by_another_key(monkeypatch, tmp_path):
     _isolate_ai_env(monkeypatch, tmp_path)
     secrets_path = tmp_path / "secrets.env"
     update_ai_settings({"provider": "codex", "apiKey": "sk-test-secret"}, secrets_path=secrets_path)
 
     payload = get_ai_settings(secrets_path=secrets_path)
 
-    assert payload["provider"] == "openai"
-    assert payload["providerSource"] == "auto"
+    assert payload["provider"] == "codex-oauth"
+    assert payload["providerSource"] == "local"
+    assert payload["configured"] is False
+    assert payload["modelConnectionConfigured"] is False
+
+
+def test_update_ai_settings_saves_gemini_provider_model_and_key(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+
+    payload = update_ai_settings(
+        {"provider": "google", "model": "gemini-test", "apiKey": "gemini-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "gemini"
     assert payload["configured"] is True
+    assert payload["ready"] is True
+    assert payload["model"] == "gemini-test"
+    assert payload["localKeyConfigured"] is True
     assert payload["modelConnectionConfigured"] is True
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "gemini"
+    assert values["GEMINI_MODEL"] == "gemini-test"
+    assert values["GEMINI_API_KEY"] == "gemini-secret"
+    assert "OPENAI_API_KEY" not in values
+
+
+def test_update_ai_settings_saves_anthropic_provider_model_and_key(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+
+    payload = update_ai_settings(
+        {"provider": "claude", "model": "claude-test", "apiKey": "anthropic-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "anthropic"
+    assert payload["configured"] is True
+    assert payload["ready"] is True
+    assert payload["model"] == "claude-test"
+    assert payload["localKeyConfigured"] is True
+    assert payload["modelConnectionConfigured"] is True
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "anthropic"
+    assert values["ANTHROPIC_MODEL"] == "claude-test"
+    assert values["ANTHROPIC_API_KEY"] == "anthropic-secret"
+    assert "OPENAI_API_KEY" not in values
+
+
+def test_update_ai_settings_saves_deepseek_provider_model_and_key(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+
+    payload = update_ai_settings(
+        {"provider": "deepseek", "model": "deepseek-test", "apiKey": "deepseek-secret"},
+        secrets_path=secrets_path,
+    )
+
+    assert payload["provider"] == "deepseek"
+    assert payload["configured"] is True
+    assert payload["ready"] is True
+    assert payload["model"] == "deepseek-test"
+    assert payload["localKeyConfigured"] is True
+    assert payload["modelConnectionConfigured"] is True
+    values = parse_env_file(secrets_path)
+    assert values["PAPER_NOTES_AI_PROVIDER"] == "deepseek"
+    assert values["DEEPSEEK_MODEL"] == "deepseek-test"
+    assert values["DEEPSEEK_API_KEY"] == "deepseek-secret"
+    assert "OPENAI_API_KEY" not in values
 
 
 def test_get_model_providers_returns_catalog_and_configured_status(monkeypatch, tmp_path):
@@ -170,6 +331,12 @@ def test_get_model_providers_returns_catalog_and_configured_status(monkeypatch, 
     assert providers["openai"]["models"][-1]["value"] == "gpt-test"
     assert providers["codex-oauth"]["configured"] is False
     assert providers["codex-oauth"]["model"] == "gpt-5.5"
+    assert providers["anthropic"]["configured"] is False
+    assert providers["anthropic"]["model"] == "claude-sonnet-4-6"
+    assert providers["deepseek"]["configured"] is False
+    assert providers["deepseek"]["model"] == "deepseek-v4-flash"
+    assert providers["gemini"]["configured"] is False
+    assert providers["gemini"]["model"] == "gemini-3-flash-preview"
 
 
 def test_tool_settings_default_to_ask_and_list_registered_tools(tmp_path):
@@ -259,6 +426,8 @@ def test_update_tool_settings_persists_group_access_and_expands_runtime_override
         "native_provider": {
             "openaiCodex": {"enabled": True},
             "openaiAPIKey": {"enabled": True},
+            "anthropic": {"enabled": True},
+            "gemini": {"enabled": True},
         },
         "custom_provider": {
             "Tavily": {"enabled": False},
@@ -386,6 +555,8 @@ def test_update_tool_settings_saves_web_search_provider_and_tavily_key(monkeypat
         "native_provider": {
             "openaiCodex": {"enabled": False},
             "openaiAPIKey": {"enabled": False},
+            "anthropic": {"enabled": False},
+            "gemini": {"enabled": False},
         },
         "custom_provider": {
             "Tavily": {"enabled": True},
@@ -456,6 +627,68 @@ def test_tool_settings_uses_codex_native_provider_when_active(monkeypatch, tmp_p
     assert payload["nativeWebSearchEnabled"] is True
     assert payload["enabledToolsets"] == ["web_search"]
     assert payload["disabledTools"] == []
+
+
+def test_tool_settings_uses_gemini_native_provider_when_active(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("PAPER_NOTES_AI_PROVIDER", "gemini")
+    service = _tool_settings_service(tmp_path)
+    settings_path = tmp_path / "tool-settings.json"
+    settings_path.write_text(json.dumps({
+        "globalAccess": "full_access",
+        "toolsets": {
+            "web_search": {
+                "enabled": True,
+                "access": "inherit",
+                "native_provider": {
+                    "gemini": {"enabled": True},
+                    "openaiCodex": {"enabled": False},
+                    "openaiAPIKey": {"enabled": False},
+                },
+                "custom_provider": {
+                    "Tavily": {"enabled": False},
+                    "Brave": {"enabled": False},
+                },
+            },
+        },
+    }), encoding="utf-8")
+
+    payload = get_tool_settings(settings_path=settings_path, service=service)
+
+    assert payload["nativeWebSearchEnabled"] is True
+    assert payload["enabledToolsets"] == ["web_search"]
+
+
+def test_tool_settings_blocks_deepseek_native_provider_when_active(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("PAPER_NOTES_AI_PROVIDER", "deepseek")
+    service = _tool_settings_service(tmp_path)
+    settings_path = tmp_path / "tool-settings.json"
+    settings_path.write_text(json.dumps({
+        "globalAccess": "full_access",
+        "toolsets": {
+            "web_search": {
+                "enabled": True,
+                "access": "inherit",
+                "native_provider": {
+                    "openaiCodex": {"enabled": True},
+                    "openaiAPIKey": {"enabled": True},
+                    "anthropic": {"enabled": True},
+                    "gemini": {"enabled": True},
+                },
+                "custom_provider": {
+                    "Tavily": {"enabled": False},
+                    "Brave": {"enabled": False},
+                },
+            },
+        },
+    }), encoding="utf-8")
+
+    payload = get_tool_settings(settings_path=settings_path, service=service)
+
+    assert payload["nativeWebSearchEnabled"] is False
+    assert payload["enabledToolsets"] == ["web_search"]
+    assert payload["disabledTools"] == ["web_search"]
 
 
 def test_environment_key_wins_over_local_key(monkeypatch, tmp_path):

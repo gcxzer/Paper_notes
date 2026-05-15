@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from app_config.ai_settings import (
+    ANTHROPIC_PROVIDER,
     CODEX_PROVIDER,
+    DEEPSEEK_PROVIDER,
+    GEMINI_PROVIDER,
     OPENAI_PROVIDER,
     SUPPORTED_AI_PROVIDERS,
     resolve_ai_settings,
@@ -30,6 +33,13 @@ def normalize_model_provider_name(value: object) -> str:
         "codex": CODEX_PROVIDER,
         CODEX_PROVIDER: CODEX_PROVIDER,
         "openai-codex": CODEX_PROVIDER,
+        "claude": ANTHROPIC_PROVIDER,
+        ANTHROPIC_PROVIDER: ANTHROPIC_PROVIDER,
+        DEEPSEEK_PROVIDER: DEEPSEEK_PROVIDER,
+        "google": GEMINI_PROVIDER,
+        "google-gemini": GEMINI_PROVIDER,
+        "google-ai-studio": GEMINI_PROVIDER,
+        GEMINI_PROVIDER: GEMINI_PROVIDER,
     }
     normalized = aliases.get(provider, "")
     if normalized and normalized in SUPPORTED_AI_PROVIDERS:
@@ -57,6 +67,12 @@ def resolve_model_provider(
     if selected_model and "default_model" not in kwargs:
         kwargs["default_model"] = selected_model
     if normalized_provider == OPENAI_PROVIDER and settings.api_key and "api_key" not in kwargs:
+        kwargs["api_key"] = settings.api_key
+    if normalized_provider == ANTHROPIC_PROVIDER and settings.api_key and "api_key" not in kwargs:
+        kwargs["api_key"] = settings.api_key
+    if normalized_provider == DEEPSEEK_PROVIDER and settings.api_key and "api_key" not in kwargs:
+        kwargs["api_key"] = settings.api_key
+    if normalized_provider == GEMINI_PROVIDER and settings.api_key and "api_key" not in kwargs:
         kwargs["api_key"] = settings.api_key
 
     return ResolvedModelProvider(

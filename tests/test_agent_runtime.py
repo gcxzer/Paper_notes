@@ -203,6 +203,38 @@ def test_runner_cancels_after_provider_without_appending_response():
     assert result.messages == [{"role": "user", "content": "Hi"}]
 
 
+def test_runner_cancellation_keeps_streamed_work_trace():
+    control = AgentRunControl()
+    events = []
+
+    class CancellingStreamingProvider(FakeProvider):
+        def stream_generate(self, request: ModelRequest, event_sink=None) -> ModelResponse:
+            self.requests.append(request)
+            if event_sink is not None:
+                event_sink(ModelStreamEvent(
+                    type="reasoning_summary_done",
+                    text="Checked page context.",
+                ))
+            control.cancel("stop")
+            return ModelResponse(content="Should not persist.")
+
+    provider = CancellingStreamingProvider([])
+    runner = AgentRunner(provider, event_sink=events.append)
+
+    result = runner.run(AgentRunRequest(
+        model="test-model",
+        messages=[{"role": "user", "content": "Hi"}],
+        control=control,
+        stream_events_enabled=True,
+    ))
+
+    assert result.cancelled is True
+    assert result.final_response is None
+    assert result.messages[-1]["role"] == "assistant"
+    assert result.messages[-1]["content"] == ""
+    assert [event.message for event in result.events if event.type == "work_trace_item"] == ["Checked page context."]
+
+
 def test_runner_cancels_before_tool_execution():
     control = AgentRunControl()
     tool_call = ToolCall(id="call_1", name="search_notes", arguments="{}")

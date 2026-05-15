@@ -19,6 +19,63 @@ function cancelReaderUserMessageEdit() {
   preserveReaderChatScrollTop(() => renderReaderChatMessages({ preserveScrollTop: true }));
 }
 
+function readerRequestOptions() {
+  const provider = currentReaderProvider();
+  const normalizedProvider = normalizeProviderName(provider);
+  if (providerSupportsGptThinkMode(normalizedProvider)) {
+    const thinkMode = currentGptThinkMode();
+    return {
+      reasoning: thinkMode.enabled
+        ? { effort: thinkMode.effort, summary: "auto" }
+        : { effort: "none" },
+    };
+  }
+  if (providerSupportsGeminiThinkMode(normalizedProvider)) {
+    const model = currentReaderModel();
+    const thinkMode = currentGeminiThinkMode(model);
+    if (model === "gemini-3-pro-preview") {
+      return { thinkingConfig: { thinkingLevel: thinkMode.effort, includeThoughts: true } };
+    }
+    if (!thinkMode.enabled) {
+      return { thinkingConfig: { thinkingLevel: "minimal" } };
+    }
+    return { thinkingConfig: { thinkingLevel: thinkMode.effort, includeThoughts: true } };
+  }
+  if (providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())) {
+    const thinkMode = currentAnthropicThinkMode(currentReaderModel());
+    if (!thinkMode.enabled) {
+      return { thinking: { type: "disabled" } };
+    }
+    return {
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: thinkMode.effort },
+    };
+  }
+  if (normalizedProvider !== "deepseek") return {};
+  const thinkMode = currentDeepSeekThinkMode();
+  if (!thinkMode.enabled) {
+    return { thinking: { type: "disabled" } };
+  }
+  return {
+    reasoning_effort: thinkMode.effort,
+    thinking: { type: "enabled" },
+  };
+}
+
+function sessionWithRequestModelSelection(rawSession, requestBody, fallbackSessionId = "") {
+  const session = rawSession && typeof rawSession === "object" && !Array.isArray(rawSession)
+    ? { ...rawSession }
+    : {};
+  const sessionId = normalizeText(session.id || session.sessionId || fallbackSessionId || requestBody?.sessionId);
+  if (sessionId) {
+    session.id = session.id || sessionId;
+    session.sessionId = session.sessionId || sessionId;
+  }
+  if (!normalizeProviderName(session.provider)) session.provider = requestBody?.provider || "";
+  if (!normalizeText(session.model)) session.model = requestBody?.model || "";
+  return session;
+}
+
 async function saveReaderUserMessageEdit(index) {
   if (isChatSessionPending() || index !== latestReaderUserMessageIndex()) return;
   const text = normalizeText(readerState.chatEditingText);
@@ -179,6 +236,9 @@ async function submitReaderChatStream(body, {
         if (data?.progress) {
           setReaderChatProgress(data.progress, sessionRunKey);
         }
+        if (event === "work_trace_item" || event === "work_trace_delta") {
+          appendReaderChatProgressWorkTrace(data, sessionRunKey);
+        }
         if (event === "model_delta") {
           if (isCurrentChatSessionRunKey(sessionRunKey)) appendReaderStreamingDelta(data?.delta);
         } else if (event === "final") {
@@ -231,6 +291,10 @@ async function sendReaderChatMessage(options = {}) {
     setReaderChatError("Remove failed attachment uploads before sending.");
     return;
   }
+  if (attachments.some(isImageArtifact) && !activeProviderSupportsImageInput()) {
+    setReaderChatError(activeProviderImageInputUnsupportedMessage());
+    return;
+  }
   if (editing && !getChatSessionId()) {
     setReaderChatError("No saved session is available to edit.");
     return;
@@ -272,14 +336,21 @@ async function sendReaderChatMessage(options = {}) {
   let detachedByAbort = false;
 
   try {
+    const deepSeekThinkModeForRequest = currentDeepSeekThinkMode();
+    const gptThinkModeForRequest = currentGptThinkMode();
+    const providerForRequest = currentReaderProvider();
+    const normalizedProviderForRequest = normalizeProviderName(providerForRequest);
+    const geminiThinkModeForRequest = currentGeminiThinkMode(currentReaderModel());
+    const anthropicThinkModeForRequest = currentAnthropicThinkMode(currentReaderModel());
     const requestBody = {
       requestId,
       message: text,
       attachments: attachments.map((attachment) => ({ id: attachment.id })),
       sessionId: activeSessionId,
       editLatestUserMessage: editing,
-      provider: currentReaderProvider(),
+      provider: providerForRequest,
       model: currentReaderModel() || undefined,
+      requestOptions: readerRequestOptions(),
       writeToolMode: normalizeWriteToolMode(readerState.writeToolMode),
       ...readerToolSettingsPayload(),
       ...generationPayload,
@@ -289,9 +360,22 @@ async function sendReaderChatMessage(options = {}) {
       selectionText: context.selectionText,
       visibleAnnotations: context.visibleAnnotations,
       context,
-      metadata: { source: "reader", generation: generationPayload }
+      metadata: {
+        source: "reader",
+        generation: generationPayload,
+        deepseekThinkMode: deepSeekThinkModeForRequest.enabled ? deepSeekThinkModeForRequest.effort : "off",
+        ...(providerSupportsGptThinkMode(normalizedProviderForRequest)
+          ? { gptThinkMode: gptThinkModeForRequest.enabled ? gptThinkModeForRequest.effort : "off" }
+          : {}),
+        ...(providerSupportsGeminiThinkMode(normalizedProviderForRequest)
+          ? { geminiThinkMode: geminiThinkModeForRequest.enabled ? geminiThinkModeForRequest.effort : "off" }
+          : {}),
+        ...(providerSupportsAnthropicThinkMode(normalizedProviderForRequest, currentReaderModel())
+          ? { anthropicThinkMode: anthropicThinkModeForRequest.enabled ? anthropicThinkModeForRequest.effort : "off" }
+          : {}),
+      }
     };
-    writeStoredReaderModelSelection(requestBody.provider, requestBody.model);
+    if (!activeSessionId) writeStoredReaderModelSelection(requestBody.provider, requestBody.model);
     let payload;
     try {
       payload = await submitReaderChatStream(requestBody, {
@@ -304,8 +388,10 @@ async function sendReaderChatMessage(options = {}) {
           activeSessionId = startedSessionId;
           requestBody.sessionId = startedSessionId;
           sessionRunKey = migrateChatRunState(previousRunKey, startedSessionId);
-          setCurrentChatSessionId(startedSessionId);
-          upsertReaderChatSession(data?.session);
+          const startedSession = upsertReaderChatSession(
+            sessionWithRequestModelSelection(data?.session, requestBody, startedSessionId)
+          );
+          setCurrentChatSessionId(startedSession?.id || startedSessionId);
           rememberActiveChatRun(startedSessionId, requestId);
         }
       });
@@ -318,8 +404,9 @@ async function sendReaderChatMessage(options = {}) {
       });
     }
     if (readerState.chatProgressRequestIdsBySession[sessionRunKey] !== requestId) return;
-    const session = upsertReaderChatSession(payload.session);
-    if (session?.provider && session?.model) writeStoredReaderModelSelection(session.provider, session.model);
+    const session = upsertReaderChatSession(
+      sessionWithRequestModelSelection(payload.session, requestBody, payload.sessionId || activeSessionId || requestSessionId)
+    );
     if (!isCurrentChatSessionRunKey(sessionRunKey)) {
       setReaderChatError("");
       await fetchReaderChatSessions({ silent: true });
@@ -481,6 +568,7 @@ function initializeReaderChat() {
   elements.readerChatForm?.addEventListener("paste", handleReaderImagePaste);
   elements.readerAttachmentTray?.addEventListener("click", handleAttachmentTrayClick);
   elements.readerModelBack?.addEventListener("click", showReaderProviderMenu);
+  elements.readerModelProvider?.addEventListener("click", closeReaderModelMenu);
   elements.readerContextButton?.addEventListener("click", () => {
     setReaderContextPopoverOpen(!readerState.contextPopoverOpen);
   });

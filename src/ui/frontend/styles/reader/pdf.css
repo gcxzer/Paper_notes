@@ -220,6 +220,10 @@
   color: var(--muted);
 }
 
+.pdf-sidebar-tool.has-annotations {
+  color: var(--text);
+}
+
 .pdf-zoom,
 .pdf-save-status {
   color: var(--muted);

@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v1"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=import-loading-button-v1">
+  <link rel="stylesheet" href="styles/site/index.css?v=tag-add-button-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -151,7 +151,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div>
-          <div class="modal-eyebrow">Delete Collection</div>
+          <div class="modal-eyebrow" id="confirmDialogEyebrow">Delete Collection</div>
           <h3 id="confirmDialogTitle">Delete collection</h3>
         </div>
         <button class="icon-button" type="button" id="closeConfirmDialog" aria-label="Close dialog">x</button>
@@ -380,7 +380,7 @@
   </dialog>
 
   <dialog class="modal ai-settings-modal" id="aiSettingsDialog">
-    <form class="modal-card ai-settings-card" id="aiSettingsForm" method="dialog">
+    <form class="modal-card ai-settings-card" id="aiSettingsForm" method="dialog" tabindex="-1">
       <div class="modal-header ai-settings-header">
         <div>
           <div class="modal-eyebrow">Agent</div>
@@ -391,43 +391,125 @@
 
       <div class="ai-settings-status" id="aiSettingsStatus" aria-live="polite"></div>
 
-      <div class="provider-settings-panel openai-settings-panel" id="openAiSettingsPanel">
-        <div class="provider-settings-copy">
-          <strong id="openAiKeyTitle">OpenAI API key not configured</strong>
-          <span id="openAiKeyDetail">Add a local key to enable OpenAI.</span>
-        </div>
-        <div class="openai-key-actions">
-          <button class="toolbar-button" type="button" id="addAiKeyButton">Add key</button>
-          <button class="toolbar-button toolbar-button-danger" type="button" id="deleteAiKeyButton" hidden>Delete key</button>
-        </div>
-        <label class="field openai-key-field" id="openAiKeyField" hidden>
-          <span>New OpenAI API key</span>
-          <input id="aiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Only needed when saving a new local key">
-        </label>
+      <section class="ai-provider-list" aria-label="AI providers">
+        <article class="ai-provider-row openai-settings-panel" id="openAiSettingsPanel">
+          <div class="ai-provider-icon" aria-hidden="true">OA</div>
+          <div class="provider-settings-copy">
+            <strong id="openAiKeyTitle">OpenAI API key not configured</strong>
+            <span id="openAiKeyDetail">Add a local key to enable OpenAI.</span>
+          </div>
+          <div class="ai-provider-actions">
+            <span class="ai-provider-default-badge" id="openAiDefaultBadge" hidden>Default</span>
+            <button class="toolbar-button" type="button" id="setOpenAiDefaultButton">Set default</button>
+            <button class="toolbar-button" type="button" id="addAiKeyButton">Add key</button>
+            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteAiKeyButton" hidden>Delete key</button>
+          </div>
+        </article>
+
+        <article class="ai-provider-row codex-settings-panel" id="codexSettingsPanel">
+          <div class="ai-provider-icon" aria-hidden="true">CX</div>
+          <div class="provider-settings-copy">
+            <strong id="codexAuthTitle">Codex OAuth not connected</strong>
+            <span id="codexAuthDetail">OAuth login will be added in the next step.</span>
+            <span class="codex-auth-code" id="codexAuthCode" hidden></span>
+            <a class="codex-auth-link" id="codexAuthLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Codex sign-in</a>
+          </div>
+          <div class="ai-provider-actions">
+            <span class="ai-provider-default-badge" id="codexDefaultBadge" hidden>Default</span>
+            <button class="toolbar-button" type="button" id="setCodexDefaultButton">Set default</button>
+            <button class="toolbar-button" type="button" id="connectCodexButton">Connect</button>
+            <button class="toolbar-button toolbar-button-danger" type="button" id="logoutCodexButton" hidden>Log out</button>
+          </div>
+        </article>
+
+        <article class="ai-provider-row anthropic-settings-panel" id="anthropicSettingsPanel">
+          <div class="ai-provider-icon" aria-hidden="true">A</div>
+          <div class="provider-settings-copy">
+            <strong id="anthropicKeyTitle">Anthropic</strong>
+            <span id="anthropicKeyDetail">Add an Anthropic API key to enable Claude.</span>
+          </div>
+          <div class="ai-provider-actions">
+            <span class="ai-provider-default-badge" id="anthropicDefaultBadge" hidden>Default</span>
+            <button class="toolbar-button" type="button" id="setAnthropicDefaultButton">Set default</button>
+            <button class="toolbar-button" type="button" id="addAnthropicKeyButton">Add key</button>
+            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteAnthropicKeyButton" hidden>Delete key</button>
+          </div>
+        </article>
+
+        <article class="ai-provider-row gemini-settings-panel" id="geminiSettingsPanel">
+          <div class="ai-provider-icon" aria-hidden="true">G</div>
+          <div class="provider-settings-copy">
+            <strong id="geminiKeyTitle">Google Gemini</strong>
+            <span id="geminiKeyDetail">Add a Gemini API key to enable Google Gemini.</span>
+          </div>
+          <div class="ai-provider-actions">
+            <span class="ai-provider-default-badge" id="geminiDefaultBadge" hidden>Default</span>
+            <button class="toolbar-button" type="button" id="setGeminiDefaultButton">Set default</button>
+            <button class="toolbar-button" type="button" id="addGeminiKeyButton">Add key</button>
+            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteGeminiKeyButton" hidden>Delete key</button>
+          </div>
+        </article>
+
+        <article class="ai-provider-row deepseek-settings-panel" id="deepSeekSettingsPanel">
+          <div class="ai-provider-icon" aria-hidden="true">DS</div>
+          <div class="provider-settings-copy">
+            <strong id="deepSeekKeyTitle">DeepSeek</strong>
+            <span id="deepSeekKeyDetail">Add a DeepSeek API key to enable DeepSeek.</span>
+          </div>
+          <div class="ai-provider-actions">
+            <span class="ai-provider-default-badge" id="deepSeekDefaultBadge" hidden>Default</span>
+            <button class="toolbar-button" type="button" id="setDeepSeekDefaultButton">Set default</button>
+            <button class="toolbar-button" type="button" id="addDeepSeekKeyButton">Add key</button>
+            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteDeepSeekKeyButton" hidden>Delete key</button>
+          </div>
+        </article>
+      </section>
+
+      <div class="provider-key-dialog-backdrop" id="providerKeyDialog" hidden>
+        <section class="provider-key-dialog" role="dialog" aria-modal="true" aria-labelledby="providerKeyDialogTitle">
+          <div class="provider-key-dialog-header">
+            <div>
+              <strong id="providerKeyDialogTitle">Add key</strong>
+              <span id="providerKeyDialogDetail">Paste a local API key.</span>
+            </div>
+            <button class="icon-button" type="button" id="closeProviderKeyDialog" aria-label="Close key dialog">x</button>
+          </div>
+          <div class="provider-key-input-wrap">
+            <input id="aiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key">
+            <button class="provider-key-visibility-button" type="button" id="toggleAiKeyVisibilityButton" aria-label="Show key" aria-pressed="false">
+              <svg class="provider-key-eye-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg class="provider-key-eye-off-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.5 12s3.4-6 9.5-6c2 0 3.8.6 5.2 1.4"></path>
+                <path d="M21.5 12s-3.4 6-9.5 6c-2 0-3.8-.6-5.2-1.4"></path>
+                <path d="M4 4l16 16"></path>
+                <path d="M9.9 9.9A3 3 0 0 0 14.1 14.1"></path>
+              </svg>
+            </button>
+          </div>
+          <p class="provider-key-error" id="providerKeyDialogError" hidden></p>
+          <div class="provider-key-edit-actions">
+            <button class="toolbar-button" type="button" id="cancelAiKeyEditButton">Cancel</button>
+            <button class="toolbar-button toolbar-button-primary" type="button" id="confirmAiKeyEditButton">Save key</button>
+          </div>
+        </section>
       </div>
 
-      <div class="provider-settings-panel codex-settings-panel" id="codexSettingsPanel" hidden>
-        <div class="provider-settings-copy">
-          <strong id="codexAuthTitle">Codex OAuth not connected</strong>
-          <span id="codexAuthDetail">OAuth login will be added in the next step.</span>
-          <span class="codex-auth-code" id="codexAuthCode" hidden></span>
-          <a class="codex-auth-link" id="codexAuthLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Codex sign-in</a>
-        </div>
-        <div class="codex-auth-actions">
-          <button class="toolbar-button" type="button" id="connectCodexButton">Connect</button>
-          <button class="toolbar-button toolbar-button-danger" type="button" id="logoutCodexButton" hidden>Log out</button>
-        </div>
-      </div>
-
-      <label class="field default-provider-field">
+      <label class="field default-provider-field" hidden>
         <span>Default provider</span>
         <select id="aiProviderInput" autocomplete="off">
           <option value="openai">OpenAI API key</option>
           <option value="codex-oauth">Codex OAuth</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
         </select>
       </label>
 
-      <p class="settings-hint" id="aiSettingsSource"></p>
+      <p class="settings-hint ai-provider-footnote" id="aiSettingsSource"></p>
+
       <p class="field-error" id="aiSettingsError" hidden></p>
 
       <div class="modal-actions ai-settings-actions">
@@ -471,7 +553,7 @@
   <script src="scripts/site/page_state.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/library.js?v=paper-url-import-v1"></script>
   <script src="scripts/site/render.js?v=frontend-organized-v1"></script>
-  <script src="scripts/site/settings/ai.js?v=frontend-organized-v1"></script>
+  <script src="scripts/site/settings/ai.js?v=ai-provider-alpha-sort-v1"></script>
   <script src="scripts/site/settings/tools.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/settings/skills.js?v=frontend-organized-v1"></script>
   <script src="scripts/site/settings/memory.js?v=frontend-organized-v1"></script>

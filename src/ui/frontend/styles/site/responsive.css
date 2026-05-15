@@ -58,13 +58,16 @@
     flex: 1 1 auto;
   }
 
-  .provider-settings-panel,
-  .openai-settings-panel {
-    grid-template-columns: 1fr;
+  .ai-provider-row {
+    grid-template-columns: 38px minmax(0, 1fr);
   }
 
-  .openai-key-actions,
-  .codex-auth-actions {
+  .ai-provider-actions,
+  .openai-key-field {
+    grid-column: 1 / -1;
+  }
+
+  .ai-provider-actions {
     justify-content: flex-start;
   }
 }

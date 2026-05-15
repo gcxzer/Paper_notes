@@ -77,6 +77,20 @@ def test_codex_provider_preflight_rejects_unsupported_payload_fields() -> None:
     assert client.responses.calls == []
 
 
+def test_codex_provider_allows_reasoning_effort_none() -> None:
+    response = SimpleNamespace(id="resp_1", status="completed", output=[], output_text="Hello from Codex", usage=None)
+    client = FakeClient(response)
+    provider = CodexModelProvider(client=client, default_model="gpt-5.5")
+
+    provider.generate(ModelRequest(
+        messages=[{"role": "user", "content": "Hi"}],
+        request_options={"reasoning": {"effort": "none"}},
+    ))
+
+    assert client.responses.calls[0]["reasoning"] == {"effort": "none"}
+    assert "include" not in client.responses.calls[0]
+
+
 def test_codex_provider_supports_image_input() -> None:
     response = SimpleNamespace(id="resp_1", status="completed", output=[], output_text="Hello from Codex", usage=None)
     client = FakeClient(response)

@@ -20,6 +20,10 @@ const CHAT_SESSION_STORE_KEY = "paper-notes-agent-session-by-note-v1";
 const ACTIVE_CHAT_RUN_STORE_KEY = "paper-notes-agent-active-run-by-session-v1";
 const WRITE_TOOL_MODE_KEY = "paper-notes-agent-write-tool-mode-v1";
 const READER_MODEL_SELECTION_KEY = "paper-notes-reader-model-selection-v1";
+const DEEPSEEK_THINK_MODE_KEY = "paper-notes-deepseek-think-mode-v1";
+const GPT_THINK_MODE_KEY = "paper-notes-gpt-think-mode-v1";
+const GEMINI_THINK_MODE_KEY = "paper-notes-gemini-think-mode-v1";
+const ANTHROPIC_THINK_MODE_KEY = "paper-notes-anthropic-think-mode-v1";
 const SAVED_PROMPTS_KEY = "paper-notes-saved-prompts-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
@@ -57,6 +61,7 @@ const elements = {
   closeAskPane: document.querySelector("#closeAskPane"),
   chatSessionMenuButton: document.querySelector("#chatSessionMenuButton"),
   chatSessionPopover: document.querySelector("#chatSessionPopover"),
+  chatSessionPopoverTitle: document.querySelector("#chatSessionPopoverTitle"),
   readerContextButton: document.querySelector("#readerContextButton"),
   readerContextPopover: document.querySelector("#readerContextPopover"),
   readerModelMenuButton: document.querySelector("#readerModelMenuButton"),
@@ -203,6 +208,50 @@ function readStoredWriteToolMode() {
   }
 }
 
+function readStoredDeepSeekThinkMode() {
+  try {
+    const value = String(localStorage.getItem(DEEPSEEK_THINK_MODE_KEY) || "").trim().toLowerCase();
+    if (!value || value === "off" || value === "none" || value === "false") return { enabled: false, effort: "high" };
+    return { enabled: true, effort: ["high", "max"].includes(value) ? value : "high" };
+  } catch (error) {
+    return { enabled: false, effort: "high" };
+  }
+}
+
+function readStoredGptThinkMode() {
+  try {
+    const value = String(localStorage.getItem(GPT_THINK_MODE_KEY) || "").trim().toLowerCase();
+    if (!value || value === "off" || value === "none" || value === "false") return { enabled: false, effort: "medium" };
+    return { enabled: true, effort: ["low", "medium", "high", "xhigh"].includes(value) ? value : "medium" };
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
+function readStoredGeminiThinkMode() {
+  try {
+    const value = String(localStorage.getItem(GEMINI_THINK_MODE_KEY) || "").trim().toLowerCase();
+    if (!value || value === "off" || value === "minimal" || value === "none" || value === "false") {
+      return { enabled: false, effort: "medium" };
+    }
+    return { enabled: true, effort: ["low", "medium", "high"].includes(value) ? value : "medium" };
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
+function readStoredAnthropicThinkMode() {
+  try {
+    const value = String(localStorage.getItem(ANTHROPIC_THINK_MODE_KEY) || "").trim().toLowerCase();
+    if (!value || value === "off" || value === "none" || value === "false") {
+      return { enabled: false, effort: "medium" };
+    }
+    return { enabled: true, effort: ["low", "medium", "high", "xhigh", "max"].includes(value) ? value : "medium" };
+  } catch (error) {
+    return { enabled: false, effort: "medium" };
+  }
+}
+
 function releasePointerCaptureSafely(element, pointerId) {
   try {
     if (element?.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId);
@@ -221,6 +270,7 @@ const readerState = {
   library: null,
   note: null,
   chatSessionId: "",
+  currentChatSession: null,
   chatSessions: [],
   chatSessionsLoading: false,
   chatSessionMenuOpen: false,
@@ -254,6 +304,10 @@ const readerState = {
   modelDraftProvider: "",
   pendingChatProvider: "",
   pendingChatModel: "",
+  deepSeekThinkMode: readStoredDeepSeekThinkMode(),
+  gptThinkMode: readStoredGptThinkMode(),
+  geminiThinkMode: readStoredGeminiThinkMode(),
+  anthropicThinkMode: readStoredAnthropicThinkMode(),
   modelSaving: false,
   modelStatus: "",
   toolSettings: null,

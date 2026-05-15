@@ -47,7 +47,7 @@ class AgentProgressRecord:
             "visibleEvents": list(self.visible_events),
             "workTrace": {
                 "status": self.status,
-                "items": list(self.work_trace_items),
+                "items": [_public_work_trace_item(item) for item in self.work_trace_items],
             },
         }
 
@@ -143,8 +143,8 @@ class AgentProgressStore:
                     record.visible_events = record.visible_events[-self.max_events :]
                 record.visible_stage = visible_event["stage"]
                 record.visible_detail = visible_event["detail"]
-            if work_trace_item is not None and not _has_work_trace_item(record.work_trace_items, work_trace_item):
-                record.work_trace_items.append(work_trace_item)
+            if work_trace_item is not None:
+                _merge_work_trace_item(record.work_trace_items, work_trace_item)
                 if len(record.work_trace_items) > self.max_events:
                     record.work_trace_items = record.work_trace_items[-self.max_events :]
             record.status = _status_for_event(event) or record.status
@@ -350,9 +350,19 @@ def _work_trace_item(
             "text": text,
             "at": progress_event["at"],
             "source": _clean_text(data.get("source")) or "provider",
+            "complete": True,
         }
     if event_type == "work_trace_delta":
-        return None
+        text = _clean_text(data.get("text") or event.message)
+        if not text:
+            return None
+        return {
+            "type": _clean_text(data.get("trace_type")) or "summary",
+            "text": text,
+            "at": progress_event["at"],
+            "source": _clean_text(data.get("source")) or "provider",
+            "complete": False,
+        }
     if visible_event is None:
         return None
     if event_type in {"tool_call", "tool_result", "tool_error"}:
@@ -383,6 +393,30 @@ def _has_visible_event(events: list[dict[str, Any]], event: dict[str, Any]) -> b
 def _has_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> bool:
     key = (_clean_text(item.get("type")), _clean_text(item.get("text")))
     return any((_clean_text(existing.get("type")), _clean_text(existing.get("text"))) == key for existing in items)
+
+
+def _merge_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:
+    item_type = _clean_text(item.get("type")) or "summary"
+    item_source = _clean_text(item.get("source"))
+    item_text = _clean_text(item.get("text"))
+    if not item_text:
+        return
+    for index in range(len(items) - 1, -1, -1):
+        existing = items[index]
+        if (_clean_text(existing.get("type")) or "summary") != item_type:
+            continue
+        if _clean_text(existing.get("source")) != item_source:
+            continue
+        existing_text = _clean_text(existing.get("text"))
+        if existing_text == item_text or item_text.startswith(existing_text) or existing_text.startswith(item_text):
+            items[index] = {**item, "text": item_text}
+            return
+    if not _has_work_trace_item(items, item):
+        items.append({**item, "text": item_text})
+
+
+def _public_work_trace_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in item.items() if key != "complete"}
 
 
 def _visible_status_event(status: str, stage: str, detail: str, at: str) -> dict[str, Any] | None:

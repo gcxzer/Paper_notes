@@ -217,10 +217,14 @@ function closeCategoryDialog() {
   elements.categoryDialog.close();
 }
 
-function openConfirmDialog({ title, body, action }) {
+function openConfirmDialog({ eyebrow = "Confirm", title, body, action, actionLabel = "Delete", danger = true }) {
   state.confirmAction = action;
+  elements.confirmDialogEyebrow.textContent = eyebrow;
   elements.confirmDialogTitle.textContent = title;
   elements.confirmDialogBody.textContent = body;
+  elements.confirmDialogAction.textContent = actionLabel;
+  elements.confirmDialogAction.classList.toggle("toolbar-button-danger", danger);
+  elements.confirmDialogAction.classList.toggle("toolbar-button-primary", !danger);
   elements.confirmDialog.showModal();
 }
 

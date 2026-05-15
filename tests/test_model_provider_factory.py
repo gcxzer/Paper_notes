@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from model_providers import (
+    AnthropicModelProvider,
     CodexModelProvider,
+    DeepSeekModelProvider,
+    GeminiModelProvider,
     get_provider_profile,
     list_provider_profiles,
     ModelProviderConfigError,
@@ -30,6 +33,21 @@ def test_model_provider_factory_routes_codex_aliases() -> None:
     assert isinstance(create_model_provider("openai-codex", client=object()), CodexModelProvider)
 
 
+def test_model_provider_factory_routes_gemini_aliases() -> None:
+    assert isinstance(create_model_provider("gemini", api_key="test-key"), GeminiModelProvider)
+    assert isinstance(create_model_provider("google", api_key="test-key"), GeminiModelProvider)
+    assert isinstance(create_model_provider("google-gemini", api_key="test-key"), GeminiModelProvider)
+
+
+def test_model_provider_factory_routes_anthropic_aliases() -> None:
+    assert isinstance(create_model_provider("anthropic", api_key="test-key"), AnthropicModelProvider)
+    assert isinstance(create_model_provider("claude", api_key="test-key"), AnthropicModelProvider)
+
+
+def test_model_provider_factory_routes_deepseek() -> None:
+    assert isinstance(create_model_provider("deepseek", api_key="test-key"), DeepSeekModelProvider)
+
+
 def test_codex_provider_requires_oauth_without_client(tmp_path) -> None:
     from model_providers.codex.auth import CodexAuthStore
 
@@ -41,6 +59,9 @@ def test_normalize_model_provider_name_accepts_codex_aliases() -> None:
     assert normalize_model_provider_name("openai") == "openai"
     assert normalize_model_provider_name("codex") == "codex-oauth"
     assert normalize_model_provider_name("openai_codex") == "codex-oauth"
+    assert normalize_model_provider_name("claude") == "anthropic"
+    assert normalize_model_provider_name("deepseek") == "deepseek"
+    assert normalize_model_provider_name("google") == "gemini"
 
 
 def test_resolve_model_provider_uses_current_settings(monkeypatch) -> None:
@@ -73,9 +94,21 @@ def test_builtin_provider_profiles_are_registered() -> None:
 
     assert "openai" in profiles
     assert "codex-oauth" in profiles
+    assert "anthropic" in profiles
+    assert "deepseek" in profiles
+    assert "gemini" in profiles
     assert get_provider_profile("codex").name == "codex-oauth"
+    assert get_provider_profile("claude").name == "anthropic"
+    assert get_provider_profile("google").name == "gemini"
     assert profiles["openai"].default_model == "gpt-5.5"
     assert profiles["codex-oauth"].models[0].value == "gpt-5.5"
+    assert profiles["anthropic"].default_model == "claude-sonnet-4-6"
+    assert profiles["deepseek"].default_model == "deepseek-v4-flash"
+    assert profiles["gemini"].default_model == "gemini-3-flash-preview"
+    assert [model.value for model in profiles["gemini"].models] == [
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+    ]
 
 
 def test_provider_profile_registry_accepts_registered_profile_names() -> None:

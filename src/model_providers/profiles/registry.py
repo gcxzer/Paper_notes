@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app_config.ai_settings import CODEX_PROVIDER, OPENAI_PROVIDER
+from app_config.ai_settings import ANTHROPIC_PROVIDER, CODEX_PROVIDER, DEEPSEEK_PROVIDER, OPENAI_PROVIDER
 from model_providers.profiles.builtin import BUILTIN_PROFILES
 from model_providers.profiles.types import ModelCapabilities, ModelOption, ModelProviderProfile
 
@@ -33,6 +33,9 @@ def normalize_provider_profile_name(name: object) -> str:
         "codex": CODEX_PROVIDER,
         CODEX_PROVIDER: CODEX_PROVIDER,
         "openai-codex": CODEX_PROVIDER,
+        "claude": ANTHROPIC_PROVIDER,
+        ANTHROPIC_PROVIDER: ANTHROPIC_PROVIDER,
+        DEEPSEEK_PROVIDER: DEEPSEEK_PROVIDER,
     }
     return _ALIASES.get(normalized, aliases.get(normalized, normalized if normalized in _REGISTRY else ""))
 

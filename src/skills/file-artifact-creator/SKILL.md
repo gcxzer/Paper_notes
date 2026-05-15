@@ -1,6 +1,6 @@
 ---
-name: "file-artifact-creator"
-description: "Use when the user wants Paper Notes to create a downloadable text file artifact through Reader Create file mode, including Markdown, plain text, JSON, CSV, or HTML files."
+name: file-artifact-creator
+description: Use when the user wants Paper Notes to create a downloadable text file artifact through Reader Create file mode, including Markdown, plain text, JSON, CSV, or HTML files.
 tags: [file-generation, artifacts, paper-notes]
 ---
 

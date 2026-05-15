@@ -184,13 +184,33 @@ elements.debugRunList?.addEventListener("click", (event) => {
 elements.debugDialog?.addEventListener("wheel", handleDebugWheel, { passive: false });
 elements.closeAiSettingsDialog?.addEventListener("click", closeAiSettingsDialog);
 elements.cancelAiSettings?.addEventListener("click", closeAiSettingsDialog);
+elements.aiSettingsDialog?.addEventListener("keydown", handleAiSettingsKeydown);
 elements.aiSettingsForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.aiKeyEditingProvider) {
+    await confirmAiKeyEdit();
+    return;
+  }
   await saveAiSettings();
 });
 elements.aiProviderInput?.addEventListener("change", handleAiProviderChange);
-elements.addAiKeyButton?.addEventListener("click", startAiKeyEdit);
-elements.deleteAiKeyButton?.addEventListener("click", deleteAiKey);
+elements.setOpenAiDefaultButton?.addEventListener("click", () => selectDefaultAiProvider("openai"));
+elements.setCodexDefaultButton?.addEventListener("click", () => selectDefaultAiProvider("codex-oauth"));
+elements.setAnthropicDefaultButton?.addEventListener("click", () => selectDefaultAiProvider("anthropic"));
+elements.setGeminiDefaultButton?.addEventListener("click", () => selectDefaultAiProvider("gemini"));
+elements.setDeepSeekDefaultButton?.addEventListener("click", () => selectDefaultAiProvider("deepseek"));
+elements.addAiKeyButton?.addEventListener("click", () => startAiKeyEdit("openai"));
+elements.addAnthropicKeyButton?.addEventListener("click", () => startAiKeyEdit("anthropic"));
+elements.addGeminiKeyButton?.addEventListener("click", () => startAiKeyEdit("gemini"));
+elements.addDeepSeekKeyButton?.addEventListener("click", () => startAiKeyEdit("deepseek"));
+elements.closeProviderKeyDialog?.addEventListener("click", cancelAiKeyEdit);
+elements.cancelAiKeyEditButton?.addEventListener("click", cancelAiKeyEdit);
+elements.toggleAiKeyVisibilityButton?.addEventListener("click", toggleAiKeyVisibility);
+elements.confirmAiKeyEditButton?.addEventListener("click", () => confirmAiKeyEdit());
+elements.deleteAiKeyButton?.addEventListener("click", () => deleteAiKey("openai"));
+elements.deleteAnthropicKeyButton?.addEventListener("click", () => deleteAiKey("anthropic"));
+elements.deleteGeminiKeyButton?.addEventListener("click", () => deleteAiKey("gemini"));
+elements.deleteDeepSeekKeyButton?.addEventListener("click", () => deleteAiKey("deepseek"));
 elements.connectCodexButton?.addEventListener("click", handleCodexConnectAction);
 elements.logoutCodexButton?.addEventListener("click", logoutCodex);
 elements.openMemorySettings?.addEventListener("click", settingsLinkHandler(openMemoryDialog));

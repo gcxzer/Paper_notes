@@ -84,7 +84,7 @@ MIME_TYPES = {
 
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
-    server_version = "PaperNotesPython/1.0.1"
+    server_version = "PaperNotesPython/1.1.0"
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -495,7 +495,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, update_tool_settings(self.read_json_body()))
 
     def handle_delete_ai_api_key(self) -> None:
-        self.send_json(HTTPStatus.OK, delete_ai_api_key())
+        query = parse_qs(urlparse(self.path).query)
+        provider = (query.get("provider") or ["openai"])[0]
+        self.send_json(HTTPStatus.OK, delete_ai_api_key(provider))
 
     def handle_get_codex_auth_status(self) -> None:
         self.send_json(HTTPStatus.OK, get_codex_auth_status())

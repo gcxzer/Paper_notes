@@ -1,7 +1,10 @@
 from model_providers.base import ModelProvider
+from model_providers.anthropic import AnthropicModelProvider
 from model_providers.codex import CodexAuthStatus, CodexCredentials, CodexModelProvider
+from model_providers.deepseek import DeepSeekModelProvider
 from model_providers.errors import ModelProviderAPIError, ModelProviderConfigError, ModelProviderError
 from model_providers.factory import create_model_provider
+from model_providers.gemini import GeminiModelProvider
 from model_providers.openai import OpenAIModelProvider
 from model_providers.profiles import (
     ModelCapabilities,
@@ -27,7 +30,10 @@ from model_providers.types import (
 __all__ = [
     "CodexAuthStatus",
     "CodexCredentials",
+    "AnthropicModelProvider",
     "CodexModelProvider",
+    "DeepSeekModelProvider",
+    "GeminiModelProvider",
     "ModelProvider",
     "ModelProviderAPIError",
     "ModelProviderConfigError",

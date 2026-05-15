@@ -74,3 +74,25 @@ def test_progress_prefers_provider_work_trace_items_for_visible_status():
         "at": snapshot["workTrace"]["items"][0]["at"],
         "source": "provider",
     }]
+
+
+def test_progress_compacts_streaming_work_trace_deltas():
+    store = AgentProgressStore()
+
+    store.append("req-work", AgentEvent(
+        "work_trace_delta",
+        "Inspecting",
+        {"text": "Inspecting", "trace_type": "summary", "source": "provider"},
+    ))
+    snapshot = store.append("req-work", AgentEvent(
+        "work_trace_delta",
+        "Inspecting annotations",
+        {"text": "Inspecting annotations", "trace_type": "summary", "source": "provider"},
+    ))
+
+    assert snapshot["workTrace"]["items"] == [{
+        "type": "summary",
+        "text": "Inspecting annotations",
+        "at": snapshot["workTrace"]["items"][0]["at"],
+        "source": "provider",
+    }]
