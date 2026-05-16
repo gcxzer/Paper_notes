@@ -125,13 +125,19 @@ class AgentContextStatus:
     provider: str
     model: str
     context_length: int
+    display_tokens: int
     request_tokens: int
+    estimated_request_tokens: int
     message_tokens: int
     instruction_tokens: int
     tool_schema_tokens: int
     threshold_tokens: int
     message_count: int
     compaction_enabled: bool
+    actual_usage_available: bool = False
+    usage_updated_at: str = ""
+    usage_request_id: str = ""
+    actual_input_tokens: int = 0
     compression_count: int = 0
     last_compressed_at: str = ""
     summary_available: bool = False
@@ -142,7 +148,7 @@ class AgentContextStatus:
     def percent_full(self) -> int:
         if self.context_length <= 0:
             return 0
-        return min(100, max(0, round((self.request_tokens / self.context_length) * 100)))
+        return min(100, max(0, round((self.display_tokens / self.context_length) * 100)))
 
     @property
     def threshold_percent(self) -> int:
@@ -272,13 +278,7 @@ class AgentService:
         disabled_toolsets: list[str] | tuple[str, ...] | None = None,
         note_id: str | None = None,
     ) -> AgentContextStatus:
-        """Collect and return a read-only context compression snapshot for a chat session.
-
-        This method computes current model context usage and recent compression state
-        without mutating session state. It resolves provider/model selection, loads
-        and applies a valid compression checkpoint, rebuilds instruction context
-        (tools, memory, todo), and estimates request token usage.
-        """
+        """Collect and return the current frontend context snapshot for a chat session."""
         session = self.session_store.get_session(session_id) if session_id else None
         if session_id and session is None:
             raise SessionNotFoundError(session_id)
@@ -288,6 +288,14 @@ class AgentService:
             model=model,
             metadata=session.metadata if session is not None else None,
         )
+        raw_messages = _model_visible_messages(session.messages if session is not None else [])
+        checkpoint = self._load_valid_compression_checkpoint(
+            session.metadata.session_id if session is not None else "",
+            raw_messages,
+        ) if session is not None else None
+        messages, _ = self._model_messages_with_checkpoint(raw_messages, checkpoint)
+        messages = _strip_internal_compression_metadata(messages)
+        context_length = resolve_context_length_for_model(provider_name, model_name)
         tools = self._tool_schemas_for_selection(
             enable_tools=enable_tools,
             toolset=toolset,
@@ -297,20 +305,6 @@ class AgentService:
             tool_write_modes=None,
             write_tool_mode="auto",
         )
-        raw_messages = _model_visible_messages(session.messages if session is not None else [])
-        checkpoint = self._load_valid_compression_checkpoint(
-            session.metadata.session_id if session is not None else "",
-            raw_messages,
-        ) if session is not None else None
-        messages, _ = self._model_messages_with_checkpoint(raw_messages, checkpoint)
-        messages = _strip_internal_compression_metadata(messages)
-        runtime_messages = [_runtime_context_message(
-            datetime.now().astimezone(),
-            session_id=session.metadata.session_id if session is not None else "",
-            provider=provider_name,
-            model=model_name,
-        )]
-        messages_for_estimate = [*runtime_messages, *messages]
         prompt_context = self._context_with_session_title(context, session.metadata) if session is not None else context
         memory_context = self._memory_context_for_status(
             messages,
@@ -327,23 +321,48 @@ class AgentService:
             todo_context=todo_context,
             native_web_search_enabled=False,
         )
-        context_length = resolve_context_length_for_model(provider_name, model_name)
+        runtime_messages = [_runtime_context_message(
+            datetime.now().astimezone(),
+            session_id=session.metadata.session_id if session is not None else "",
+            provider=provider_name,
+            model=model_name,
+        )]
+        actual_usage = self._actual_context_usage_for_status(
+            session=session,
+            messages=session.messages if session is not None else messages,
+            provider=provider_name,
+            model=model_name,
+            checkpoint=checkpoint,
+        )
+        actual_input_tokens = actual_usage["input_tokens"]
+        estimated_request_tokens = estimate_request_tokens_rough(
+            [*runtime_messages, *messages],
+            instructions=instructions,
+            tools=tools,
+        )
         instruction_tokens = estimate_tokens_rough(instructions)
         tool_schema_tokens = estimate_request_tokens_rough([], tools=tools)
-        message_tokens = estimate_messages_tokens_rough(messages_for_estimate)
-        request_tokens = estimate_request_tokens_rough(messages_for_estimate, instructions=instructions, tools=tools)
+        estimated_message_tokens = estimate_messages_tokens_rough(messages)
+        request_tokens = estimated_request_tokens
+        display_tokens = estimated_request_tokens
         compression_config = self.context_compressor.config if self.context_compressor is not None else ContextCompressionConfig()
         return AgentContextStatus(
             provider=provider_name,
             model=model_name,
             context_length=context_length,
+            display_tokens=display_tokens,
             request_tokens=request_tokens,
-            message_tokens=message_tokens,
+            estimated_request_tokens=estimated_request_tokens,
+            message_tokens=estimated_message_tokens,
             instruction_tokens=instruction_tokens,
             tool_schema_tokens=tool_schema_tokens,
             threshold_tokens=compression_config.resolved_threshold_tokens(context_length=context_length),
             message_count=len(messages),
             compaction_enabled=self.context_compressor is not None,
+            actual_usage_available=actual_usage["available"],
+            usage_updated_at=actual_usage["updated_at"],
+            usage_request_id=actual_usage["request_id"],
+            actual_input_tokens=actual_input_tokens,
             compression_count=checkpoint.compression_count if checkpoint is not None else 0,
             last_compressed_at=checkpoint.updated_at if checkpoint is not None else "",
             summary_available=checkpoint.summary_available if checkpoint is not None else False,
@@ -407,6 +426,14 @@ class AgentService:
         checkpoint = self._load_valid_compression_checkpoint(session.metadata.session_id, raw_model_messages)
         model_messages, checkpoint_applied = self._model_messages_with_checkpoint(raw_model_messages, checkpoint)
         context_length = resolve_context_length_for_model(selection.provider_name, selection.model)
+        ephemeral_messages = _ephemeral_messages_for_request(
+            run_started_at=run_started_at,
+            session_id=session.metadata.session_id,
+            provider=selection.provider_name,
+            model=selection.model,
+            attachments=normalized_attachments,
+            media_store=self.media_store,
+        )
         model_messages, pre_events, compressed_input = self._prepare_model_messages(
             model_messages,
             request,
@@ -415,6 +442,7 @@ class AgentService:
             instructions=instructions,
             tools=tools,
             context_length=context_length,
+            ephemeral_messages=ephemeral_messages,
         )
         compressed_input = compressed_input or checkpoint_applied
         request.request_options = self._model_request_options(
@@ -423,17 +451,6 @@ class AgentService:
             provider_name=selection.provider_name,
             media_store=self.media_store,
         )
-        ephemeral_messages = [
-            _runtime_context_message(
-                run_started_at,
-                session_id=session.metadata.session_id,
-                provider=selection.provider_name,
-                model=selection.model,
-            )
-        ]
-        attachment_context = _attachment_context_message(normalized_attachments, self.media_store)
-        if attachment_context:
-            ephemeral_messages.append(attachment_context)
         request.request_options["_paper_notes_ephemeral_messages"] = ephemeral_messages
 
         runner = AgentRunner(
@@ -476,6 +493,7 @@ class AgentService:
                 compressed_input=compressed_input,
                 session_id=session.metadata.session_id,
                 raw_message_count=len(raw_model_messages),
+                ephemeral_messages=ephemeral_messages,
             )
         finally:
             self._clear_tool_context()
@@ -508,6 +526,13 @@ class AgentService:
             run_result,
             model_input_count=len(model_messages),
             compressed_input=compressed_input,
+        )
+        persisted_session = self._persist_actual_context_usage(
+            persisted_session.metadata.session_id,
+            run_result,
+            request_id=request.request_id,
+            model=selection.model,
+            provider=selection.provider_name,
         )
         self._sync_memory_after_run(request, run_result, persisted_session.metadata, note_id=note_id)
         return _service_result(
@@ -656,11 +681,14 @@ class AgentService:
             instructions=instructions,
             tools=tools,
             context_length=context_length,
+            ephemeral_messages=None,
             reason="manual",
             force=True,
             max_passes=1,
         )
         del compressed_messages
+        if compressed or checkpoint_applied:
+            session = self._clear_actual_context_usage(session.metadata.session_id)
         context_status = self.context_status_fuc(
             session_id=session.metadata.session_id,
             provider=selection.provider_name,
@@ -891,6 +919,7 @@ class AgentService:
         instructions: str,
         tools: list[dict[str, Any]],
         context_length: int,
+        ephemeral_messages: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], list[AgentEvent], bool]:
         if self.context_compressor is None or not request.enable_compression:
             return messages, [], False
@@ -902,6 +931,7 @@ class AgentService:
             instructions=instructions,
             tools=tools,
             context_length=context_length,
+            ephemeral_messages=ephemeral_messages,
             reason="preflight",
             force=False,
             max_passes=self.context_compressor.config.max_preflight_passes,
@@ -920,6 +950,7 @@ class AgentService:
         compressed_input: bool,
         session_id: str,
         raw_message_count: int,
+        ephemeral_messages: list[dict[str, Any]] | None,
     ) -> tuple[AgentRunResult, list[dict[str, Any]], list[AgentEvent], bool]:
         retry_events: list[AgentEvent] = []
         attempts = 0
@@ -968,6 +999,7 @@ class AgentService:
                     instructions=instructions,
                     tools=tools,
                     context_length=context_length,
+                    ephemeral_messages=ephemeral_messages,
                     reason="context_overflow",
                     force=True,
                     max_passes=1,
@@ -989,6 +1021,7 @@ class AgentService:
         instructions: str,
         tools: list[dict[str, Any]],
         context_length: int,
+        ephemeral_messages: list[dict[str, Any]] | None,
         reason: str,
         force: bool,
         max_passes: int,
@@ -1003,8 +1036,9 @@ class AgentService:
         threshold = self.context_compressor.config.resolved_threshold_tokens(context_length=context_length)
         for pass_index in range(1, max(1, max_passes) + 1):
             current_for_compression = _ensure_raw_transcript_indexes(current)
+            before_message_tokens = estimate_messages_tokens_rough(current_for_compression)
             before_request_tokens = estimate_request_tokens_rough(
-                current_for_compression,
+                [*(ephemeral_messages or []), *current_for_compression],
                 instructions=instructions,
                 tools=tools,
             )
@@ -1030,7 +1064,8 @@ class AgentService:
                 events.append(start_event)
             result = self.context_compressor.compress(
                 current_for_compression,
-                approx_tokens=before_request_tokens,
+                approx_tokens=before_message_tokens,
+                trigger_tokens=before_request_tokens,
                 focus_topic=request.compression_focus,
                 context_length=context_length,
                 force=force,
@@ -1039,8 +1074,11 @@ class AgentService:
                 current = _strip_internal_compression_metadata(result.messages)
                 break
 
-            after_request_tokens = estimate_request_tokens_rough(result.messages, 
-                                                                 instructions=instructions, tools=tools)
+            after_request_tokens = estimate_request_tokens_rough(
+                [*(ephemeral_messages or []), *result.messages],
+                instructions=instructions,
+                tools=tools,
+            )
             event = _compression_event(
                 result,
                 reason=reason,
@@ -1134,7 +1172,7 @@ class AgentService:
             last_error=metadata.get("summary_error"),
             fallback_used=bool(metadata.get("summary_fallback_used")),
             last_savings_pct=float(metadata.get("savings_pct") or 0.0),
-            updated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            updated_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
         )
         self.compression_checkpoint_store.save(checkpoint)
 
@@ -1178,10 +1216,9 @@ class AgentService:
         model_input_count: int,
         compressed_input: bool,
     ) -> AgentSession:
-        if not compressed_input:
-            return self.session_store.replace_messages(session.metadata.session_id, run_result.messages)
-
         generated_messages = run_result.messages[model_input_count:]
+        if not generated_messages:
+            return self.session_store.require_session(session.metadata.session_id)
         persisted = session
         for message in generated_messages:
             persisted = self.session_store.append_message(session.metadata.session_id, message)
@@ -1190,6 +1227,105 @@ class AgentService:
     def _update_compressor_usage(self, run_result: AgentRunResult) -> None:
         if self.context_compressor is not None and run_result.usage is not None:
             self.context_compressor.update_from_response(run_result.usage)
+
+    def _persist_actual_context_usage(
+        self,
+        session_id: str,
+        run_result: AgentRunResult,
+        *,
+        request_id: str,
+        model: str,
+        provider: str,
+    ) -> AgentSession:
+        usage = run_result.usage
+        latest_usage = _latest_model_response_usage_from_events(run_result.events)
+        input_tokens = int(latest_usage.get("input_tokens") or getattr(usage, "input_tokens", 0) or 0)
+        if input_tokens <= 0:
+            return self.session_store.require_session(session_id)
+        output_tokens = int(latest_usage.get("output_tokens") or getattr(usage, "output_tokens", 0) or 0)
+        total_tokens = int(latest_usage.get("total_tokens") or input_tokens + output_tokens)
+        persisted = self.session_store.require_session(session_id)
+        metadata = dict(persisted.metadata.metadata or {})
+        metadata["lastActualContextUsage"] = {
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "totalTokens": total_tokens,
+            "requestId": request_id or "",
+            "provider": provider,
+            "model": model,
+            "transcriptMessageCount": len(persisted.messages),
+            "updatedAt": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        }
+        metadata.pop("lastActualContextUsageClearedAt", None)
+        self.session_store.update_session_metadata(session_id, metadata, replace=True)
+        return self.session_store.require_session(session_id)
+
+    def _clear_actual_context_usage(self, session_id: str) -> AgentSession:
+        persisted = self.session_store.require_session(session_id)
+        metadata = dict(persisted.metadata.metadata or {})
+        metadata.pop("lastActualContextUsage", None)
+        metadata["lastActualContextUsageClearedAt"] = datetime.now().astimezone().isoformat(timespec="milliseconds")
+        self.session_store.update_session_metadata(session_id, metadata, replace=True)
+        return self.session_store.require_session(session_id)
+
+    @staticmethod
+    def _actual_context_usage_from_metadata(
+        metadata: AgentSessionMetadata | None,
+        *,
+        provider: str,
+        model: str,
+    ) -> dict[str, Any]:
+        payload = metadata.metadata.get("lastActualContextUsage") if metadata is not None and isinstance(metadata.metadata, dict) else {}
+        if not isinstance(payload, dict):
+            return _empty_actual_context_usage()
+        input_tokens = _safe_int(payload.get("inputTokens") or payload.get("input_tokens"))
+        if input_tokens <= 0:
+            return _empty_actual_context_usage()
+        stored_provider = str(payload.get("provider") or "").strip()
+        stored_model = str(payload.get("model") or "").strip()
+        if stored_provider and provider and stored_provider != provider:
+            return _empty_actual_context_usage()
+        if stored_model and model and stored_model != model:
+            return _empty_actual_context_usage()
+        return {
+            "available": True,
+            "input_tokens": input_tokens,
+            "updated_at": str(payload.get("updatedAt") or payload.get("updated_at") or ""),
+            "request_id": str(payload.get("requestId") or payload.get("request_id") or ""),
+            "message_count": _safe_int(payload.get("transcriptMessageCount") or payload.get("transcript_message_count")),
+        }
+
+    def _actual_context_usage_for_status(
+        self,
+        *,
+        session: AgentSession | None,
+        messages: list[dict[str, Any]],
+        provider: str,
+        model: str,
+        checkpoint: ContextCompressionCheckpoint | None = None,
+    ) -> dict[str, Any]:
+        if session is not None:
+            from_metadata = self._actual_context_usage_from_metadata(
+                session.metadata,
+                provider=provider,
+                model=model,
+            )
+            if _has_actual_context_usage_metadata(session.metadata):
+                if not from_metadata["available"]:
+                    return from_metadata
+                if _checkpoint_newer_than_usage(checkpoint, from_metadata):
+                    return _empty_actual_context_usage()
+                if _actual_usage_matches_transcript(from_metadata, session.messages):
+                    return from_metadata
+
+        clear_marker = _actual_context_usage_clear_marker(session.metadata if session is not None else None)
+        from_messages = _actual_context_usage_from_messages(messages)
+        if from_messages["available"]:
+            if _iso_timestamp_on_or_after(clear_marker, from_messages.get("updated_at")):
+                return _empty_actual_context_usage()
+            if _checkpoint_newer_than_usage(checkpoint, from_messages):
+                return _empty_actual_context_usage()
+        return from_messages
 
     def _resolve_model_selection(
         self,
@@ -1990,6 +2126,125 @@ def _model_visible_messages(messages: list[dict[str, Any]]) -> list[dict[str, An
     return visible
 
 
+def _actual_context_usage_from_messages(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        run_trace = message.get("runTrace")
+        if not isinstance(run_trace, dict):
+            continue
+        events = run_trace.get("events")
+        if not isinstance(events, list):
+            continue
+        for event in reversed(events):
+            if not isinstance(event, dict) or str(event.get("type") or "") != "model_response":
+                continue
+            data = event.get("data") if isinstance(event.get("data"), dict) else {}
+            input_tokens = _safe_int(data.get("input_tokens") or data.get("prompt_tokens"))
+            if input_tokens <= 0:
+                continue
+            return {
+                "available": True,
+                "input_tokens": input_tokens,
+                "updated_at": str(run_trace.get("finishedAt") or run_trace.get("startedAt") or ""),
+                "request_id": str(run_trace.get("requestId") or ""),
+            }
+    return _empty_actual_context_usage()
+
+
+def _empty_actual_context_usage() -> dict[str, Any]:
+    return {"available": False, "input_tokens": 0, "updated_at": "", "request_id": "", "message_count": 0}
+
+
+def _actual_usage_matches_transcript(usage: dict[str, Any], messages: list[dict[str, Any]]) -> bool:
+    message_count = _safe_int(usage.get("message_count"))
+    if message_count <= 0:
+        return True
+    return message_count == len(messages)
+
+
+def _checkpoint_newer_than_usage(
+    checkpoint: ContextCompressionCheckpoint | None,
+    usage: dict[str, Any],
+) -> bool:
+    if checkpoint is None or not checkpoint.updated_at:
+        return False
+    return _iso_timestamp_after(checkpoint.updated_at, usage.get("updated_at"))
+
+
+def _actual_context_usage_clear_marker(metadata: AgentSessionMetadata | None) -> str:
+    payload = metadata.metadata if metadata is not None and isinstance(metadata.metadata, dict) else {}
+    return str(payload.get("lastActualContextUsageClearedAt") or "")
+
+
+def _iso_timestamp_on_or_after(candidate: Any, reference: Any) -> bool:
+    candidate_text = str(candidate or "").strip()
+    reference_text = str(reference or "").strip()
+    if not candidate_text or not reference_text:
+        return False
+    candidate_dt = _parse_iso_datetime(candidate_text)
+    reference_dt = _parse_iso_datetime(reference_text)
+    if candidate_dt is not None and reference_dt is not None:
+        try:
+            return candidate_dt >= reference_dt
+        except TypeError:
+            return candidate_dt.replace(tzinfo=None) >= reference_dt.replace(tzinfo=None)
+    return candidate_text >= reference_text
+
+
+def _iso_timestamp_after(candidate: Any, reference: Any) -> bool:
+    candidate_text = str(candidate or "").strip()
+    reference_text = str(reference or "").strip()
+    if not candidate_text or not reference_text:
+        return False
+    candidate_dt = _parse_iso_datetime(candidate_text)
+    reference_dt = _parse_iso_datetime(reference_text)
+    if candidate_dt is not None and reference_dt is not None:
+        try:
+            return candidate_dt > reference_dt
+        except TypeError:
+            return candidate_dt.replace(tzinfo=None) > reference_dt.replace(tzinfo=None)
+    return candidate_text > reference_text
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _latest_model_response_usage_from_events(events: list[AgentEvent]) -> dict[str, int]:
+    for event in reversed(events):
+        if event.type != "model_response":
+            continue
+        data = event.data if isinstance(event.data, dict) else {}
+        input_tokens = _safe_int(data.get("input_tokens") or data.get("prompt_tokens"))
+        if input_tokens <= 0:
+            continue
+        output_tokens = _safe_int(data.get("output_tokens") or data.get("completion_tokens"))
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": _safe_int(data.get("total_tokens"), input_tokens + output_tokens),
+        }
+    return {}
+
+
+def _has_actual_context_usage_metadata(metadata: AgentSessionMetadata | None) -> bool:
+    payload = metadata.metadata.get("lastActualContextUsage") if metadata is not None and isinstance(metadata.metadata, dict) else {}
+    if not isinstance(payload, dict):
+        return False
+    return _safe_int(payload.get("inputTokens") or payload.get("input_tokens")) > 0
+
+
 def _native_web_search_requested(request_options: dict[str, Any] | None) -> bool:
     if not isinstance(request_options, dict):
         return False
@@ -2237,6 +2492,29 @@ def _runtime_context_message(
         )),
         "metadata": {"ephemeral": True, "runtime_context": True},
     }
+
+
+def _ephemeral_messages_for_request(
+    *,
+    run_started_at: datetime,
+    session_id: str,
+    provider: str,
+    model: str,
+    attachments: list[dict[str, Any]],
+    media_store: MediaStore,
+) -> list[dict[str, Any]]:
+    messages = [
+        _runtime_context_message(
+            run_started_at,
+            session_id=session_id,
+            provider=provider,
+            model=model,
+        )
+    ]
+    attachment_context = _attachment_context_message(attachments, media_store)
+    if attachment_context:
+        messages.append(attachment_context)
+    return messages
 
 
 def _attachment_context_message(attachments: list[dict[str, Any]], media_store: MediaStore) -> dict[str, Any] | None:

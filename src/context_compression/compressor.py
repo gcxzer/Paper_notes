@@ -100,6 +100,7 @@ class ContextCompressor:
         messages: list[dict[str, Any]],
         *,
         approx_tokens: int | None = None,
+        trigger_tokens: int | None = None,
         focus_topic: str | None = None,
         context_length: int | None = None,
         force: bool = False,
@@ -109,7 +110,7 @@ class ContextCompressor:
         before_tokens = approx_tokens if approx_tokens is not None else estimate_messages_tokens_rough(original)
         if not self.should_compress(
             original,
-            approx_tokens=before_tokens,
+            approx_tokens=trigger_tokens if trigger_tokens is not None else before_tokens,
             context_length=context_length,
             force=force,
         ):

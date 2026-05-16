@@ -12,6 +12,14 @@ from typing import Any
 CHARS_PER_TOKEN = 4
 IMAGE_TOKEN_ESTIMATE = 1_600
 IMAGE_CHAR_EQUIVALENT = IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN
+_NON_MODEL_VISIBLE_MESSAGE_KEYS = {
+    "artifacts",
+    "metadata",
+    "provider_data",
+    "runTrace",
+    "toolActivity",
+    "workTrace",
+}
 
 
 def estimate_tokens_rough(text: Any) -> int:
@@ -52,14 +60,20 @@ def estimate_message_chars(message: dict[str, Any]) -> int:
         return len(str(message))
 
     shadow: dict[str, Any] = {}
+    attachment_budget = 0
     for key, value in message.items():
+        if key in _NON_MODEL_VISIBLE_MESSAGE_KEYS:
+            continue
         if key == "_anthropic_content_blocks":
             continue
         if key == "content":
             shadow[key] = _content_for_char_estimate(value)
+        elif key == "attachments":
+            shadow[key] = _attachments_for_char_estimate(value)
+            attachment_budget += _attachments_text_char_budget(value)
         else:
             shadow[key] = value
-    return len(str(shadow))
+    return len(str(shadow)) + attachment_budget
 
 
 def count_image_tokens(message: dict[str, Any], cost_per_image: int) -> int:
@@ -82,7 +96,7 @@ def count_image_tokens(message: dict[str, Any], cost_per_image: int) -> int:
 
     attachments = message.get("attachments")
     if isinstance(attachments, list):
-        count += sum(1 for attachment in attachments if isinstance(attachment, dict))
+        count += sum(1 for attachment in attachments if _is_image_attachment(attachment))
 
     return count * cost_per_image
 
@@ -152,5 +166,66 @@ def _content_for_char_estimate(content: Any) -> Any:
     return content
 
 
+def _attachments_for_char_estimate(attachments: Any) -> list[dict[str, Any]]:
+    if not isinstance(attachments, list):
+        return []
+
+    cleaned: list[dict[str, Any]] = []
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            cleaned.append({"attachment": str(attachment)})
+            continue
+        metadata = attachment.get("metadata") if isinstance(attachment.get("metadata"), dict) else {}
+        extracted_chars = _safe_int(metadata.get("extractedTextChars") or metadata.get("extracted_text_chars"))
+        file_name = str(attachment.get("fileName") or attachment.get("file_name") or attachment.get("id") or "attachment")
+        mime_type = str(attachment.get("mimeType") or attachment.get("mime_type") or "")
+        if _is_image_attachment(attachment):
+            cleaned.append({
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "image": "[attached]",
+            })
+            continue
+        cleaned.append({
+            "file_name": file_name,
+            "mime_type": mime_type,
+            "text": "[attached text]",
+            "text_chars": max(0, extracted_chars),
+        })
+    return cleaned
+
+
+def _attachments_text_char_budget(attachments: Any) -> int:
+    if not isinstance(attachments, list):
+        return 0
+
+    total = 0
+    for attachment in attachments:
+        if not isinstance(attachment, dict) or _is_image_attachment(attachment):
+            continue
+        metadata = attachment.get("metadata") if isinstance(attachment.get("metadata"), dict) else {}
+        extracted_chars = _safe_int(metadata.get("extractedTextChars") or metadata.get("extracted_text_chars"))
+        if extracted_chars <= 0:
+            continue
+        file_name = str(attachment.get("fileName") or attachment.get("file_name") or attachment.get("id") or "attachment")
+        total += extracted_chars + len("Attachment: \n\n") + len(file_name)
+    return total
+
+
 def _is_image_part(part: Any) -> bool:
     return isinstance(part, dict) and part.get("type") in {"image", "image_url", "input_image"}
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_image_attachment(attachment: Any) -> bool:
+    if not isinstance(attachment, dict):
+        return False
+    kind = str(attachment.get("kind") or "").strip().lower()
+    mime_type = str(attachment.get("mimeType") or attachment.get("mime_type") or "").strip().lower()
+    return kind == "image" or mime_type.startswith("image/")

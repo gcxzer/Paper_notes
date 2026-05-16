@@ -235,7 +235,6 @@ elements.debugRunList?.addEventListener("click", (event) => {
   const row = event.target.closest("[data-debug-run-id]");
   if (row) void loadDebugRunDetail(row.dataset.debugRunId);
 });
-elements.debugDialog?.addEventListener("wheel", handleDebugWheel, { passive: false });
 elements.closeAiSettingsDialog?.addEventListener("click", closeAiSettingsDialog);
 elements.cancelAiSettings?.addEventListener("click", closeAiSettingsDialog);
 elements.aiSettingsDialog?.addEventListener("keydown", handleAiSettingsKeydown);

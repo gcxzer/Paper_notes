@@ -923,21 +923,36 @@ function normalizeReaderAiSettings(payload) {
 function normalizeContextStatus(payload) {
   const raw = payload?.context || payload || {};
   const contextLength = Math.max(0, Math.round(Number(raw.contextLength || raw.context_length) || 0));
-  const tokensUsed = Math.max(0, Math.round(Number(raw.tokensUsed || raw.requestTokens || raw.request_tokens) || 0));
-  const thresholdTokens = Math.max(0, Math.round(Number(raw.thresholdTokens || raw.threshold_tokens) || 0));
+  const tokensUsedRaw = raw.tokensUsed ?? raw.tokens_used ?? raw.estimatedRequestTokens ?? raw.estimated_request_tokens ?? raw.requestTokens ?? raw.request_tokens ?? raw.messageTokens ?? raw.message_tokens ?? 0;
+  const estimatedRequestTokensRaw = raw.estimatedRequestTokens ?? raw.estimated_request_tokens ?? 0;
+  const actualInputTokensRaw = raw.actualInputTokens ?? raw.actual_input_tokens ?? 0;
+  const thresholdTokensRaw = raw.thresholdTokens ?? raw.threshold_tokens ?? 0;
+  const tokensUsed = Math.max(0, Math.round(Number(tokensUsedRaw) || 0));
+  const estimatedRequestTokens = Math.max(0, Math.round(Number(estimatedRequestTokensRaw) || 0));
+  const thresholdTokens = Math.max(0, Math.round(Number(thresholdTokensRaw) || 0));
+  const actualUsageAvailable = Boolean(raw.actualUsageAvailable ?? raw.actual_usage_available);
   const fallbackPercent = contextLength > 0 ? Math.round((tokensUsed / contextLength) * 100) : 0;
+  const estimatedPercent = contextLength > 0 ? Math.round((estimatedRequestTokens / contextLength) * 100) : 0;
   const fallbackThresholdPercent = contextLength > 0 ? Math.round((thresholdTokens / contextLength) * 100) : 0;
+  const percentFullRaw = raw.percentFull ?? raw.percent_full ?? fallbackPercent;
+  const thresholdPercentRaw = raw.thresholdPercent ?? raw.threshold_percent ?? fallbackThresholdPercent;
   return {
     provider: normalizeProviderName(raw.provider) || currentReaderProvider(),
     model: normalizeText(raw.model) || currentReaderModel(),
     contextLength,
     tokensUsed,
+    estimatedRequestTokens,
+    actualInputTokens: Math.max(0, Math.round(Number(actualInputTokensRaw) || 0)),
+    estimatedPercent: Math.min(100, Math.max(0, estimatedPercent)),
+    actualUsageAvailable,
+    usageUpdatedAt: normalizeText(raw.usageUpdatedAt || raw.usage_updated_at),
+    usageRequestId: normalizeText(raw.usageRequestId || raw.usage_request_id),
     messageTokens: Math.max(0, Math.round(Number(raw.messageTokens || raw.message_tokens) || 0)),
     instructionTokens: Math.max(0, Math.round(Number(raw.instructionTokens || raw.instruction_tokens) || 0)),
     toolSchemaTokens: Math.max(0, Math.round(Number(raw.toolSchemaTokens || raw.tool_schema_tokens) || 0)),
     thresholdTokens,
-    percentFull: Math.min(100, Math.max(0, Math.round(Number(raw.percentFull || raw.percent_full) || fallbackPercent))),
-    thresholdPercent: Math.min(100, Math.max(0, Math.round(Number(raw.thresholdPercent || raw.threshold_percent) || fallbackThresholdPercent))),
+    percentFull: Math.min(100, Math.max(0, Math.round(Number(percentFullRaw) || 0))),
+    thresholdPercent: Math.min(100, Math.max(0, Math.round(Number(thresholdPercentRaw) || 0))),
     messageCount: Math.max(0, Math.round(Number(raw.messageCount || raw.message_count) || 0)),
     compactionEnabled: Boolean(raw.compactionEnabled ?? raw.compaction_enabled),
     compressionCount: Math.max(0, Math.round(Number(raw.compressionCount || raw.compression_count) || 0)),

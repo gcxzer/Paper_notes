@@ -653,12 +653,12 @@ function readerChatContext() {
 
 function renderReaderContextControls() {
   const status = readerState.contextStatus || normalizeContextStatus({});
-  const percent = Math.min(100, Math.max(0, status.percentFull || 0));
+  const percent = Math.min(100, Math.max(0, status.percentFull ?? status.estimatedPercent ?? 0));
   const provider = currentReaderProvider();
   const model = currentReaderModel();
   const providerName = providerDisplayName(status.provider || provider);
   const modelLabel = modelDisplayLabel(status.model || model, status.provider || provider, "label") || status.model || model || "Model";
-  const tokenLine = `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)} tokens used`;
+  const tokenLine = `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)} context used`;
   const sessionId = getChatSessionId();
   const canCompact = Boolean(sessionId && status.compactionEnabled && !readerState.contextCompacting);
   const compressedLine = status.compressionCount

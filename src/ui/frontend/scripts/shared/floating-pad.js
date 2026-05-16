@@ -94,7 +94,7 @@
     const viewport = viewportSize();
     return {
       x: Math.max(EDGE_PADDING, viewport.width - BUTTON_SIZE - 28),
-      y: Math.max(EDGE_PADDING, viewport.height - BUTTON_SIZE - 28),
+      y: Math.max(EDGE_PADDING, viewport.height - BUTTON_SIZE - 112),
     };
   }
 

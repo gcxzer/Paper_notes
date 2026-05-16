@@ -40,6 +40,36 @@ def test_rough_token_estimator_counts_short_text_and_images():
     assert estimate_messages_tokens_rough(messages) >= 1_600
 
 
+def test_rough_token_estimator_ignores_non_model_visible_message_fields():
+    plain = {"role": "assistant", "content": "Done."}
+    noisy = {
+        **plain,
+        "metadata": {"raw": "x" * 20_000},
+        "runTrace": {"events": [{"data": "y" * 20_000}]},
+        "workTrace": {"items": [{"text": "z" * 20_000}]},
+        "toolActivity": [{"summary": "a" * 20_000}],
+        "artifacts": [{"metadata": {"raw": "b" * 20_000}}],
+        "provider_data": {"raw": "c" * 20_000},
+    }
+
+    assert estimate_messages_tokens_rough([noisy]) == estimate_messages_tokens_rough([plain])
+
+
+def test_rough_token_estimator_tolerates_invalid_attachment_metadata():
+    messages = [{
+        "role": "user",
+        "content": "Read this.",
+        "attachments": [{
+            "id": "file_1",
+            "fileName": "notes.txt",
+            "mimeType": "text/plain",
+            "metadata": {"extractedTextChars": "unknown"},
+        }],
+    }]
+
+    assert estimate_messages_tokens_rough(messages) > 0
+
+
 def test_request_token_estimator_includes_instructions_and_tools():
     messages = [{"role": "user", "content": "short"}]
     plain = estimate_request_tokens_rough(messages)
@@ -128,6 +158,34 @@ def test_compressor_summarizes_middle_and_keeps_latest_user_message():
     assert result.stats.summarized_message_count > 0
     assert calls
     assert calls[0]["max_output_tokens"] >= 2_000
+
+
+def test_compressor_keeps_message_stats_when_request_budget_triggers_compression():
+    messages = [
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "old answer " + ("x" * 200)},
+        {"role": "user", "content": "old followup " + ("y" * 200)},
+        {"role": "assistant", "content": "older answer " + ("z" * 200)},
+        {"role": "user", "content": "latest task should remain active"},
+    ]
+    message_tokens = estimate_messages_tokens_rough(messages)
+    compressor = ContextCompressor(ContextCompressionConfig(
+        max_estimated_tokens=999_999,
+        min_messages=4,
+        protect_first_n=1,
+        protect_last_n=1,
+        tail_token_budget=16,
+    ), summary_provider=lambda *args, **kwargs: "## Active Task\nlatest task")
+
+    result = compressor.compress(
+        messages,
+        approx_tokens=message_tokens,
+        trigger_tokens=1_000_000,
+        context_length=1_000_000,
+    )
+
+    assert result.stats.compressed is True
+    assert result.stats.before_estimated_tokens == message_tokens
 
 
 def test_llm_summary_provider_builds_hermes_prompt_and_redacts_output():

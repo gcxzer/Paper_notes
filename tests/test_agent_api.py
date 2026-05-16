@@ -13,6 +13,7 @@ from context_compression import ContextCompressionConfig, ContextCompressor
 from agent_sessions import AgentSession, AgentSessionMetadata, AgentSessionStore
 from tool_safety import PaperNotesSnapshotManager
 from library import write_library
+from model_providers.types import TokenUsage
 from backend.agent_api import (
     AgentAPIError,
     archive_chat_session,
@@ -1298,20 +1299,83 @@ def test_get_chat_progress_returns_unknown_for_unstarted_request():
 
 def test_get_chat_context_status_serializes_context_budget(tmp_path):
     service = AgentService(
+        model_provider=FakeProvider([
+            ModelResponse(
+                content="Measured.",
+                usage=TokenUsage(input_tokens=432, output_tokens=21, total_tokens=453),
+            )
+        ]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+        default_model="gpt-5.5",
+    )
+    result = service.run(AgentServiceRequest(
+        message="Summarize context status.",
+        title="Budget",
+        provider="codex-oauth",
+        model="gpt-5.5",
+    ))
+
+    payload = get_chat_context_status({
+        "sessionId": [result.session_id],
+        "provider": ["codex-oauth"],
+        "model": ["gpt-5.5"],
+    }, service=service)
+
+    assert payload["context"]["provider"] == "codex-oauth"
+    assert payload["context"]["model"] == "gpt-5.5"
+    assert payload["context"]["contextLength"] > 0
+    assert payload["context"]["actualUsageAvailable"] is True
+    assert payload["context"]["actualInputTokens"] == 432
+    assert payload["context"]["tokensUsed"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["requestTokens"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["messageTokens"] > 0
+
+
+def test_get_chat_context_status_ignores_actual_usage_for_different_model(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([
+            ModelResponse(
+                content="Measured.",
+                usage=TokenUsage(input_tokens=432, output_tokens=21, total_tokens=453),
+            )
+        ]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+        default_model="gpt-5.5",
+    )
+    result = service.run(AgentServiceRequest(
+        message="Summarize context status.",
+        title="Budget",
+        provider="codex-oauth",
+        model="gpt-5.5",
+    ))
+
+    payload = get_chat_context_status({
+        "sessionId": [result.session_id],
+        "provider": ["openai"],
+        "model": ["gpt-5.4-mini"],
+    }, service=service)
+
+    assert payload["context"]["provider"] == "openai"
+    assert payload["context"]["model"] == "gpt-5.4-mini"
+    assert payload["context"]["actualUsageAvailable"] is False
+    assert payload["context"]["requestTokens"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["tokensUsed"] == payload["context"]["estimatedRequestTokens"]
+
+
+def test_get_chat_context_status_reports_zero_used_tokens_for_empty_session(tmp_path):
+    service = AgentService(
         model_provider=FakeProvider([]),
         session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
         tool_registry=ToolRegistry(),
         default_model="gpt-5.5",
     )
     session = create_chat_session({
-        "title": "Budget",
+        "title": "Empty budget",
         "provider": "codex-oauth",
         "model": "gpt-5.5",
     }, service=service)["session"]
-    service.session_store.append_message(session["id"], {
-        "role": "user",
-        "content": "Summarize context status.",
-    })
 
     payload = get_chat_context_status({
         "sessionId": [session["id"]],
@@ -1319,11 +1383,15 @@ def test_get_chat_context_status_serializes_context_budget(tmp_path):
         "model": ["gpt-5.5"],
     }, service=service)
 
-    assert payload["context"]["provider"] == "codex-oauth"
-    assert payload["context"]["model"] == "gpt-5.5"
-    assert payload["context"]["contextLength"] == 400_000
-    assert payload["context"]["tokensUsed"] >= payload["context"]["messageTokens"]
+    assert payload["context"]["messageCount"] == 0
+    assert payload["context"]["actualUsageAvailable"] is False
+    assert payload["context"]["requestTokens"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["estimatedRequestTokens"] > 0
+    assert payload["context"]["tokensUsed"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["messageTokens"] == 0
     assert payload["context"]["percentFull"] >= 0
+    assert payload["context"]["instructionTokens"] > 0
+    assert payload["context"]["toolSchemaTokens"] >= 0
 
 
 def test_compact_chat_session_serializes_context_and_events(tmp_path):

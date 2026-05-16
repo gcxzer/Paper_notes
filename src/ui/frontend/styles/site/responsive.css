@@ -25,6 +25,12 @@
     border: 0;
   }
 
+  .sidebar-panel {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+
   .content-panel,
   .details-panel,
   .sidebar-panel {

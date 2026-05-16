@@ -34,5 +34,12 @@
 
   document.addEventListener("pointerup", clearPressing, true);
   document.addEventListener("pointercancel", clearPressing, true);
+  document.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    const element = elementFromEvent(event);
+    if (element) element.classList.add(PRESS_CLASS);
+  }, true);
+  document.addEventListener("mouseup", clearPressing, true);
+  document.addEventListener("mouseleave", clearPressing, true);
   document.addEventListener("dragstart", clearPressing, true);
 }());

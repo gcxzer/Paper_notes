@@ -40,6 +40,10 @@ body.is-resizing .panel-resizer::before {
   --sidebar-gutter: 20px;
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  max-height: 100vh;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 12%),
     var(--panel-alt);

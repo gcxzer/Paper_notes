@@ -539,7 +539,6 @@ function initializeReaderChat() {
     const row = event.target.closest("[data-debug-run-id]");
     if (row) void loadReaderDebugRunDetail(row.dataset.debugRunId);
   });
-  elements.readerDebugDialog?.addEventListener("wheel", handleReaderDebugWheel, { passive: false });
   elements.readerModelMenuButton?.addEventListener("click", () => {
     setReaderModelMenuOpen(!readerState.modelMenuOpen);
   });

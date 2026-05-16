@@ -1119,10 +1119,11 @@ test("reader session tabs expose archive trash and active views", async ({ page 
 
   await showAskPane(page);
   const sessionTabs = page.locator(".ask-session-tabs button");
-  await expect(sessionTabs).toHaveCount(3);
-  await expect(sessionTabs.nth(0)).toHaveAttribute("aria-label", "Trash chats");
+  await expect(sessionTabs).toHaveCount(4);
+  await expect(sessionTabs.nth(0)).toHaveAttribute("aria-label", "Show context window");
   await expect(sessionTabs.nth(1)).toHaveAttribute("aria-label", "Archived chats");
-  await expect(sessionTabs.nth(2)).toHaveAttribute("aria-label", "Chats");
+  await expect(sessionTabs.nth(2)).toHaveAttribute("aria-label", "Trash chats");
+  await expect(sessionTabs.nth(3)).toHaveAttribute("aria-label", "Chats");
 
   await page.locator("#chatSessionArchivedButton").click();
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
@@ -1528,6 +1529,8 @@ test("reader manual context compaction updates the popover and adds a divider", 
         model: "gpt-5.5",
         contextLength: 128000,
         tokensUsed: 112000,
+        actualUsageAvailable: true,
+        usageUpdatedAt: "2026-05-15T11:20:00.000Z",
         thresholdTokens: 102400,
         thresholdPercent: 80,
         percentFull: 88,
@@ -1557,6 +1560,9 @@ test("reader manual context compaction updates the popover and adds a divider", 
           model: "gpt-5.5",
           contextLength: 128000,
           tokensUsed: 64000,
+          estimatedRequestTokens: 64000,
+          actualUsageAvailable: false,
+          usageUpdatedAt: "",
           thresholdTokens: 102400,
           thresholdPercent: 80,
           percentFull: 50,
@@ -1586,6 +1592,7 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await page.locator("#readerContextButton").click();
   await expect(page.locator("#readerContextPopover")).toBeVisible();
   await expect(page.locator("#readerContextPopover")).toContainText("88% full");
+  await expect(page.locator("#readerContextPopover")).toContainText("112k / 128k context used");
   await expect(page.locator("#readerContextPopover")).not.toContainText("Threshold");
   await expect(page.locator("#readerContextButton")).not.toHaveClass(/is-warning/);
   await page.locator("#readerContextCompactFocus").fill("tags only");
@@ -1693,6 +1700,7 @@ test("reader chat renders context compaction markers", async ({ page }) => {
       model: "gpt-5.5",
       contextLength: 128000,
       tokensUsed: 64000,
+      actualUsageAvailable: true,
       percentFull: 50,
       messageCount: 12,
       compactionEnabled: true,

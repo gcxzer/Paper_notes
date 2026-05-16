@@ -12,6 +12,7 @@ const READER_CLASSIC_SCRIPTS = [
   `scripts/reader/chat/composer.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/models.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/sessions.js?v=${READER_SCRIPT_VERSION}`,
+  `scripts/shared/debug-panel.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/debug.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/actions.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/layout.js?v=${READER_SCRIPT_VERSION}`,

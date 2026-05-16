@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import threading
 import time
@@ -14,7 +15,7 @@ from tool_safety import PaperNotesSnapshotManager, ToolApprovalManager
 from library import write_library
 from media import MediaStore
 from model_providers import ModelProviderAPIError
-from model_providers.types import ModelRequest, ModelResponse, ToolCall
+from model_providers.types import ModelRequest, ModelResponse, TokenUsage, ToolCall
 from tools.paper_notes import create_paper_notes_registry
 from tools.registry import ToolDefinition, ToolRegistry
 from tools.generated_images import TOOL_NAME as CREATE_IMAGE_ARTIFACT_TOOL
@@ -565,9 +566,381 @@ def test_service_reports_context_status_without_model_call(tmp_path):
     assert status.model == "gpt-5.5"
     assert status.context_length == 1_050_000
     assert status.message_count == 1
-    assert status.request_tokens >= status.message_tokens
+    assert status.actual_usage_available is False
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+    assert status.estimated_request_tokens > 0
+    assert status.message_tokens > 0
     assert status.tool_schema_tokens > 0
     assert provider.requests == []
+
+
+def test_service_reports_zero_used_tokens_for_empty_context(tmp_path):
+    provider = FakeProvider([])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Empty chat", provider="openai", model="gpt-5.5")
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="lookup",
+        description="Lookup a local fact.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda args: "ok",
+    ))
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=registry,
+    )
+
+    status = service.context_status_fuc(session_id=session.metadata.session_id)
+
+    assert status.message_count == 0
+    assert status.actual_usage_available is False
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+    assert status.estimated_request_tokens > 0
+    assert status.message_tokens == 0
+    assert status.instruction_tokens > 0
+    assert status.tool_schema_tokens > 0
+    assert status.percent_full == 0
+    assert provider.requests == []
+
+
+def test_service_context_status_uses_last_actual_request_usage(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(
+            content="Done.",
+            usage=TokenUsage(input_tokens=321, output_tokens=45, total_tokens=366),
+        )
+    ])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        default_model="gpt-5.5",
+    )
+
+    result = service.run(AgentServiceRequest(message="Measure real usage.", title="Usage chat"))
+    status = service.context_status_fuc(session_id=result.session_id)
+
+    assert status.actual_usage_available is True
+    assert status.actual_input_tokens == 321
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+    assert status.message_tokens > 0
+    assert status.instruction_tokens > 0
+    assert status.tool_schema_tokens >= 0
+    stored_usage = store.require_session(result.session_id).metadata.metadata["lastActualContextUsage"]
+    assert stored_usage["inputTokens"] == 321
+    assert "." in stored_usage["updatedAt"]
+
+
+def test_service_context_status_falls_back_when_actual_usage_transcript_changes(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(content="First.", usage=TokenUsage(input_tokens=111, output_tokens=11, total_tokens=122)),
+        ModelResponse(content="Second.", usage=TokenUsage(input_tokens=222, output_tokens=22, total_tokens=244)),
+    ])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        default_model="gpt-5.5",
+    )
+
+    first = service.run(AgentServiceRequest(message="First prompt.", title="Usage chat"))
+    service.run(AgentServiceRequest(message="Second prompt.", session_id=first.session_id))
+    store.undo_last_turn(first.session_id)
+
+    status = service.context_status_fuc(session_id=first.session_id)
+
+    assert status.actual_usage_available is True
+    assert status.actual_input_tokens == 111
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+
+
+def test_manual_compaction_status_ignores_pre_compaction_actual_usage(tmp_path):
+    provider = FakeProvider([])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Compact usage", provider="fake", model="test-model")
+    for message in [
+        {"role": "user", "content": "First question."},
+        {"role": "assistant", "content": "Old answer " + ("x" * 240)},
+        {"role": "user", "content": "Old followup " + ("y" * 240)},
+        {"role": "assistant", "content": "Older answer " + ("z" * 240)},
+        {"role": "user", "content": "Latest task should stay active."},
+    ]:
+        store.append_message(session.metadata.session_id, message)
+    message_count = len(store.require_session(session.metadata.session_id).messages)
+    store.update_session_metadata(session.metadata.session_id, {
+        "lastActualContextUsage": {
+            "inputTokens": 999_999,
+            "outputTokens": 10,
+            "totalTokens": 1_000_009,
+            "provider": "fake",
+            "model": "test-model",
+            "transcriptMessageCount": message_count,
+            "updatedAt": "2000-01-01T00:00:00+00:00",
+        },
+    })
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        context_compressor=hermes_test_compressor(ContextCompressionConfig(
+            min_messages=3,
+            protect_first_n=1,
+            protect_last_n=1,
+            tail_token_budget=16,
+        )),
+        default_model="test-model",
+    )
+
+    result = service.compact_session(session_id=session.metadata.session_id)
+
+    assert result.compressed is True
+    assert result.context.actual_usage_available is False
+    assert result.context.request_tokens == result.context.estimated_request_tokens
+    assert result.context.display_tokens == result.context.estimated_request_tokens
+    assert result.context.display_tokens < 999_999
+    metadata = store.require_session(session.metadata.session_id).metadata.metadata
+    assert "lastActualContextUsage" not in metadata
+    assert "." in metadata["lastActualContextUsageClearedAt"]
+    checkpoint = service.compression_checkpoint_store.load(session.metadata.session_id)
+    assert checkpoint is not None
+    assert "." in checkpoint.updated_at
+
+
+def test_service_context_status_falls_back_to_persisted_run_trace_usage(tmp_path):
+    provider = FakeProvider([])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Replay chat", provider="codex-oauth", model="gpt-5.3-codex-spark")
+    store.append_message(session.metadata.session_id, {"role": "user", "content": "hello"})
+    store.append_message(session.metadata.session_id, {
+        "role": "assistant",
+        "content": "hi",
+        "codex_reasoning_items": [{"encrypted_content": "x" * 8000}],
+        "codex_message_items": [{"content": [{"text": "y" * 8000}]}],
+        "provider_data": {"raw": "z" * 8000},
+        "runTrace": {
+            "requestId": "req_123",
+            "finishedAt": "2026-05-16T10:00:00+00:00",
+            "events": [{
+                "type": "model_response",
+                "data": {"input_tokens": 123, "output_tokens": 7, "total_tokens": 130},
+            }],
+        },
+    })
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+    )
+
+    status = service.context_status_fuc(session_id=session.metadata.session_id)
+
+    assert status.message_count == 2
+    assert status.actual_usage_available is True
+    assert status.actual_input_tokens == 123
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+    assert status.usage_request_id == "req_123"
+
+
+def test_service_context_status_persists_latest_input_usage_from_tool_loop(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(
+            content=None,
+            tool_calls=[ToolCall(id="call_1", name="lookup", arguments='{"query": "paper"}')],
+            finish_reason="tool_calls",
+            usage=TokenUsage(input_tokens=100, output_tokens=20, total_tokens=120),
+        ),
+        ModelResponse(
+            content="Done.",
+            usage=TokenUsage(input_tokens=140, output_tokens=30, total_tokens=170),
+        ),
+    ])
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="lookup",
+        description="Lookup.",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+        handler=lambda args: {"ok": True},
+    ))
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=registry,
+        default_model="test-model",
+    )
+
+    result = service.run(AgentServiceRequest(message="Use lookup.", title="Usage loop"))
+    status = service.context_status_fuc(session_id=result.session_id)
+    stored_usage = store.require_session(result.session_id).metadata.metadata["lastActualContextUsage"]
+
+    assert status.actual_usage_available is True
+    assert status.actual_input_tokens == 140
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.request_tokens == status.estimated_request_tokens
+    assert stored_usage["inputTokens"] == 140
+    assert stored_usage["totalTokens"] == 170
+
+
+def test_service_context_status_does_not_estimate_from_attachment_text(tmp_path):
+    provider = FakeProvider([])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+    )
+    session = store.create_session(title="Attachment chat", provider="openai", model="gpt-5.5")
+    attachment_text = "alpha " * 200
+    artifact = service.media_store.create_upload(
+        "data:text/plain;base64," + base64.b64encode(attachment_text.encode("utf-8")).decode("ascii"),
+        file_name="notes.txt",
+        scope="session-1",
+    )
+    store.append_message(session.metadata.session_id, {
+        "role": "user",
+        "content": "Please read the attachment.",
+        "attachments": [artifact.to_dict()],
+    })
+
+    status = service.context_status_fuc(session_id=session.metadata.session_id)
+
+    assert status.message_count == 1
+    assert status.actual_usage_available is False
+    assert status.display_tokens == status.estimated_request_tokens
+    assert status.estimated_request_tokens > 0
+    assert status.message_tokens > 0
+    assert status.request_tokens == status.estimated_request_tokens
+
+
+def test_service_preserves_prior_run_traces_across_non_compressed_turns(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(content="Second answer.", usage=TokenUsage(input_tokens=20, output_tokens=10, total_tokens=30)),
+    ])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Trace chat", provider="codex-oauth", model="gpt-5.3-codex-spark")
+    store.append_message(session.metadata.session_id, {"role": "user", "content": "First"})
+    store.append_message(session.metadata.session_id, {
+        "role": "assistant",
+        "content": "First answer.",
+        "runTrace": {
+            "requestId": "req_first",
+            "finishedAt": "2026-05-16T10:00:00+00:00",
+            "events": [{
+                "type": "model_response",
+                "data": {"input_tokens": 11, "output_tokens": 12, "total_tokens": 23},
+            }],
+        },
+    })
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        default_model="gpt-5.3-codex-spark",
+    )
+
+    result = service.run(AgentServiceRequest(
+        message="Second",
+        session_id=session.metadata.session_id,
+        provider="codex-oauth",
+        model="gpt-5.3-codex-spark",
+    ))
+    persisted = store.require_session(result.session_id).messages
+    status = service.context_status_fuc(session_id=result.session_id)
+
+    assert persisted[1]["runTrace"]["requestId"] == "req_first"
+    assert persisted[-1]["runTrace"]["events"][1]["data"]["total_tokens"] == 30
+    assert status.actual_input_tokens == 20
+    assert status.display_tokens == status.estimated_request_tokens
+
+
+def test_service_preserves_prior_run_traces_across_compressed_turns(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(content="Fresh answer.", usage=TokenUsage(input_tokens=40, output_tokens=20, total_tokens=60)),
+    ])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Compressed trace chat", provider="codex-oauth", model="gpt-5.3-codex-spark")
+    store.append_message(session.metadata.session_id, {"role": "user", "content": "First " + ("x" * 240)})
+    store.append_message(session.metadata.session_id, {
+        "role": "assistant",
+        "content": "First answer. " + ("y" * 240),
+        "runTrace": {
+            "requestId": "req_first",
+            "finishedAt": "2026-05-16T10:00:00+00:00",
+            "events": [{
+                "type": "model_response",
+                "data": {"input_tokens": 11, "output_tokens": 12, "total_tokens": 23},
+            }],
+        },
+    })
+    store.append_message(session.metadata.session_id, {"role": "user", "content": "Older " + ("z" * 240)})
+    store.append_message(session.metadata.session_id, {"role": "assistant", "content": "Older answer. " + ("w" * 240)})
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        context_compressor=hermes_test_compressor(ContextCompressionConfig(
+            max_estimated_tokens=1,
+            min_messages=4,
+            protect_first_n=1,
+            protect_last_n=2,
+            tail_token_budget=16,
+        )),
+        default_model="gpt-5.3-codex-spark",
+    )
+
+    result = service.run(AgentServiceRequest(
+        message="Second task",
+        session_id=session.metadata.session_id,
+        provider="codex-oauth",
+        model="gpt-5.3-codex-spark",
+    ))
+    persisted = store.require_session(result.session_id).messages
+    status = service.context_status_fuc(session_id=result.session_id)
+
+    assert persisted[1]["runTrace"]["requestId"] == "req_first"
+    assert isinstance(persisted[-1].get("runTrace"), dict)
+    assert status.actual_input_tokens == 40
+    assert status.display_tokens == status.estimated_request_tokens
+
+
+def test_service_context_status_uses_last_model_response_input_tokens_per_turn(tmp_path):
+    provider = FakeProvider([])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Tool loop chat", provider="codex-oauth", model="gpt-5.3-codex-spark")
+    store.append_message(session.metadata.session_id, {"role": "user", "content": "Do the task"})
+    store.append_message(session.metadata.session_id, {
+        "role": "assistant",
+        "content": "Done.",
+        "runTrace": {
+            "requestId": "req_tool_loop",
+            "finishedAt": "2026-05-16T10:00:00+00:00",
+            "events": [
+                {"type": "model_request", "data": {"turn": 1}},
+                {"type": "model_response", "data": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}},
+                {"type": "tool_call", "data": {"name": "lookup"}},
+                {"type": "model_request", "data": {"turn": 2}},
+                {"type": "model_response", "data": {"input_tokens": 140, "output_tokens": 30, "total_tokens": 170}},
+            ],
+        },
+    })
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+    )
+
+    status = service.context_status_fuc(session_id=session.metadata.session_id)
+
+    assert status.actual_input_tokens == 140
+    assert status.display_tokens == status.estimated_request_tokens
 
 
 def test_service_reuses_existing_session_history(tmp_path):
