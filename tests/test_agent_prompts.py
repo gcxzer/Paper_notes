@@ -228,6 +228,7 @@ def test_context_section_includes_current_note_selection_and_annotations():
     assert "title: Attention Is All You Need" in section
     assert "collection: Models / Transformers" in section
     assert "Current page: 3" in section
+    assert "treat it as the primary focus" in section
     assert "> Scaled dot-product attention" in section
     assert "id=a1; page=3: Important equation" in section
 

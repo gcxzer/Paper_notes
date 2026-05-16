@@ -324,7 +324,7 @@ function renderChatMarkdownBlocks(html) {
       output.push(`<li>${ordered[1]}</li>`);
       continue;
     }
-    const quote = line.match(/^\s*>\s?(.*)$/);
+    const quote = line.match(/^\s*(?:>|&gt;)\s?(.*)$/);
     if (quote) {
       closeList();
       blockquote.push(quote[1]);

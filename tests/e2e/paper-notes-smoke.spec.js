@@ -1463,6 +1463,30 @@ test("reader chat renders LaTeX math in assistant messages", async ({ page }) =>
   await expect(bubble).not.toContainText("\\]");
 });
 
+test("reader chat renders markdown blockquotes", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "当然，这段可以译为：\n\n> 第一段引用。\n>\n> 第二段引用，包含 **重点**。",
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const bubble = page.locator(".ask-message-assistant .ask-bubble");
+  const quote = bubble.locator("blockquote");
+  await expect(quote).toBeVisible();
+  await expect(quote).toContainText("第一段引用");
+  await expect(quote).toContainText("第二段引用");
+  await expect(quote.locator("strong")).toHaveText("重点");
+  await expect(bubble).not.toContainText("> 第一段引用");
+});
+
 test("reader chat linkifies adjacent Chinese parenthetical URLs separately", async ({ page }) => {
   await openFixtureReader(page);
   const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });

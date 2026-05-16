@@ -63,6 +63,7 @@ def build_context_section(context: AgentPromptContext | dict[str, Any] | None) -
 
     selection = _text(normalized.selection_text)
     if selection:
+        lines.append("- Selected text guidance: When selected text is provided, treat it as the primary focus of the user's question unless the user clearly asks for broader context.")
         lines.append("- Selected text:")
         lines.append(_block(selection))
 
