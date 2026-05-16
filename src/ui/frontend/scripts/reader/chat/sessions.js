@@ -15,6 +15,7 @@ function chatSessionMatchesQuery(session) {
   return [
     session.title,
     session.lastMessagePreview,
+    chatSessionPaperLabel(session),
     formatChatSessionTime(session.updatedAt)
   ].some((value) => normalizeText(value).toLowerCase().includes(query));
 }
@@ -29,6 +30,48 @@ function chatSessionViewLabel(view = currentChatSessionView()) {
   if (view === "archived") return "Archived";
   if (view === "trashed") return "Trash";
   return "Sessions";
+}
+
+function sessionNoteIdBase(value) {
+  const text = normalizeText(value).toLowerCase();
+  const match = text.match(/^(.*)-[a-z0-9]{3,}$/);
+  return match ? match[1] : text;
+}
+
+function noteTitleForSessionNoteId(noteId) {
+  const targetId = normalizeText(noteId);
+  if (!targetId || !Array.isArray(readerState.library?.notes)) return "";
+  const exact = readerState.library.notes.find((note) => note.id === targetId);
+  if (exact?.title) return normalizeText(exact.title);
+  const targetBase = sessionNoteIdBase(targetId);
+  if (!targetBase) return "";
+  const sibling = readerState.library.notes.find((note) => sessionNoteIdBase(note.id) === targetBase);
+  return normalizeText(sibling?.title);
+}
+
+function chatSessionPaperLabel(session) {
+  return normalizeText(session?.originNoteTitle || session?.currentNoteTitle)
+    || noteTitleForSessionNoteId(session?.originNoteId)
+    || noteTitleForSessionNoteId(session?.currentNoteId)
+    || noteTitleForSessionNoteId(session?.noteId);
+}
+
+function chatSessionMetaText(session, view) {
+  return view === "trashed"
+    ? `Moved ${formatChatSessionTime(session.trashedAt || session.updatedAt)}`
+    : view === "archived"
+      ? `Archived ${formatChatSessionTime(session.archivedAt || session.updatedAt)}`
+      : formatChatSessionTime(session.updatedAt);
+}
+
+function chatSessionMetaHtml(session, view) {
+  const timeText = chatSessionMetaText(session, view);
+  const paperLabel = chatSessionPaperLabel(session);
+  if (!paperLabel) return escapeHtml(timeText);
+  return `
+    <span class="ask-session-meta-time">${escapeHtml(timeText)}</span>
+    <span class="ask-session-meta-paper">· ${escapeHtml(paperLabel)}</span>
+  `;
 }
 
 function clearSessionActionMenu() {
@@ -295,18 +338,14 @@ function renderChatSessionList() {
     sessionButton.className = "ask-session-item";
     sessionButton.type = "button";
     sessionButton.dataset.sessionId = session.id;
-    sessionButton.disabled = view !== "active";
+    sessionButton.disabled = view === "trashed";
     sessionButton.innerHTML = `
       <span class="ask-session-title">${escapeHtml(session.title || "New chat")}</span>
-      <span class="ask-session-meta">${escapeHtml(
-        view === "trashed"
-          ? `Moved ${formatChatSessionTime(session.trashedAt || session.updatedAt)}`
-          : view === "archived"
-            ? `Archived ${formatChatSessionTime(session.archivedAt || session.updatedAt)}`
-            : formatChatSessionTime(session.updatedAt)
-      )}</span>
+      <span class="ask-session-meta">${chatSessionMetaHtml(session, view)}</span>
     `;
     if (view === "active") {
+      sessionButton.addEventListener("click", () => loadReaderChatSession(session.id));
+    } else if (view === "archived") {
       sessionButton.addEventListener("click", () => loadReaderChatSession(session.id));
     }
 

@@ -122,19 +122,27 @@ class AgentSessionMetadata:
         created_at = str(data.get("created_at") or now_iso())
         legacy_archived = bool(data.get("archived", False))
         state = normalize_session_state(data.get("state"), archived=legacy_archived)
+        metadata = copy.deepcopy(data.get("metadata") or {})
+        note_id = data.get("note_id")
+        if note_id and not (metadata.get("originNoteId") or metadata.get("origin_note_id")):
+            metadata["originNoteId"] = note_id
+            metadata["origin_note_id"] = note_id
+        if note_id and not (metadata.get("currentNoteId") or metadata.get("current_note_id")):
+            metadata["currentNoteId"] = note_id
+            metadata["current_note_id"] = note_id
         return cls(
             session_id=str(data["session_id"]),
             title=str(data.get("title") or "New chat"),
             created_at=created_at,
             updated_at=str(data.get("updated_at") or created_at),
             date_bucket=str(data.get("date_bucket") or date_bucket_for(created_at)),
-            note_id=data.get("note_id"),
+            note_id=note_id,
             provider=data.get("provider"),
             model=data.get("model"),
             message_count=int(data.get("message_count") or 0),
             archived=state == "archived",
             state=state,
-            metadata=copy.deepcopy(data.get("metadata") or {}),
+            metadata=metadata,
         )
 
 

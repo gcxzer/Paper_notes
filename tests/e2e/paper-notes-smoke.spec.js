@@ -242,9 +242,10 @@ async function openFixtureReader(page) {
 }
 
 async function showAskPane(page) {
-  const isHidden = await page.locator("#readerLayout").evaluate((element) => element.classList.contains("is-ask-pane-hidden"));
-  if (isHidden) {
-    await page.getByRole("button", { name: "Ask" }).click();
+  await page.waitForFunction(() => typeof window.openChatSessionView === "function");
+  if (!(await page.locator("#askPane").isVisible())) {
+    await page.waitForFunction(() => typeof window.setAskPaneVisible === "function");
+    await page.evaluate(() => window.setAskPaneVisible(true));
   }
   await expect(page.locator("#askPane")).toBeVisible();
 }
@@ -841,6 +842,8 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   const activeSessions = [{
     id: "active-session-1",
     title: "Active chat",
+    noteId: "pdf-deepseek-v4-old123",
+    originNoteId: "pdf-deepseek-v4-old123",
     lastMessagePreview: "Working",
     updatedAt: "2026-05-15T09:00:00.000Z",
     state: "active",
@@ -848,6 +851,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   const archivedSessions = [{
     id: "archived-session-1",
     title: "Archived chat",
+    originNoteId: "pdf-deepseek-v4-archive123",
     lastMessagePreview: "Done",
     updatedAt: "2026-05-15T08:00:00.000Z",
     archivedAt: "2026-05-15T08:05:00.000Z",
@@ -878,6 +882,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
   await expect(page.locator("#clearTrashSessions")).toBeHidden();
   await expect(page.getByText("Archived chat")).toBeVisible();
+  await expect(page.locator(".ask-session-row", { hasText: "Archived chat" }).locator(".ask-session-meta")).toContainText("DeepSeek V4");
   await page.locator(".ask-session-row", { hasText: "Archived chat" }).hover();
   await page.getByRole("button", { name: /More actions for Archived chat/ }).click();
   await expect(page.getByRole("button", { name: /Restore Archived chat/ })).toBeVisible();
@@ -886,6 +891,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   await page.locator("#chatSessionMenuButton").click();
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Sessions");
   await expect(page.getByText("Active chat")).toBeVisible();
+  await expect(page.locator(".ask-session-row", { hasText: "Active chat" })).toContainText("DeepSeek V4");
   await page.locator(".ask-session-row", { hasText: "Active chat" }).hover();
   await page.getByRole("button", { name: /More actions for Active chat/ }).click();
   await expect(page.getByRole("button", { name: /Rename Active chat/ })).toBeVisible();
@@ -954,6 +960,55 @@ test("reader restore keeps the current session list view", async ({ page }) => {
   await expect(page.locator("#chatSessionList")).toContainText("Archive is empty");
   await expect(page.locator("#readerChatMessages")).not.toContainText("Archived loaded message");
   expect(archiveCalls).toEqual([{ sessionId: "archived-session-1", state: "active" }]);
+});
+
+test("reader can click an archived session to use it without moving it", async ({ page }) => {
+  const archivedSession = {
+    id: "archived-session-1",
+    title: "Archived chat",
+    originNoteTitle: "Original Paper",
+    lastMessagePreview: "Done",
+    updatedAt: "2026-05-15T08:00:00.000Z",
+    archivedAt: "2026-05-15T08:05:00.000Z",
+    state: "archived",
+  };
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get("state") || "active";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: state === "archived" ? [archivedSession] : [] }),
+    });
+  });
+  await page.route("**/api/chat/session/archive", async (route) => {
+    throw new Error(`Clicking an archived session should not move it: ${route.request().postData()}`);
+  });
+  await page.route("**/api/chat/session?id=archived-session-1", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          ...archivedSession,
+          state: "active",
+          messages: [{ role: "assistant", content: "Archived loaded message" }],
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await page.locator("#chatSessionArchivedButton").click();
+  await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
+  await expect(page.locator(".ask-session-row", { hasText: "Archived chat" }).locator(".ask-session-meta")).toContainText("Original Paper");
+  await page.locator(".ask-session-row", { hasText: "Archived chat" }).locator(".ask-session-item").click();
+
+  await expect(page.locator("#chatSessionPopover")).toBeHidden();
+  await expect(page.locator("#readerChatMessages")).toContainText("Archived loaded message");
+  await expect(page.locator("#readerChatInput")).toBeEnabled();
 });
 
 test("reader archive and trash actions run from the row menu without confirm", async ({ page }) => {
@@ -2190,6 +2245,13 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
   });
   await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
   await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
+  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+  await page.locator("#readerChatInput").dblclick();
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+  await page.locator("#readerChatInput").click({ clickCount: 3 });
+  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
   const chipHandle = await page.locator(".ask-selected-text-chip").elementHandle();
   await page.evaluate(() => {
     schedulePdfSelectionOverlayRender();
@@ -2218,10 +2280,11 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
     window.getSelection()?.removeAllRanges();
     document.dispatchEvent(new Event("selectionchange"));
   });
-  await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+  await expect(page.locator(".ask-selected-text-chip")).toHaveCount(0);
+  await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
 
-  await page.locator("#readerChatInput").fill("解释我选中的这段");
   await page.evaluate(() => {
+    document.activeElement?.blur?.();
     const span = Array.from(document.querySelectorAll(".pdf-page[data-page='8'] .textLayer span[role='presentation']"))
       .find((entry) => (entry.textContent || "").includes("stochastic"));
     const range = document.createRange();
@@ -2232,6 +2295,8 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
     document.dispatchEvent(new Event("selectionchange"));
   });
   await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
+  await page.locator("#readerChatInput").click();
+  await page.locator("#readerChatInput").fill("解释我选中的这段");
 
   await page.evaluate(() => {
     document.activeElement?.blur?.();
@@ -2502,7 +2567,8 @@ test("reader ask tools send generation modes and render generated file cards", a
   await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 
   await page.locator("#readerToolMenuButton").click();
-  await page.getByRole("button", { name: /Generate file/ }).hover();
+  await expect(page.getByRole("button", { name: /Generate file/ })).toHaveCount(0);
+  await page.locator(".ask-tool-submenu-trigger", { hasText: "Generate file" }).hover();
   await page.getByRole("menuitemradio", { name: /Markdown/ }).click();
   await expect(page.locator("#readerAttachmentTray")).toContainText("Markdown file");
   await askInput.fill("生成 markdown 总结文件");
@@ -2524,7 +2590,7 @@ test("reader ask tools send generation modes and render generated file cards", a
   await expect(page.getByText("Generate file · Markdown file")).toBeVisible();
 
   await page.locator("#readerToolMenuButton").click();
-  await page.getByRole("button", { name: /Generate file/ }).hover();
+  await page.locator(".ask-tool-submenu-trigger", { hasText: "Generate file" }).hover();
   await page.getByRole("menuitemradio", { name: /Markdown/ }).click();
   await page.locator("[data-generation-mode-remove]").click();
   await askInput.fill("普通聊天");

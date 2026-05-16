@@ -565,6 +565,11 @@
   background: transparent;
 }
 
+.ask-tool-submenu-trigger {
+  cursor: default;
+  user-select: none;
+}
+
 .ask-tool-menu-option.is-active {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 9%, var(--panel-alt));
@@ -1024,16 +1029,13 @@
   background: var(--panel-soft);
 }
 
-.ask-session-row.is-trashed .ask-session-item,
-.ask-session-row.is-archived .ask-session-item {
+.ask-session-row.is-trashed .ask-session-item {
   cursor: default;
   opacity: 0.82;
 }
 
 .ask-session-row.is-trashed .ask-session-item:hover,
-.ask-session-row.is-trashed .ask-session-item:focus-visible,
-.ask-session-row.is-archived .ask-session-item:hover,
-.ask-session-row.is-archived .ask-session-item:focus-visible {
+.ask-session-row.is-trashed .ask-session-item:focus-visible {
   border-color: var(--line);
   background: var(--panel-alt);
 }
@@ -1051,8 +1053,23 @@
 }
 
 .ask-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.68rem;
+}
+
+.ask-session-meta-time {
+  flex: 0 0 auto;
+}
+
+.ask-session-meta-paper {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ask-session-more {

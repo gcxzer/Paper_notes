@@ -713,10 +713,54 @@ function clearPdfSelectionOverlays() {
   });
 }
 
+function renderPdfSelectionOverlaysFromRanges(ranges = readerState.selectedPdfRanges) {
+  const savedRanges = Array.isArray(ranges) ? ranges : [];
+  if (!savedRanges.length || !elements.pdfViewer) {
+    clearPdfSelectionOverlays();
+    return false;
+  }
+
+  let hasSelection = false;
+  elements.pdfViewer.querySelectorAll(".pdf-page").forEach((pageElement) => {
+    const layer = pageElement.querySelector(".pdf-selection-layer");
+    const canvas = pageElement.querySelector(".pdf-page-canvas");
+    if (!layer || !canvas) return;
+    const pageBox = canvas.getBoundingClientRect();
+    const spans = pdfSelectionSpansForPage(pageElement);
+    layer.innerHTML = "";
+    savedRanges.forEach((range) => {
+      spans.forEach(({ span }) => {
+        let rect = null;
+        try {
+          rect = selectedRectForSpanRange(range, span);
+        } catch (error) {
+          rect = null;
+        }
+        if (!rect || !rectsIntersect(rect, pageBox)) return;
+        const boundedRect = clampClientRectToPage(rect, pageBox);
+        const marker = document.createElement("div");
+        marker.className = "pdf-selection-rect";
+        marker.style.left = `${boundedRect.left - pageBox.left}px`;
+        marker.style.top = `${boundedRect.top - pageBox.top}px`;
+        marker.style.width = `${boundedRect.width}px`;
+        marker.style.height = `${boundedRect.height}px`;
+        layer.appendChild(marker);
+        hasSelection = true;
+      });
+    });
+  });
+  elements.pdfViewer.classList.toggle("has-pdf-selection", hasSelection);
+  return hasSelection;
+}
+
 function renderPdfSelectionOverlays() {
   pdfState.selectionRenderFrame = 0;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !elements.pdfViewer) {
+    if (readerState.selectedPdfPointerRegion === "ask" && readerState.selectedPdfRanges?.length) {
+      renderPdfSelectionOverlaysFromRanges();
+      return;
+    }
     clearPdfSelectionOverlays();
     return;
   }
@@ -741,6 +785,10 @@ function renderPdfSelectionOverlays() {
     });
   });
   elements.pdfViewer.classList.toggle("has-pdf-selection", hasSelection);
+  if (!hasSelection && readerState.selectedPdfPointerRegion === "ask" && readerState.selectedPdfRanges?.length) {
+    renderPdfSelectionOverlaysFromRanges();
+    return;
+  }
   if (hasSelection && typeof refreshReaderSelectedPdfTextFromSelection === "function") {
     refreshReaderSelectedPdfTextFromSelection();
   }

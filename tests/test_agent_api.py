@@ -669,10 +669,46 @@ def test_handle_chat_request_runs_service_and_serializes_response(tmp_path):
     assert payload["message"]["text"] == "Here is the answer."
     assert payload["session"]["title"] == "Explain this annotation."
     assert payload["session"]["noteId"] == "note-1"
+    assert payload["session"]["originNoteId"] == "note-1"
+    assert payload["session"]["originNoteTitle"] == "Attention Paper"
+    assert payload["session"]["currentNoteId"] == "note-1"
+    assert payload["session"]["currentNoteTitle"] == "Attention Paper"
     assert payload["session"]["provider"] == "fake"
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
     assert "Current page: 3" in provider.requests[0].instructions
     assert "scaled dot-product attention" in provider.requests[0].instructions
+
+
+def test_existing_chat_session_updates_current_note_without_overwriting_origin(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(content="Answer A."),
+        ModelResponse(content="Answer B."),
+    ])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+        default_model="test-model",
+    )
+
+    first = handle_chat_request({
+        "message": "Start from A.",
+        "noteId": "note-a",
+        "noteTitle": "Paper A",
+    }, service=service)
+    second = handle_chat_request({
+        "message": "Continue from B.",
+        "sessionId": first["sessionId"],
+        "noteId": "note-b",
+        "noteTitle": "Paper B",
+    }, service=service)
+
+    assert second["session"]["noteId"] == "note-a"
+    assert second["session"]["originNoteId"] == "note-a"
+    assert second["session"]["originNoteTitle"] == "Paper A"
+    assert second["session"]["currentNoteId"] == "note-b"
+    assert second["session"]["currentNoteTitle"] == "Paper B"
+    assert "Paper B" in provider.requests[1].instructions
 
 
 def test_handle_chat_request_surfaces_openai_quota_error(tmp_path):
@@ -1634,7 +1670,7 @@ def test_create_rename_archive_and_delete_chat_session(tmp_path):
     )
 
     created = create_chat_session(
-        {"title": "Draft", "noteId": "note-1", "provider": "openai", "model": "test-model"},
+        {"title": "Draft", "noteId": "note-1", "noteTitle": "Paper One", "provider": "openai", "model": "test-model"},
         service=service,
     )
     renamed = rename_chat_session({"sessionId": created["session"]["id"], "title": "Renamed"}, service=service)
@@ -1649,6 +1685,10 @@ def test_create_rename_archive_and_delete_chat_session(tmp_path):
 
     assert created["session"]["title"] == "Draft"
     assert created["session"]["noteId"] == "note-1"
+    assert created["session"]["originNoteId"] == "note-1"
+    assert created["session"]["originNoteTitle"] == "Paper One"
+    assert created["session"]["currentNoteId"] == "note-1"
+    assert created["session"]["currentNoteTitle"] == "Paper One"
     assert created["session"]["provider"] == "openai"
     assert renamed["session"]["title"] == "Renamed"
     assert archived["session"]["archived"] is True

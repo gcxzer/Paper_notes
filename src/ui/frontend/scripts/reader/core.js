@@ -170,6 +170,10 @@ function normalizeReaderChatSession(rawSession) {
     id,
     title: normalizeText(rawSession?.title) || "New chat",
     noteId: normalizeText(rawSession?.noteId),
+    originNoteId: normalizeText(rawSession?.originNoteId || metadata.originNoteId || metadata.origin_note_id || rawSession?.noteId),
+    originNoteTitle: normalizeText(rawSession?.originNoteTitle || rawSession?.noteTitle || rawSession?.note_title || metadata.originNoteTitle || metadata.origin_note_title || metadata.noteTitle || metadata.note_title),
+    currentNoteId: normalizeText(rawSession?.currentNoteId || metadata.currentNoteId || metadata.current_note_id),
+    currentNoteTitle: normalizeText(rawSession?.currentNoteTitle || metadata.currentNoteTitle || metadata.current_note_title || rawSession?.noteTitle || rawSession?.note_title || metadata.noteTitle || metadata.note_title),
     provider: normalizeProviderName(rawSession?.provider),
     model: normalizeText(rawSession?.model),
     deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode),
@@ -189,10 +193,9 @@ function normalizeReaderChatSession(rawSession) {
 }
 
 function normalizeReaderChatSessions(rawSessions) {
-  const noteId = currentChatNoteId();
   return (Array.isArray(rawSessions) ? rawSessions : [])
     .map(normalizeReaderChatSession)
-    .filter((session) => session && (!session.noteId || session.noteId === noteId));
+    .filter(Boolean);
 }
 
 function upsertReaderChatSession(rawSession) {
@@ -204,7 +207,7 @@ function upsertReaderChatSession(rawSession) {
   const index = readerState.chatSessions.findIndex((item) => item.id === session.id);
   if (index >= 0) {
     readerState.chatSessions[index] = session;
-  } else if (!session.noteId || session.noteId === currentChatNoteId()) {
+  } else {
     readerState.chatSessions.unshift(session);
   }
   return session;
@@ -1189,18 +1192,19 @@ function currentChatNoteId() {
   return normalizeText(readerState.note?.id || pdfState.noteId);
 }
 
-function storedChatSessionId(noteId = currentChatNoteId()) {
-  if (!noteId) return "";
-  return normalizeText(readChatSessionStore()[noteId]);
+function storedChatSessionId() {
+  const store = readChatSessionStore();
+  return normalizeText(store.__global || store.globalSessionId || store[currentChatNoteId()]);
 }
 
-function setStoredChatSessionId(sessionId, noteId = currentChatNoteId()) {
-  if (!noteId) return;
+function setStoredChatSessionId(sessionId) {
   const store = readChatSessionStore();
   if (sessionId) {
-    store[noteId] = sessionId;
+    store.__global = sessionId;
+    store.globalSessionId = sessionId;
   } else {
-    delete store[noteId];
+    delete store.__global;
+    delete store.globalSessionId;
   }
   writeChatSessionStore(store);
 }

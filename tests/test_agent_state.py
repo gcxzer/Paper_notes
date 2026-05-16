@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from agent_sessions import AgentSessionStore, AgentTranscriptMessage, SessionNotFoundError, date_bucket_for
+from agent_sessions import AgentSessionMetadata, AgentSessionStore, AgentTranscriptMessage, SessionNotFoundError, date_bucket_for
 
 
 class Clock:
@@ -31,6 +31,8 @@ def test_create_session_writes_index_and_date_bucket_transcript(tmp_path):
     indexed = payload["sessions"][session.metadata.session_id]
     assert indexed["title"] == "Attention notes"
     assert indexed["note_id"] == "note-1"
+    assert indexed["metadata"]["originNoteId"] == "note-1"
+    assert indexed["metadata"]["currentNoteId"] == "note-1"
     assert indexed["provider"] == "openai"
     assert indexed["message_count"] == 0
     assert store.transcript_path(session.metadata.session_id).read_text(encoding="utf-8") == ""
@@ -79,6 +81,21 @@ def test_get_session_loads_messages_in_order(tmp_path):
 
     assert [message["content"] for message in reloaded.messages] == ["First", "Second"]
     assert reloaded.messages[1]["finish_reason"] == "stop"
+
+
+def test_session_metadata_backfills_origin_and_current_note_from_legacy_note_id():
+    metadata = AgentSessionMetadata.from_dict({
+        "session_id": "session-1",
+        "title": "Legacy",
+        "created_at": "2026-05-10T09:30:00+00:00",
+        "updated_at": "2026-05-10T09:30:00+00:00",
+        "date_bucket": "10_05_2026",
+        "note_id": "legacy-note",
+        "metadata": {},
+    })
+
+    assert metadata.metadata["originNoteId"] == "legacy-note"
+    assert metadata.metadata["currentNoteId"] == "legacy-note"
 
 
 def test_list_sessions_sorts_by_updated_at_and_hides_archived(tmp_path):

@@ -48,6 +48,13 @@ class AgentSessionStore:
         now = self._clock()
         created_at = now_iso(now)
         session_id = f"{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        session_metadata_payload = dict(metadata or {})
+        if note_id and not (session_metadata_payload.get("originNoteId") or session_metadata_payload.get("origin_note_id")):
+            session_metadata_payload["originNoteId"] = note_id
+            session_metadata_payload["origin_note_id"] = note_id
+        if note_id and not (session_metadata_payload.get("currentNoteId") or session_metadata_payload.get("current_note_id")):
+            session_metadata_payload["currentNoteId"] = note_id
+            session_metadata_payload["current_note_id"] = note_id
         session_metadata = AgentSessionMetadata(
             session_id=session_id,
             title=title or "New chat",
@@ -57,7 +64,7 @@ class AgentSessionStore:
             note_id=note_id,
             provider=provider,
             model=model,
-            metadata=dict(metadata or {}),
+            metadata=session_metadata_payload,
         )
 
         with self._lock:

@@ -1010,11 +1010,40 @@ def serialize_context_status(status: AgentContextStatus) -> dict[str, Any]:
 def serialize_session_metadata(metadata: AgentSessionMetadata) -> dict[str, Any]:
     state = getattr(metadata, "state", "archived" if metadata.archived else "active")
     metadata_payload = metadata.metadata or {}
+    origin_note_id = str(
+        metadata_payload.get("originNoteId")
+        or metadata_payload.get("origin_note_id")
+        or metadata_payload.get("note_id")
+        or metadata.note_id
+        or ""
+    )
+    origin_note_title = str(
+        metadata_payload.get("originNoteTitle")
+        or metadata_payload.get("origin_note_title")
+        or metadata_payload.get("note_title")
+        or ""
+    )
+    current_note_id = str(
+        metadata_payload.get("currentNoteId")
+        or metadata_payload.get("current_note_id")
+        or origin_note_id
+        or ""
+    )
+    current_note_title = str(
+        metadata_payload.get("currentNoteTitle")
+        or metadata_payload.get("current_note_title")
+        or origin_note_title
+        or ""
+    )
     return {
         "id": metadata.session_id,
         "sessionId": metadata.session_id,
         "title": metadata.title,
-        "noteId": metadata.note_id or "",
+        "noteId": origin_note_id,
+        "originNoteId": origin_note_id,
+        "originNoteTitle": origin_note_title,
+        "currentNoteId": current_note_id,
+        "currentNoteTitle": current_note_title,
         "provider": metadata.provider or "",
         "model": metadata.model or "",
         "createdAt": metadata.created_at,
@@ -1513,8 +1542,19 @@ def _query_prompt_context(query: dict[str, list[str]]) -> dict[str, Any]:
 def _request_metadata(body: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(body.get("metadata")) if isinstance(body.get("metadata"), dict) else {}
     note_id = _note_id(body)
+    note_title = _note_title(body)
     if note_id:
         metadata.setdefault("note_id", note_id)
+        metadata.setdefault("currentNoteId", note_id)
+        metadata.setdefault("current_note_id", note_id)
+        metadata.setdefault("originNoteId", note_id)
+        metadata.setdefault("origin_note_id", note_id)
+    if note_title:
+        metadata.setdefault("note_title", note_title)
+        metadata.setdefault("currentNoteTitle", note_title)
+        metadata.setdefault("current_note_title", note_title)
+        metadata.setdefault("originNoteTitle", note_title)
+        metadata.setdefault("origin_note_title", note_title)
     return metadata
 
 
@@ -1958,6 +1998,17 @@ def _note_id(body: dict[str, Any]) -> str:
         or body.get("selectedNoteId")
         or context.get("selectedNoteId")
         or context.get("noteId")
+    )
+
+
+def _note_title(body: dict[str, Any]) -> str:
+    context = body.get("context") if isinstance(body.get("context"), dict) else {}
+    return _optional_text(
+        body.get("noteTitle")
+        or body.get("note_title")
+        or body.get("selectedNoteTitle")
+        or context.get("selectedNoteTitle")
+        or context.get("noteTitle")
     )
 
 

@@ -277,6 +277,11 @@ function restoreReaderPdfSelectionRanges() {
   }
 }
 
+function renderSavedReaderPdfSelectionOverlay() {
+  if (typeof renderPdfSelectionOverlaysFromRanges !== "function") return false;
+  return renderPdfSelectionOverlaysFromRanges(readerState.selectedPdfRanges);
+}
+
 function isEditableAskPaneTarget(target) {
   const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
   return Boolean(element?.closest?.("input, textarea, [contenteditable='true'], [contenteditable='']"));
@@ -318,6 +323,7 @@ function clearReaderSelectedPdfText({ clearNativeSelection = false } = {}) {
   readerState.selectedPdfText = "";
   readerState.selectedPdfPage = "";
   readerState.selectedPdfRanges = [];
+  readerState.selectedPdfPointerRegion = "";
   readerState.preservePdfSelectionUntil = 0;
   if (clearNativeSelection) {
     window.getSelection?.()?.removeAllRanges?.();
@@ -326,14 +332,22 @@ function clearReaderSelectedPdfText({ clearNativeSelection = false } = {}) {
   renderAttachmentTray();
 }
 
-function preserveReaderPdfSelectionForAskPane(event) {
-  if (!currentReaderSelectedPdfText() || !elements.askPane?.contains(event.target)) return;
+function handleReaderSelectedPdfPointerDown(event) {
+  if (!currentReaderSelectedPdfText()) return;
   if (isSelectedTextRemoveTarget(event.target)) return;
-  captureReaderPdfSelectionRanges();
-  if (isEditableAskPaneTarget(event.target)) {
-    readerState.preservePdfSelectionUntil = 0;
+  if (!elements.askPane?.contains(event.target)) {
+    readerState.selectedPdfPointerRegion = "outside";
+    clearReaderSelectedPdfText({ clearNativeSelection: true });
     return;
   }
+
+  readerState.selectedPdfPointerRegion = "ask";
+  if (isEditableAskPaneTarget(event.target)) {
+    readerState.preservePdfSelectionUntil = 0;
+    window.requestAnimationFrame(renderSavedReaderPdfSelectionOverlay);
+    return;
+  }
+  captureReaderPdfSelectionRanges();
   readerState.preservePdfSelectionUntil = Date.now() + 700;
   window.requestAnimationFrame(() => {
     if (Date.now() <= readerState.preservePdfSelectionUntil) restoreReaderPdfSelectionRanges();
@@ -352,7 +366,12 @@ function refreshReaderSelectedPdfTextFromSelection() {
   const pages = selectedPdfPagesForChatContext();
   if (!pages.length) {
     if (shouldRestoreReaderPdfSelection() && restoreReaderPdfSelectionRanges()) return true;
-    return Boolean(currentReaderSelectedPdfText());
+    if (readerState.selectedPdfPointerRegion === "ask" && currentReaderSelectedPdfText()) {
+      renderSavedReaderPdfSelectionOverlay();
+      return true;
+    }
+    clearReaderSelectedPdfText();
+    return false;
   }
   const text = typeof textFromPdfSelection === "function"
     ? textFromPdfSelection()

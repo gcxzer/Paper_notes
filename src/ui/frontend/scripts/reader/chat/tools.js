@@ -134,13 +134,13 @@ function renderToolRootMenu() {
         </span>
       </button>
       <div class="ask-tool-submenu-shell">
-        <button class="ask-tool-menu-option" type="button" aria-haspopup="menu" aria-expanded="false">
+        <div class="ask-tool-menu-option ask-tool-submenu-trigger" aria-haspopup="menu">
           ${renderAskToolMenuIcon("bookmark")}
           <span>
             <strong>Saved Prompts</strong>
           </span>
         <span class="ask-tool-menu-arrow" aria-hidden="true">›</span>
-        </button>
+        </div>
         <div class="ask-tool-submenu" role="menu" aria-label="Saved Prompts">
           ${renderSavedPromptSubmenuContent()}
         </div>
@@ -154,13 +154,13 @@ function renderToolRootMenu() {
         </span>
       </button>
       <div class="ask-tool-submenu-shell">
-        <button class="ask-tool-menu-option" type="button" aria-haspopup="menu" aria-expanded="false">
+        <div class="ask-tool-menu-option ask-tool-submenu-trigger" aria-haspopup="menu">
           ${renderAskToolMenuIcon("file")}
           <span>
             <strong>Generate file</strong>
           </span>
           <span class="ask-tool-menu-arrow" aria-hidden="true">›</span>
-        </button>
+        </div>
         <div class="ask-tool-submenu" role="menu" aria-label="Generate file">
           ${renderFileGenerationFormatMenuContent()}
         </div>

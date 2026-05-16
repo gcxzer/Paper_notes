@@ -309,6 +309,7 @@ const readerState = {
   selectedPdfText: "",
   selectedPdfPage: "",
   selectedPdfRanges: [],
+  selectedPdfPointerRegion: "",
   preservePdfSelectionUntil: 0,
   pendingSelectedTextContext: null,
   imageUploadPending: false,

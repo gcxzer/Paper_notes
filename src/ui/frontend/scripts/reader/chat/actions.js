@@ -569,7 +569,7 @@ function initializeReaderChat() {
   });
   elements.readerChatInput?.addEventListener("paste", handleReaderImagePaste);
   elements.readerChatInput?.addEventListener("input", resizeReaderChatInput);
-  elements.askPane?.addEventListener("pointerdown", preserveReaderPdfSelectionForAskPane, true);
+  document.addEventListener("pointerdown", handleReaderSelectedPdfPointerDown, true);
   elements.sendReaderChat?.addEventListener("pointerdown", snapshotReaderSelectedPdfTextForSubmit);
   elements.readerChatInput?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;

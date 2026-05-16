@@ -360,6 +360,7 @@ class AgentService:
             raise ValueError("editLatestUserMessage requires an existing session.")
 
         session, created_session = self._get_or_create_session(request)
+        session = self._sync_session_note_context(session, request, created_session=created_session)
         if request.edit_latest_user_message:
             if created_session:
                 raise ValueError("editLatestUserMessage requires an existing session.")
@@ -706,6 +707,32 @@ class AgentService:
             model=request.model or self.default_model or None,
             metadata=dict(request.metadata),
         ), True
+
+    def _sync_session_note_context(
+        self,
+        session: AgentSession,
+        request: AgentServiceRequest,
+        *,
+        created_session: bool = False,
+    ) -> AgentSession:
+        note_id = str(request.note_id or "").strip()
+        note_title = _metadata_text(request.metadata, "note_title", "noteTitle", "selectedNoteTitle")
+        if not note_id and not note_title:
+            return session
+
+        current = dict(session.metadata.metadata or {})
+        next_metadata = _session_note_context_metadata(
+            current,
+            origin_note_id=session.metadata.note_id or note_id,
+            origin_note_title=note_title,
+            current_note_id=note_id,
+            current_note_title=note_title,
+            allow_origin_update=created_session,
+        )
+        if next_metadata == current:
+            return session
+        metadata = self.session_store.update_session_metadata(session.metadata.session_id, next_metadata, replace=True)
+        return AgentSession(metadata=metadata, messages=session.messages)
 
     def _tool_schemas(self, request: AgentServiceRequest) -> list[dict[str, Any]]:
         return self._tool_catalog_snapshot(request).model_tools
@@ -1416,7 +1443,14 @@ class AgentService:
 
     @staticmethod
     def _note_id_for_request(request: AgentServiceRequest, metadata: AgentSessionMetadata) -> str:
-        return str(request.note_id or metadata.note_id or "")
+        session_metadata = metadata.metadata or {}
+        return str(
+            request.note_id
+            or session_metadata.get("currentNoteId")
+            or session_metadata.get("current_note_id")
+            or metadata.note_id
+            or ""
+        )
 
 
 def _service_result(
@@ -2296,6 +2330,45 @@ def _clean_provider_for_injected(value: object) -> str:
 def _normalize_write_tool_mode(value: object) -> str:
     normalized = str(value or "auto").strip().lower()
     return normalized if normalized in {"auto", "warn", "ask", "readonly", "block", "halt"} else "auto"
+
+
+def _metadata_text(metadata: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _session_note_context_metadata(
+    metadata: dict[str, Any],
+    *,
+    origin_note_id: str = "",
+    origin_note_title: str = "",
+    current_note_id: str = "",
+    current_note_title: str = "",
+    allow_origin_update: bool = False,
+) -> dict[str, Any]:
+    next_metadata = dict(metadata)
+    legacy_origin_id = _metadata_text(next_metadata, "originNoteId", "origin_note_id", "note_id")
+    legacy_origin_title = _metadata_text(next_metadata, "originNoteTitle", "origin_note_title", "note_title")
+    resolved_origin_id = legacy_origin_id or origin_note_id
+    resolved_origin_title = legacy_origin_title or origin_note_title
+    if allow_origin_update or not legacy_origin_id:
+        if resolved_origin_id:
+            next_metadata["originNoteId"] = resolved_origin_id
+            next_metadata["origin_note_id"] = resolved_origin_id
+    if allow_origin_update or not legacy_origin_title:
+        if resolved_origin_title:
+            next_metadata["originNoteTitle"] = resolved_origin_title
+            next_metadata["origin_note_title"] = resolved_origin_title
+    if current_note_id:
+        next_metadata["currentNoteId"] = current_note_id
+        next_metadata["current_note_id"] = current_note_id
+    if current_note_title:
+        next_metadata["currentNoteTitle"] = current_note_title
+        next_metadata["current_note_title"] = current_note_title
+    return next_metadata
 
 
 def _clean_tool_name(value: object) -> str:
