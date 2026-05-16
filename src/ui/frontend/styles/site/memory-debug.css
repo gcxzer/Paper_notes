@@ -45,7 +45,7 @@
   border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
   background: var(--accent-soft);
   color: var(--text);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .memory-form {
@@ -272,7 +272,7 @@
 
 .debug-kv dt {
   color: var(--muted-strong);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .debug-kv dd {

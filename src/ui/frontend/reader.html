@@ -98,6 +98,9 @@
       <aside class="ask-pane" id="askPane" aria-label="Ask Paper Notes Agent">
         <header class="ask-pane-header">
           <div class="ask-session-tabs" aria-label="Chat session views">
+            <button class="ask-icon-button ask-context-button" type="button" id="readerContextButton" aria-label="Show context window" aria-haspopup="dialog" aria-expanded="false">
+              <span class="ask-context-ring" aria-hidden="true"></span>
+            </button>
             <button class="ask-session-tab" type="button" id="chatSessionTrashButton" data-session-view="trashed" aria-label="Trash chats" aria-haspopup="dialog" aria-expanded="false" title="Trash chats">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 10v8"/><path d="M12 10v8"/><path d="M16 10v8"/><path d="M7 7l1 13h8l1-13"/></svg>
             </button>
@@ -108,9 +111,6 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.5h10"/><path d="M7 11.5h10"/><path d="M7 16.5h7"/><path d="M4.5 6.5h.01"/><path d="M4.5 11.5h.01"/><path d="M4.5 16.5h.01"/></svg>
             </button>
           </div>
-          <button class="ask-icon-button ask-context-button" type="button" id="readerContextButton" aria-label="Show context window" aria-haspopup="dialog" aria-expanded="false">
-            <span class="ask-context-ring" aria-hidden="true"></span>
-          </button>
           <button class="ask-icon-button ask-model-button" type="button" id="readerModelMenuButton" aria-label="Switch model" aria-haspopup="dialog" aria-expanded="false">Model</button>
           <button class="ask-icon-button ask-pane-close" type="button" id="closeAskPane" aria-label="Close Ask panel">×</button>
         </header>

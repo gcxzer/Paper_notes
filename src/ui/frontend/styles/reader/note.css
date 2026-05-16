@@ -13,7 +13,7 @@
   margin: 0 0 8px;
   color: var(--paper-muted);
   font-size: 0.74rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -101,7 +101,7 @@
   display: none;
   color: var(--paper-ink);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -141,7 +141,7 @@
   margin: 16px 16px 10px;
   color: var(--paper-muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -199,7 +199,7 @@
 
 .note-body a {
   color: #2f8f5b;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, #2f8f5b 42%, transparent);
   text-decoration-thickness: 0.08em;
@@ -256,7 +256,7 @@
 
 .note-body th {
   color: var(--paper-ink);
-  font-weight: 800;
+  font-weight: 650;
   background: color-mix(in srgb, var(--paper-line) 42%, transparent);
 }
 
@@ -364,7 +364,7 @@
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }

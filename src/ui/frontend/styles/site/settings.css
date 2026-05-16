@@ -116,7 +116,7 @@
   background: var(--panel);
   color: var(--text);
   font-size: 0.68rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0;
 }
 
@@ -176,7 +176,7 @@
   background: color-mix(in srgb, var(--accent) 7%, var(--panel));
   color: var(--accent-strong) !important;
   font-size: 0.72rem !important;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .provider-key-edit-actions {
@@ -508,7 +508,7 @@
 
 .codex-auth-link {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -693,7 +693,7 @@
   cursor: pointer;
   padding: 9px 10px;
   color: var(--text);
-  font-weight: 800;
+  font-weight: 650;
   list-style-position: inside;
 }
 
@@ -749,7 +749,7 @@
 .tool-provider-field span {
   color: var(--muted-strong);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .tool-provider-field select,

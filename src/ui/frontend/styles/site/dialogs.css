@@ -105,7 +105,7 @@
   min-height: 30px;
   color: color-mix(in srgb, var(--muted) 82%, var(--text));
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   padding: 4px 4px;
 }
 

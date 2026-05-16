@@ -38,7 +38,7 @@
   margin: 8px 0;
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
   text-align: center;
 }
 
@@ -121,7 +121,7 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--panel-alt));
   color: var(--muted-strong);
   font-size: 0.68rem;
-  font-weight: 850;
+  font-weight: 650;
 }
 
 .ask-user-selected-text-badge {
@@ -148,7 +148,7 @@
   min-width: 0;
   overflow: hidden;
   font-size: 0.75rem;
-  font-weight: 850;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -210,7 +210,7 @@
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  font-weight: 900;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -273,7 +273,7 @@
 .ask-bubble h6 {
   margin: 1em 0 0.42em;
   color: var(--text);
-  font-weight: 850;
+  font-weight: 650;
   line-height: 1.2;
 }
 
@@ -345,7 +345,7 @@
 
 .ask-bubble .chat-markdown-table th {
   color: var(--text);
-  font-weight: 850;
+  font-weight: 650;
   background: color-mix(in srgb, var(--panel) 74%, var(--panel-alt));
 }
 
@@ -405,7 +405,7 @@
 .ask-bubble .chat-code-language {
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
   text-transform: lowercase;
 }
 
@@ -436,7 +436,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .ask-bubble .chat-code-copy:hover,
@@ -446,7 +446,7 @@
 
 .ask-bubble a {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -504,7 +504,7 @@
 .ask-message-action-edit {
   color: var(--text);
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ask-message-action-copy {
@@ -517,7 +517,7 @@
   display: none;
   color: var(--text);
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -680,7 +680,7 @@
   border-radius: 999px;
   color: var(--muted-strong);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
   text-align: center;
 }
 

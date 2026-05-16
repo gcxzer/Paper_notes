@@ -193,7 +193,7 @@ a {
   display: none;
   color: var(--ink);
   font-size: 0.8rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -233,7 +233,7 @@ a {
   margin: 16px 16px 10px;
   color: var(--muted);
   font-size: 0.74rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -288,7 +288,7 @@ a {
   margin: 0 0 8px;
   color: var(--accent);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }

@@ -56,7 +56,7 @@
 .pdf-history-tool {
   min-width: 34px;
   padding-inline: 8px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 1rem;
 }
 
@@ -120,7 +120,7 @@
   color: var(--text);
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -176,7 +176,7 @@
   min-width: 44px;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 650;
   text-align: right;
   white-space: nowrap;
 }
@@ -353,7 +353,7 @@
   background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
   color: var(--muted);
   font-size: 0.66rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   backdrop-filter: blur(10px);
@@ -427,7 +427,7 @@
 .annotation-card-meta {
   color: var(--muted);
   font-size: 0.68rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -526,7 +526,7 @@ body.is-resizing-reader {
   cursor: pointer;
   font: inherit;
   font-size: 1rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .pdf-link-back {
@@ -927,13 +927,13 @@ body.is-resizing-reader {
   gap: 8px;
   color: #24211d;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .pdf-annotation-editor-title small {
   color: #6e655c;
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .annotation-editor-colors {

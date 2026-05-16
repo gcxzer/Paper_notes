@@ -124,3 +124,37 @@ def test_import_pdf_from_url_reuses_local_import_pipeline(tmp_path, monkeypatch)
     assert note["sourceUrl"] == "https://arxiv.org/pdf/1706.03762.pdf"
     assert (papers_dir / "Attention Is All You Need.pdf").exists()
     assert (html_dir / "Attention Is All You Need.html").exists()
+
+
+def test_import_pdf_from_url_uses_arxiv_metadata_title(tmp_path, monkeypatch):
+    import pymupdf
+
+    papers_dir = tmp_path / "Papers"
+    html_dir = tmp_path / "Paper-html"
+    notes_path = tmp_path / "notes.json"
+    monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
+    monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
+    monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+
+    document = pymupdf.open()
+    document.new_page().insert_text((72, 72), "URL import")
+    pdf_data = document.tobytes()
+    document.close()
+
+    def fake_download(url):
+        assert url == "https://arxiv.org/pdf/2604.02176v2.pdf"
+        return pdf_data, "2604.02176v2.pdf", "https://arxiv.org/pdf/2604.02176v2.pdf"
+
+    monkeypatch.setattr(library_module, "download_paper_pdf", fake_download)
+    monkeypatch.setattr(
+        library_module,
+        "fetch_arxiv_title",
+        lambda arxiv_id: "A Real Paper Title" if arxiv_id == "2604.02176v2" else "",
+    )
+
+    note = library_module.import_pdf_from_url({"url": "arxiv:2604.02176v2", "categoryId": "uncategorized"})
+
+    assert note["title"] == "A Real Paper Title"
+    assert note["id"].startswith("pdf-a-real-paper-title-")
+    assert (papers_dir / "2604.02176v2.pdf").exists()
+    assert "<h1>A Real Paper Title</h1>" in (html_dir / "2604.02176v2.html").read_text(encoding="utf-8")

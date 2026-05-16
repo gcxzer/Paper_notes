@@ -259,7 +259,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent-soft) 78%, var(--panel));
   color: var(--accent);
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1;
   padding: 6px 8px 6px 12px;
 }
@@ -276,7 +276,7 @@
   color: inherit;
   cursor: pointer;
   font: inherit;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1;
   padding: 0;
 }
@@ -313,6 +313,10 @@
 
 .note-card:hover {
   border-color: var(--line-strong);
+}
+
+.note-card.is-dragging {
+  opacity: 0.58;
 }
 
 .note-card.is-selected {
@@ -445,7 +449,7 @@
   margin: 0 0 10px;
   color: var(--muted-strong);
   font-size: 0.76rem;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -551,7 +555,7 @@
   color: var(--text);
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -625,7 +629,7 @@
   color: white;
   font: inherit;
   font-size: 0.86rem;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1;
   opacity: 0;
   pointer-events: none;

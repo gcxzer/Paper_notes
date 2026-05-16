@@ -230,7 +230,7 @@
   background: var(--panel);
   color: var(--muted-strong);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
 
@@ -260,7 +260,7 @@
 .skill-readiness dt {
   color: var(--muted-strong);
   font-size: 0.76rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .skill-readiness dd {
@@ -299,7 +299,7 @@
 .skill-edit-field span {
   color: var(--muted-strong);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   text-transform: uppercase;
 }
 
@@ -416,7 +416,7 @@
 .skill-content h6 {
   margin: 0.8em 0 0.42em;
   color: var(--text);
-  font-weight: 850;
+  font-weight: 650;
   line-height: 1.2;
 }
 

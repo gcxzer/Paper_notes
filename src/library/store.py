@@ -12,6 +12,7 @@ from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from xml.etree import ElementTree
 
 from app_infra.formatting import (
     finite_number,
@@ -199,15 +200,24 @@ def import_pdf_from_url(body: dict[str, Any]) -> dict[str, Any]:
 
     pdf_url = resolve_paper_pdf_url(source)
     pdf_data, file_name, final_url = download_paper_pdf(pdf_url)
+    title_override = title_from_remote_paper(source=source, pdf_url=pdf_url, final_url=final_url, pdf_data=pdf_data)
     return _import_pdf_bytes(
         file_name=file_name,
         pdf_data=pdf_data,
         category_id=normalize_text(body.get("categoryId")) or UNCATEGORIZED_ID,
         source_url=final_url or pdf_url,
+        title_override=title_override,
     )
 
 
-def _import_pdf_bytes(*, file_name: str, pdf_data: bytes, category_id: str, source_url: str = "") -> dict[str, Any]:
+def _import_pdf_bytes(
+    *,
+    file_name: str,
+    pdf_data: bytes,
+    category_id: str,
+    source_url: str = "",
+    title_override: str = "",
+) -> dict[str, Any]:
     original_name = safe_file_name(file_name)
     if not original_name.lower().endswith(".pdf"):
         original_name = f"{Path(original_name).stem or 'Untitled Paper'}.pdf"
@@ -220,7 +230,7 @@ def _import_pdf_bytes(*, file_name: str, pdf_data: bytes, category_id: str, sour
     HTML_DIR.mkdir(parents=True, exist_ok=True)
 
     html_name = f"{Path(original_name).stem}.html"
-    title = note_title_from_pdf(original_name)
+    title = normalize_paper_title(title_override) or note_title_from_pdf(original_name)
     date = get_today_label()
     pdf_href = resource_href(PAPERS_HREF_PREFIX, original_name)
     html_href = resource_href(HTML_HREF_PREFIX, html_name)
@@ -252,6 +262,70 @@ def _import_pdf_bytes(*, file_name: str, pdf_data: bytes, category_id: str, sour
     library["notes"] = [*existing_notes, note]
     write_library(library, NOTES_PATH)
     return note
+
+
+def title_from_remote_paper(*, source: str, pdf_url: str, final_url: str, pdf_data: bytes) -> str:
+    for value in (source, pdf_url, final_url):
+        arxiv_id = arxiv_id_from_text(value) or arxiv_id_from_url(value)
+        if not arxiv_id:
+            doi = doi_from_text(value)
+            if doi:
+                arxiv_id = arxiv_id_from_doi(doi)
+        if not arxiv_id:
+            continue
+        title = fetch_arxiv_title(arxiv_id)
+        if title:
+            return title
+    return title_from_pdf_metadata(pdf_data)
+
+
+def fetch_arxiv_title(arxiv_id: str) -> str:
+    clean_id = normalize_text(arxiv_id)
+    if not clean_id:
+        return ""
+    api_url = f"https://export.arxiv.org/api/query?id_list={url_quote(clean_id, safe='/')}"
+    try:
+        response = requests.get(api_url, headers=REMOTE_FETCH_HEADERS, timeout=12)
+        response.raise_for_status()
+    except Exception:
+        return ""
+    try:
+        root = ElementTree.fromstring(response.content)
+    except Exception:
+        return ""
+    namespace = {"atom": "http://www.w3.org/2005/Atom"}
+    title_node = root.find("atom:entry/atom:title", namespace)
+    return normalize_paper_title(title_node.text if title_node is not None else "")
+
+
+def title_from_pdf_metadata(pdf_data: bytes) -> str:
+    try:
+        import pymupdf  # type: ignore[import-not-found]
+    except Exception:
+        return ""
+    try:
+        document = pymupdf.open(stream=pdf_data, filetype="pdf")
+    except Exception:
+        return ""
+    try:
+        metadata = document.metadata or {}
+        return normalize_paper_title(metadata.get("title"))
+    finally:
+        document.close()
+
+
+def normalize_paper_title(value: Any) -> str:
+    title = re.sub(r"\s+", " ", normalize_text(value)).strip()
+    if not title:
+        return ""
+    generic = title.lower().strip(" ._-")
+    if generic in {"untitled", "untitled paper", "paper", "arxiv"}:
+        return ""
+    if arxiv_id_from_text(title):
+        return ""
+    if len(title) > 240:
+        return ""
+    return title
 
 
 def resolve_paper_pdf_url(source: str) -> str:

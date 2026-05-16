@@ -43,7 +43,7 @@
 
 .ask-image-card a {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -118,7 +118,7 @@
   background: color-mix(in srgb, var(--accent) 24%, var(--panel));
   color: color-mix(in srgb, var(--text) 96%, var(--accent));
   font-size: 0.65rem;
-  font-weight: 900;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -138,7 +138,7 @@
 .ask-file-copy small {
   color: color-mix(in srgb, var(--text) 68%, var(--muted));
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .ask-message-progress .ask-message-stack {
@@ -254,7 +254,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.68rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .ask-progress-approval-actions button:hover,
@@ -380,7 +380,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   padding: 0 10px;
 }
 
@@ -456,7 +456,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.76rem;
-  font-weight: 700;
+  font-weight: 600;
   padding: 0 10px;
 }
 
@@ -510,7 +510,7 @@
 
 .ask-tool-diff-stats {
   color: var(--muted);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ask-tool-diff-stat.is-removed {
@@ -676,7 +676,7 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--panel-soft));
   color: var(--text);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 650;
 }
 
 .ask-generation-chip span {
@@ -698,7 +698,7 @@
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  font-weight: 900;
+  font-weight: 600;
 }
 
 .ask-attachment-preview.is-file {
@@ -721,7 +721,7 @@
   overflow: hidden;
   color: var(--text);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -741,7 +741,7 @@
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
@@ -767,7 +767,7 @@
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   color: var(--text);
   font-size: 0.58rem;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1.35;
   padding: 2px 4px;
   text-align: center;
@@ -821,7 +821,7 @@
   background: var(--panel-soft);
   color: var(--text);
   font-size: 1.16rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -867,7 +867,7 @@
   background: var(--panel-soft);
   color: var(--text);
   font-size: 0.88rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ask-send:hover,

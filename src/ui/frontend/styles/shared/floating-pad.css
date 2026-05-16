@@ -93,7 +93,7 @@
 .floating-pad-header strong {
   display: block;
   font-size: 0.95rem;
-  font-weight: 750;
+  font-weight: 650;
 }
 
 .floating-pad-header span,
@@ -194,7 +194,7 @@
 
 .floating-pad-list-header strong {
   font-size: 0.78rem;
-  font-weight: 750;
+  font-weight: 650;
 }
 
 .floating-pad-list {
@@ -269,7 +269,7 @@
   color: var(--text, #262321);
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   outline: none;
 }
 
@@ -287,13 +287,13 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .floating-pad-list-item span {
   overflow: hidden;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -377,7 +377,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 650;
   text-align: left;
 }
 

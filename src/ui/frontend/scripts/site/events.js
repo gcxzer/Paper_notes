@@ -75,30 +75,60 @@ elements.categoryList.addEventListener("dragstart", (event) => {
   state.draggedCategoryId = categoryId;
   node.classList.add("is-dragging");
   event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", categoryId);
+  setCompactDragImage(event, getCategoryById(categoryId)?.name || "Collection", "Collection");
 });
 
 elements.categoryList.addEventListener("dragover", (event) => {
+  if (state.draggedNoteId) {
+    const target = getNoteDropTargetFromEvent(event);
+    if (!target) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTargetsEqual(state.dragTarget, target)) return;
+    state.dragTarget = target;
+    applyNoteDropIndicator(target);
+    return;
+  }
+
   if (!state.draggedCategoryId) return;
   const target = getDropTargetFromEvent(event);
   if (!target) return;
   event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  if (dropTargetsEqual(state.dragTarget, target)) return;
   state.dragTarget = target;
-  renderCategories();
+  applyCategoryDropIndicator(target);
 });
 
 elements.categoryList.addEventListener("drop", (event) => {
+  if (state.draggedNoteId) {
+    event.preventDefault();
+    const target = state.dragTarget || getNoteDropTargetFromEvent(event);
+    if (target?.leafId) moveNoteToCategory(state.draggedNoteId, target.leafId);
+    state.draggedNoteId = null;
+    state.dragTarget = null;
+    clearCategoryDropIndicators();
+    renderApp();
+    return;
+  }
+
   if (!state.draggedCategoryId) return;
   event.preventDefault();
-  if (state.dragTarget) applyDropTarget(state.draggedCategoryId, state.dragTarget);
+  const target = state.dragTarget || getDropTargetFromEvent(event);
+  if (target) applyDropTarget(state.draggedCategoryId, target);
   state.draggedCategoryId = null;
   state.dragTarget = null;
+  clearCategoryDropIndicators();
   renderApp();
 });
 
 elements.categoryList.addEventListener("dragend", () => {
   state.draggedCategoryId = null;
+  state.draggedNoteId = null;
   state.dragTarget = null;
-  renderCategories();
+  clearCategoryDropIndicators();
+  elements.categoryList.querySelectorAll(".is-dragging").forEach((node) => node.classList.remove("is-dragging"));
 });
 
 elements.contextMenu.addEventListener("click", (event) => {
@@ -505,6 +535,27 @@ elements.notesGrid.addEventListener("click", (event) => {
   state.selectedNoteId = card.dataset.noteId;
   renderNotes();
   renderDetails();
+});
+
+elements.notesGrid.addEventListener("dragstart", (event) => {
+  const card = event.target.closest("[data-note-id]");
+  if (!card) return;
+  if (event.target.closest("a, button")) {
+    event.preventDefault();
+    return;
+  }
+  state.draggedNoteId = card.dataset.noteId;
+  card.classList.add("is-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", state.draggedNoteId);
+  setCompactDragImage(event, getNoteById(state.draggedNoteId)?.title || "Paper", "Paper");
+});
+
+elements.notesGrid.addEventListener("dragend", () => {
+  state.draggedNoteId = null;
+  state.dragTarget = null;
+  clearCategoryDropIndicators();
+  elements.notesGrid.querySelectorAll(".is-dragging").forEach((node) => node.classList.remove("is-dragging"));
 });
 
 elements.renameNoteForm.addEventListener("submit", async (event) => {

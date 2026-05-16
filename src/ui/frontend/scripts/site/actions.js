@@ -157,6 +157,12 @@ function moveNoteToCategory(noteId, categoryId) {
   });
 }
 
+function resolveCategoryDropLeafId(categoryId) {
+  if (isLeafCategory(categoryId)) return categoryId;
+  const leaves = getLeafDescendants(categoryId);
+  return leaves[0]?.id || "";
+}
+
 async function saveNoteSummaryToServer(noteId, summary) {
   const response = await fetch(getApiUrl("/api/update-note-summary"), {
     method: "POST",
@@ -570,15 +576,24 @@ function handleCategoryAction(action, categoryId) {
 
 function getDropTargetFromEvent(event) {
   const node = event.target.closest("[data-tree-node-id]");
-  if (!node) return null;
+  if (!node) {
+    if (event.target.closest("#categoryList")) {
+      return { type: "root", order: getChildren(null).length };
+    }
+    return null;
+  }
   const categoryId = node.dataset.treeNodeId;
   const category = getCategoryById(categoryId);
-  if (!category || category.system || category.id === state.draggedCategoryId) return null;
+  if (!category || category.id === state.draggedCategoryId) return null;
+  if (category.system) {
+    return category.id === ALL_CATEGORY_ID ? { type: "root", order: getChildren(null).length } : null;
+  }
 
-  const rect = node.getBoundingClientRect();
+  const row = node.querySelector(".tree-row") || node;
+  const rect = row.getBoundingClientRect();
   const offset = event.clientY - rect.top;
-  const topZone = rect.height * 0.25;
-  const bottomZone = rect.height * 0.75;
+  const topZone = rect.height * 0.30;
+  const bottomZone = rect.height * 0.70;
 
   if (offset < topZone) return { type: "before", categoryId };
   if (offset > bottomZone) return { type: "after", categoryId };
@@ -586,11 +601,70 @@ function getDropTargetFromEvent(event) {
   return { type: "after", categoryId };
 }
 
+function dropTargetsEqual(left, right) {
+  if (!left || !right) return left === right;
+  return left.type === right.type && left.categoryId === right.categoryId && left.order === right.order;
+}
+
+function clearCategoryDropIndicators() {
+  elements.categoryList.querySelectorAll(".is-drop-target, .is-note-drop-target, .is-drop-before, .is-drop-after").forEach((node) => {
+    node.classList.remove("is-drop-target", "is-note-drop-target", "is-drop-before", "is-drop-after");
+  });
+}
+
+function applyCategoryDropIndicator(target) {
+  clearCategoryDropIndicators();
+  if (!target?.categoryId) return;
+  const node = elements.categoryList.querySelector(`[data-tree-node-id="${CSS.escape(target.categoryId)}"]`);
+  if (!node) return;
+  if (target.type === "nest") node.classList.add("is-drop-target");
+  if (target.type === "before") node.classList.add("is-drop-before");
+  if (target.type === "after") node.classList.add("is-drop-after");
+}
+
+function getNoteDropTargetFromEvent(event) {
+  const node = event.target.closest("[data-tree-node-id]");
+  if (!node) return null;
+  const categoryId = node.dataset.treeNodeId;
+  const category = getCategoryById(categoryId);
+  if (!category || category.id === ALL_CATEGORY_ID) return null;
+  const leafId = resolveCategoryDropLeafId(categoryId);
+  if (!leafId) return null;
+  return { categoryId, leafId };
+}
+
+function applyNoteDropIndicator(target) {
+  clearCategoryDropIndicators();
+  if (!target?.categoryId) return;
+  const node = elements.categoryList.querySelector(`[data-tree-node-id="${CSS.escape(target.categoryId)}"]`);
+  if (node) node.classList.add("is-note-drop-target");
+}
+
+function setCompactDragImage(event, label, detail = "") {
+  if (!event.dataTransfer) return;
+  const preview = document.createElement("div");
+  preview.className = "drag-preview";
+  preview.innerHTML = `
+    <span>${escapeHtml(label)}</span>
+    ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+  `;
+  document.body.appendChild(preview);
+  event.dataTransfer.setDragImage(preview, 16, 16);
+  window.setTimeout(() => preview.remove(), 0);
+}
+
 function applyDropTarget(draggedId, target) {
   if (!draggedId || !target) return;
   const dragged = getCategoryById(draggedId);
   const targetCategory = getCategoryById(target.categoryId);
-  if (!dragged || !targetCategory || dragged.system) return;
+  if (!dragged || dragged.system) return;
+
+  if (target.type === "root") {
+    moveCategory(draggedId, null, Number.isFinite(target.order) ? target.order : getChildren(null).length);
+    return;
+  }
+
+  if (!targetCategory) return;
 
   if (target.type === "nest") {
     if (dragged.parentId !== null || targetCategory.parentId !== null) return;

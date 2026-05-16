@@ -899,6 +899,90 @@ test("library tag add and remove flows persist through the details panel", async
   ]);
 });
 
+test("library collections can be dragged into and out of parent collections", async ({ page }) => {
+  const syncPayloads = [];
+  const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
+  library.categories.push(
+    { id: "llm", name: "LLM", parentId: null, order: 3, system: false },
+    { id: "agent", name: "Agent", parentId: null, order: 4, system: false },
+  );
+  await openFixtureLibrary(page, {
+    library,
+    onLibrarySync: (payload) => syncPayloads.push(payload),
+  });
+
+  async function dragCategory(sourceId, targetId, yRatio = 0.5) {
+    await page.evaluate(({ sourceId, targetId, yRatio }) => {
+      const source = document.querySelector(`[data-tree-node-id="${sourceId}"]`);
+      const target = document.querySelector(`[data-tree-node-id="${targetId}"] .tree-row`);
+      if (!source || !target) throw new Error("Missing category drag target");
+      const rect = target.getBoundingClientRect();
+      const dataTransfer = new DataTransfer();
+      const eventInit = {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height * yRatio,
+      };
+      source.dispatchEvent(new DragEvent("dragstart", eventInit));
+      target.dispatchEvent(new DragEvent("dragover", eventInit));
+      const freshTarget = document.querySelector(`[data-tree-node-id="${targetId}"] .tree-row`);
+      (freshTarget || target).dispatchEvent(new DragEvent("drop", eventInit));
+      source.dispatchEvent(new DragEvent("dragend", eventInit));
+    }, { sourceId, targetId, yRatio });
+  }
+
+  await dragCategory("deepseek", "llm", 0.5);
+  await expect(page.locator(".tree-level-1 [data-category-id='deepseek']")).toBeVisible();
+  expect(syncPayloads.at(-1)?.categories?.find((category) => category.id === "deepseek")?.parentId).toBe("llm");
+
+  await dragCategory("deepseek", "all", 0.5);
+  await expect(page.locator(".tree-level-0 [data-category-id='deepseek']")).toBeVisible();
+  expect(syncPayloads.at(-1)?.categories?.find((category) => category.id === "deepseek")?.parentId).toBeNull();
+});
+
+test("library paper cards can be dragged into collections", async ({ page }) => {
+  const syncPayloads = [];
+  const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
+  library.categories.push(
+    { id: "agent", name: "Agent", parentId: null, order: 3, system: false },
+    { id: "llm", name: "LLM", parentId: null, order: 4, system: false },
+    { id: "llm-child", name: "Reasoning", parentId: "llm", order: 0, system: false },
+  );
+  await openFixtureLibrary(page, {
+    library,
+    onLibrarySync: (payload) => syncPayloads.push(payload),
+  });
+
+  async function dragPaperToCategory(noteId, categoryId) {
+    await page.evaluate(({ noteId, categoryId }) => {
+      const source = document.querySelector(`[data-note-id="${noteId}"]`);
+      const target = document.querySelector(`[data-tree-node-id="${categoryId}"] .tree-row`);
+      if (!source || !target) throw new Error("Missing paper drag target");
+      const rect = target.getBoundingClientRect();
+      const dataTransfer = new DataTransfer();
+      const eventInit = {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      };
+      source.dispatchEvent(new DragEvent("dragstart", eventInit));
+      target.dispatchEvent(new DragEvent("dragover", eventInit));
+      target.dispatchEvent(new DragEvent("drop", eventInit));
+      source.dispatchEvent(new DragEvent("dragend", eventInit));
+    }, { noteId, categoryId });
+  }
+
+  await dragPaperToCategory(E2E_NOTE_ID, "agent");
+  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("agent");
+
+  await dragPaperToCategory(E2E_NOTE_ID, "llm");
+  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("llm-child");
+});
+
 test("reader ask flow renders response, work trace, and debug", async ({ page }) => {
   await openFixtureReader(page);
   const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });

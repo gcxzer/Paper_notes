@@ -34,6 +34,7 @@ const state = {
   confirmAction: null,
   contextCategoryId: null,
   draggedCategoryId: null,
+  draggedNoteId: null,
   dragTarget: null,
   pdfObjectUrls: new Map(),
   sortMode: localStorage.getItem(SORT_KEY) || "date-desc",

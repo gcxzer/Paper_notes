@@ -14,7 +14,7 @@ function renderCategoryNode(category, level = 0) {
   return `
     <div class="tree-node tree-level-${level}${selectedDrop ? " is-drop-target" : ""}${beforeDrop ? " is-drop-before" : ""}${afterDrop ? " is-drop-after" : ""}" data-tree-node-id="${category.id}" draggable="${category.system ? "false" : "true"}">
       <div class="tree-row${active ? " is-active" : ""}">
-        ${childCategories.length ? `<button class="tree-toggle${expanded ? " is-expanded" : ""}" type="button" data-toggle-category-id="${category.id}" aria-label="Toggle sub-collections">></button>` : `<span class="tree-spacer"></span>`}
+        ${childCategories.length ? `<button class="tree-toggle${expanded ? " is-expanded" : ""}" type="button" data-toggle-category-id="${category.id}" aria-label="Toggle sub-collections"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></button>` : `<span class="tree-spacer"></span>`}
         <button class="category-button${active ? " is-active" : ""}" type="button" data-category-id="${category.id}">
           <span class="category-text">
             <strong>${category.name}</strong>
@@ -133,7 +133,7 @@ function renderNotes() {
       ? `${parent.name} / ${leafCategory.name}`
       : leafCategory?.name || "Uncategorized";
     return `
-      <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${note.id}">
+      <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${note.id}" draggable="true">
         <div class="note-card-main">
           <div class="meta">
             <span>${note.date || "No date"}</span>
