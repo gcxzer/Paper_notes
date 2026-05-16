@@ -17,6 +17,7 @@ async function initialize() {
   }
 
   renderApp();
+  applyScratchpadSettingControls();
   void loadAiSettings();
   void loadToolSettings();
   void openSettingsPanelFromUrl();
@@ -170,6 +171,9 @@ elements.emptyState?.addEventListener("click", (event) => {
 elements.settingsButton.addEventListener("click", toggleSettingsMenu);
 elements.settingsMenu.addEventListener("click", (event) => {
   if (event.target.closest("[data-theme-option]")) closeSettingsMenu();
+});
+elements.scratchpadSettingsSwitch?.addEventListener("click", () => {
+  setScratchpadEnabled(!scratchpadEnabled());
 });
 elements.openAiSettings?.addEventListener("click", settingsLinkHandler(openAiSettingsDialog));
 elements.openDebugSettings?.addEventListener("click", settingsLinkHandler(() => openDebugDialog()));

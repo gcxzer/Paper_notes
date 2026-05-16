@@ -2,6 +2,7 @@ const STORAGE_KEY = "paper-notes-library-v14";
 const EXPANDED_KEY = "paper-notes-expanded-v1";
 const LAYOUT_KEY = "paper-notes-layout-v1";
 const SORT_KEY = "paper-notes-sort-v1";
+const SCRATCHPAD_ENABLED_KEY = "paper-notes-floating-pad-enabled-v1";
 const ALL_CATEGORY_ID = "all";
 const UNCATEGORIZED_ID = "uncategorized";
 const LEGACY_STORAGE_KEYS = ["paper-notes-library-v5", "paper-notes-library-v6", "paper-notes-library-v7", "paper-notes-library-v8", "paper-notes-library-v9", "paper-notes-library-v10", "paper-notes-library-v11", "paper-notes-library-v12", "paper-notes-library-v13"];
@@ -135,6 +136,8 @@ const elements = {
   submitImportUrl: document.querySelector("#submitImportUrl"),
   settingsButton: document.querySelector("#settingsButton"),
   settingsMenu: document.querySelector("#settingsMenu"),
+  scratchpadSettingsSwitch: document.querySelector("#scratchpadSettingsSwitch"),
+  scratchpadSettingsValue: document.querySelector("#scratchpadSettingsValue"),
   modelConnectionStatus: document.querySelector("#modelConnectionStatus"),
   openAiSettings: document.querySelector("#openAiSettings"),
   openMemorySettings: document.querySelector("#openMemorySettings"),

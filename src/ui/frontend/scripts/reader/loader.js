@@ -1,6 +1,7 @@
 const READER_SCRIPT_VERSION = "empty-chat-v1";
 
 const READER_CLASSIC_SCRIPTS = [
+  "scripts/shared/floating-pad.js?v=floating-pad-v1",
   "scripts/note/app.js?v=annotations-v6",
   `scripts/reader/page_state.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/core.js?v=${READER_SCRIPT_VERSION}`,

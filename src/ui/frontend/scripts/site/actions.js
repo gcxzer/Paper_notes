@@ -371,6 +371,25 @@ function closeSettingsMenu() {
   elements.settingsButton.setAttribute("aria-expanded", "false");
 }
 
+function scratchpadEnabled() {
+  return localStorage.getItem(SCRATCHPAD_ENABLED_KEY) !== "false";
+}
+
+function applyScratchpadSettingControls() {
+  const enabled = scratchpadEnabled();
+  elements.scratchpadSettingsSwitch?.setAttribute("aria-checked", String(enabled));
+  elements.scratchpadSettingsSwitch?.setAttribute("aria-label", `Scratchpad: ${enabled ? "On" : "Off"}. Click to ${enabled ? "disable" : "enable"}.`);
+  if (elements.scratchpadSettingsValue) elements.scratchpadSettingsValue.textContent = enabled ? "On" : "Off";
+}
+
+function setScratchpadEnabled(enabled) {
+  localStorage.setItem(SCRATCHPAD_ENABLED_KEY, enabled ? "true" : "false");
+  applyScratchpadSettingControls();
+  window.dispatchEvent(new CustomEvent("paper-scratchpad-setting-change", {
+    detail: { enabled }
+  }));
+}
+
 function shouldOpenLinkInCurrentTab(event) {
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }

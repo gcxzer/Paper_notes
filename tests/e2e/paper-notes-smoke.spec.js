@@ -250,6 +250,59 @@ async function showAskPane(page) {
   await expect(page.locator("#askPane")).toBeVisible();
 }
 
+test("floating scratchpad persists content and position across library and reader", async ({ page }) => {
+  await openFixtureLibrary(page);
+  const button = page.locator(".floating-pad-button");
+  await expect(button).toBeVisible();
+  await page.locator("#settingsButton").click();
+  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "true");
+  await page.locator("#scratchpadSettingsSwitch").click();
+  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "false");
+  await expect(page.locator(".floating-pad")).toBeHidden();
+  await page.locator("#scratchpadSettingsSwitch").click();
+  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "true");
+  await expect(button).toBeVisible();
+  await page.locator(".app-shell").click({ position: { x: 20, y: 20 } });
+
+  const before = await button.boundingBox();
+  expect(before).toBeTruthy();
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(before.x - 120, before.y - 82, { steps: 6 });
+  await page.mouse.up();
+
+  const after = await button.boundingBox();
+  expect(after).toBeTruthy();
+  expect(after.x).toBeLessThan(before.x - 60);
+  expect(after.y).toBeLessThan(before.y - 40);
+  await expect(page.locator(".floating-pad-panel")).toBeHidden();
+
+  await button.click();
+  await expect(page.locator(".floating-pad-panel")).toBeVisible();
+  const panelBox = await page.locator(".floating-pad-panel").boundingBox();
+  expect(panelBox).toBeTruthy();
+  expect(panelBox.width).toBeGreaterThan(430);
+  expect(panelBox.height).toBeGreaterThan(500);
+  await page.locator(".floating-pad-input").fill("scratch idea\n\ncompare DeepSeek and Claude session UX");
+  await expect(page.locator(".floating-pad-status")).toHaveText("Saved");
+  await page.locator(".floating-pad-input").click();
+  await expect(page.locator(".floating-pad-panel")).toBeVisible();
+  await page.locator(".app-shell").click({ position: { x: 20, y: 20 } });
+  await expect(page.locator(".floating-pad-panel")).toBeHidden();
+  await button.click();
+  await expect(page.locator(".floating-pad-panel")).toBeVisible();
+
+  await openFixtureReader(page);
+  const readerButton = page.locator(".floating-pad-button");
+  await expect(readerButton).toBeVisible();
+  const readerBox = await readerButton.boundingBox();
+  expect(readerBox).toBeTruthy();
+  expect(Math.abs(readerBox.x - after.x)).toBeLessThan(2);
+  expect(Math.abs(readerBox.y - after.y)).toBeLessThan(2);
+  await expect(page.locator(".floating-pad-panel")).toBeVisible();
+  await expect(page.locator(".floating-pad-input")).toHaveValue(/compare DeepSeek/);
+});
+
 async function installPdfTextFixture(page) {
   await page.evaluate(() => {
     const viewer = document.querySelector("#pdfViewer");
