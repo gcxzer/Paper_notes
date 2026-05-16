@@ -4,6 +4,8 @@
   const OPEN_KEY = "paper-notes-floating-pad-open-v1";
   const ENABLED_KEY = "paper-notes-floating-pad-enabled-v1";
   const LEGACY_HTML_KEY = "paper-notes-floating-pad-html-v1";
+  const PADS_KEY = "paper-notes-floating-pad-pads-v1";
+  const ACTIVE_PAD_KEY = "paper-notes-floating-pad-active-v1";
   const DRAG_THRESHOLD = 5;
   const EDGE_PADDING = 12;
   const BUTTON_SIZE = 54;
@@ -26,6 +28,54 @@
       localStorage.setItem(key, JSON.stringify(value));
     } catch (error) {
       // Ignore quota and privacy-mode failures; the pad still works for the page lifetime.
+    }
+  }
+
+  function createPad(title = "") {
+    const now = new Date().toISOString();
+    return {
+      id: `pad-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      title: title || "Untitled pad",
+      customTitle: false,
+      content: "",
+      updatedAt: now,
+      createdAt: now,
+    };
+  }
+
+  function padTitle(pad, index = 0) {
+    return String(pad?.title || `Pad ${index + 1}`);
+  }
+
+  function readPads() {
+    const stored = readJson(PADS_KEY, null);
+    if (stored && Array.isArray(stored.pads) && stored.pads.length) {
+      return {
+        activeId: String(stored.activeId || localStorage.getItem(ACTIVE_PAD_KEY) || stored.pads[0].id || ""),
+        pads: stored.pads.map((pad, index) => ({
+          ...createPad(`Pad ${index + 1}`),
+          ...pad,
+          id: String(pad.id || `pad-${index + 1}`),
+          content: String(pad.content || ""),
+        })),
+      };
+    }
+    const legacyContent = localStorage.getItem(CONTENT_KEY) || "";
+    const pad = createPad("Pad 1");
+    pad.content = legacyContent;
+    return { activeId: pad.id, pads: [pad] };
+  }
+
+  function writePads(state) {
+    const pads = Array.isArray(state?.pads) && state.pads.length ? state.pads : [createPad("Pad 1")];
+    const activeId = String(state?.activeId || pads[0].id);
+    writeJson(PADS_KEY, { activeId, pads });
+    try {
+      localStorage.setItem(ACTIVE_PAD_KEY, activeId);
+      localStorage.setItem(CONTENT_KEY, pads.find((pad) => pad.id === activeId)?.content || "");
+      localStorage.removeItem(LEGACY_HTML_KEY);
+    } catch (error) {
+      // Ignore quota and privacy-mode failures.
     }
   }
 
@@ -97,20 +147,72 @@
     if (open) requestAnimationFrame(() => setPanelPosition(panel, position));
   }
 
-  function syncContent(textarea, status) {
-    try {
-      localStorage.setItem(CONTENT_KEY, textarea.value);
-      localStorage.removeItem(LEGACY_HTML_KEY);
-      status.textContent = textarea.value.trim() ? "Saved" : "Empty";
-    } catch (error) {
-      status.textContent = "Not saved";
-    }
+  function activePad(state) {
+    return state.pads.find((pad) => pad.id === state.activeId) || state.pads[0];
+  }
+
+  function syncContent(state, textarea, status, title, list, openMenuId = "") {
+    const pad = activePad(state);
+    if (!pad) return;
+    pad.content = textarea.value;
+    pad.updatedAt = new Date().toISOString();
+    state.activeId = pad.id;
+    writePads(state);
+    status.textContent = textarea.value.trim() ? "Saved" : "Empty";
+    renderPadTitle(state, title);
+    renderPadList(state, list, openMenuId);
+  }
+
+  function renderPadTitle(state, title) {
+    const pad = activePad(state);
+    if (title) title.textContent = padTitle(pad, state.pads.indexOf(pad));
+  }
+
+  function renderPadList(state, list, openMenuId = "", { renamingPadId = "", confirmingDeletePadId = "" } = {}) {
+    if (!list) return;
+    list.innerHTML = state.pads.map((pad, index) => `
+      <div class="floating-pad-list-row${pad.id === state.activeId ? " is-active" : ""}${pad.id === openMenuId ? " is-menu-open" : ""}${pad.id === confirmingDeletePadId ? " is-delete-confirming" : ""}">
+        ${pad.id === renamingPadId ? `
+          <form class="floating-pad-rename-form" data-floating-pad-rename-form="${pad.id}">
+            <label class="floating-pad-rename-card">
+              <span class="sr-only">Pad name</span>
+              <input type="text" maxlength="80" value="${escapeHtml(pad.title || padTitle(pad, index))}" aria-label="Pad name">
+              <button class="floating-pad-save" type="submit">Save</button>
+            </label>
+          </form>
+        ` : `
+          <button class="floating-pad-list-item" type="button" data-floating-pad-select="${pad.id}">
+            <span>${escapeHtml(padTitle(pad, index))}</span>
+            <small>${pad.content.trim() ? `${pad.content.trim().split(/\s+/).filter(Boolean).length} words` : "Empty"}</small>
+          </button>
+          <button class="floating-pad-menu-button" type="button" data-floating-pad-menu="${pad.id}" aria-label="More actions for ${escapeHtml(padTitle(pad, index))}" aria-haspopup="menu" aria-expanded="${pad.id === openMenuId ? "true" : "false"}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="6.5" cy="12" r="1.9"></circle>
+              <circle cx="12" cy="12" r="1.9"></circle>
+              <circle cx="17.5" cy="12" r="1.9"></circle>
+            </svg>
+          </button>
+        `}
+      </div>
+    `).join("");
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[char]));
   }
 
   function createFloatingPad() {
     if (document.querySelector(".floating-pad")) return;
 
     let position = readPosition();
+    const padState = readPads();
+    writePads(padState);
     const root = document.createElement("div");
     root.className = "floating-pad";
     root.innerHTML = `
@@ -125,19 +227,27 @@
         <header class="floating-pad-header">
           <div>
             <strong>Scratchpad</strong>
-            <span>Plain text · Autosaves locally</span>
+            <span><span class="floating-pad-active-title"></span> · Autosaves locally</span>
           </div>
           <div class="floating-pad-actions">
-            <button class="floating-pad-icon" type="button" data-floating-pad-copy aria-label="Copy scratchpad">Copy</button>
+            <button class="floating-pad-icon floating-pad-directory" type="button" data-floating-pad-directory aria-label="Show scratchpad list">Pads</button>
             <button class="floating-pad-icon" type="button" data-floating-pad-clear aria-label="Clear scratchpad">Clear</button>
             <button class="floating-pad-close" type="button" data-floating-pad-close aria-label="Close scratchpad">×</button>
           </div>
         </header>
+        <aside class="floating-pad-list-panel" hidden>
+          <div class="floating-pad-list-header">
+            <strong>Pads</strong>
+            <button class="floating-pad-icon" type="button" data-floating-pad-new>New</button>
+          </div>
+          <div class="floating-pad-list"></div>
+        </aside>
         <textarea class="floating-pad-input" spellcheck="true" placeholder="Write anything here..."></textarea>
         <footer class="floating-pad-footer">
           <span class="floating-pad-status">Empty</span>
         </footer>
       </section>
+      <div class="floating-pad-action-menu" role="menu" hidden></div>
     `;
     document.body.append(root);
 
@@ -145,17 +255,97 @@
     const panel = root.querySelector(".floating-pad-panel");
     const textarea = root.querySelector(".floating-pad-input");
     const status = root.querySelector(".floating-pad-status");
-    const copyButton = root.querySelector("[data-floating-pad-copy]");
+    const title = root.querySelector(".floating-pad-active-title");
+    const listPanel = root.querySelector(".floating-pad-list-panel");
+    const list = root.querySelector(".floating-pad-list");
+    const directoryButton = root.querySelector("[data-floating-pad-directory]");
+    const newButton = root.querySelector("[data-floating-pad-new]");
     const clearButton = root.querySelector("[data-floating-pad-clear]");
     const closeButton = root.querySelector("[data-floating-pad-close]");
-    textarea.value = localStorage.getItem(CONTENT_KEY) || "";
-    syncContent(textarea, status);
+    const actionMenu = root.querySelector(".floating-pad-action-menu");
+    textarea.value = activePad(padState)?.content || "";
+    renderPadTitle(padState, title);
+    renderPadList(padState, list);
+    status.textContent = textarea.value.trim() ? "Saved" : "Empty";
     setButtonPosition(button, position);
     setOpen(root, panel, button, position, localStorage.getItem(OPEN_KEY) === "true");
     applyVisibility();
 
     let drag = null;
     let suppressNextClick = false;
+    let openPadMenuId = "";
+    let renamingPadId = "";
+    let confirmingDeletePadId = "";
+
+    function padById(padId) {
+      return padState.pads.find((entry) => entry.id === padId);
+    }
+
+    function padMenuButton(padId) {
+      return Array.from(list.querySelectorAll("[data-floating-pad-menu]")).find((entry) => entry.dataset.floatingPadMenu === padId);
+    }
+
+    function positionPadActionMenu() {
+      if (!openPadMenuId || actionMenu.hidden) return;
+      const menuButton = padMenuButton(openPadMenuId);
+      if (!menuButton) return;
+      const buttonRect = menuButton.getBoundingClientRect();
+      const menuRect = actionMenu.getBoundingClientRect();
+      const viewport = viewportSize();
+      const gap = 8;
+      const left = clamp(buttonRect.right - menuRect.width, EDGE_PADDING, Math.max(EDGE_PADDING, viewport.width - menuRect.width - EDGE_PADDING));
+      const top = clamp(buttonRect.bottom + gap, EDGE_PADDING, Math.max(EDGE_PADDING, viewport.height - menuRect.height - EDGE_PADDING));
+      actionMenu.style.left = `${Math.round(left)}px`;
+      actionMenu.style.top = `${Math.round(top)}px`;
+      actionMenu.style.visibility = "";
+    }
+
+    function renderPadActionMenu() {
+      const pad = padById(openPadMenuId);
+      if (!pad) {
+        actionMenu.hidden = true;
+        actionMenu.innerHTML = "";
+        return;
+      }
+      actionMenu.style.visibility = "hidden";
+      actionMenu.hidden = false;
+      actionMenu.innerHTML = `
+        <button class="floating-pad-menu-option" type="button" data-floating-pad-rename="${pad.id}" role="menuitem">Rename</button>
+        <button class="floating-pad-menu-option is-danger" type="button" data-floating-pad-delete="${pad.id}" role="menuitem">${confirmingDeletePadId === pad.id ? "Confirm delete" : "Delete"}</button>
+      `;
+      requestAnimationFrame(positionPadActionMenu);
+    }
+
+    function renderPadListAndMenu() {
+      renderPadList(padState, list, openPadMenuId, { renamingPadId, confirmingDeletePadId });
+      renderPadActionMenu();
+      if (renamingPadId) {
+        requestAnimationFrame(() => {
+          const input = list.querySelector(`[data-floating-pad-rename-form="${CSS.escape(renamingPadId)}"] input`);
+          input?.focus();
+          input?.select();
+        });
+      }
+    }
+
+    function closePadMenu() {
+      openPadMenuId = "";
+      renderPadListAndMenu();
+    }
+
+    function clearPadRowState() {
+      openPadMenuId = "";
+      renamingPadId = "";
+      confirmingDeletePadId = "";
+    }
+
+    function setPadListOpen(open) {
+      listPanel.hidden = !open;
+      panel.classList.toggle("is-list-open", open);
+      directoryButton.setAttribute("aria-expanded", String(open));
+      if (!open) clearPadRowState();
+      renderPadListAndMenu();
+    }
 
     function finishDrag(event, { cancelled = false } = {}) {
       if (!drag || drag.pointerId !== event.pointerId) return false;
@@ -219,34 +409,135 @@
       }
       const open = panel.hidden;
       setOpen(root, panel, button, position, open);
+      if (!open) {
+        clearPadRowState();
+        renderPadListAndMenu();
+      }
       if (open) textarea.focus();
     });
 
-    textarea.addEventListener("input", () => syncContent(textarea, status));
+    textarea.addEventListener("input", () => syncContent(padState, textarea, status, title, list, openPadMenuId));
 
     closeButton.addEventListener("click", () => {
+      clearPadRowState();
+      renderPadListAndMenu();
       setOpen(root, panel, button, position, false);
       button.focus();
     });
 
     clearButton.addEventListener("click", () => {
-      textarea.value = "";
-      syncContent(textarea, status);
+      textarea.focus();
+      textarea.select();
+      const deleted = document.execCommand?.("delete");
+      if (!deleted) {
+        textarea.setRangeText("", 0, textarea.value.length, "end");
+        textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+      }
+      syncContent(padState, textarea, status, title, list);
       textarea.focus();
     });
 
-    copyButton.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(textarea.value);
-        status.textContent = "Copied";
-      } catch (error) {
-        status.textContent = "Copy failed";
+    directoryButton.addEventListener("click", () => {
+      setPadListOpen(listPanel.hidden);
+    });
+
+    newButton.addEventListener("click", () => {
+      const pad = createPad(`Pad ${padState.pads.length + 1}`);
+      padState.pads.push(pad);
+      padState.activeId = pad.id;
+      textarea.value = pad.content;
+      clearPadRowState();
+      writePads(padState);
+      renderPadTitle(padState, title);
+      status.textContent = "Empty";
+      setPadListOpen(false);
+      textarea.focus();
+    });
+
+    list.addEventListener("click", (event) => {
+      const menuButton = event.target.closest("[data-floating-pad-menu]");
+      if (menuButton) {
+        openPadMenuId = openPadMenuId === menuButton.dataset.floatingPadMenu ? "" : menuButton.dataset.floatingPadMenu;
+        renamingPadId = "";
+        renderPadListAndMenu();
+        return;
+      }
+
+      const item = event.target.closest("[data-floating-pad-select]");
+      if (!item) return;
+      const pad = padById(item.dataset.floatingPadSelect);
+      if (!pad) return;
+      padState.activeId = pad.id;
+      textarea.value = pad.content || "";
+      clearPadRowState();
+      writePads(padState);
+      renderPadTitle(padState, title);
+      status.textContent = textarea.value.trim() ? "Saved" : "Empty";
+      setPadListOpen(false);
+      textarea.focus();
+    });
+
+    list.addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-floating-pad-rename-form]");
+      if (!form) return;
+      event.preventDefault();
+      const pad = padById(form.dataset.floatingPadRenameForm);
+      if (!pad) return;
+      const nextTitle = form.querySelector("input")?.value?.trim() || "Untitled pad";
+      pad.title = nextTitle;
+      pad.customTitle = true;
+      pad.updatedAt = new Date().toISOString();
+      clearPadRowState();
+      writePads(padState);
+      renderPadTitle(padState, title);
+      renderPadListAndMenu();
+    });
+
+    actionMenu.addEventListener("click", (event) => {
+      const renameButton = event.target.closest("[data-floating-pad-rename]");
+      if (renameButton) {
+        const pad = padById(renameButton.dataset.floatingPadRename);
+        if (!pad) return;
+        renamingPadId = pad.id;
+        openPadMenuId = "";
+        confirmingDeletePadId = "";
+        renderPadListAndMenu();
+        return;
+      }
+
+      const deleteButton = event.target.closest("[data-floating-pad-delete]");
+      if (deleteButton) {
+        const padIndex = padState.pads.findIndex((entry) => entry.id === deleteButton.dataset.floatingPadDelete);
+        if (padIndex < 0) return;
+        if (confirmingDeletePadId !== padState.pads[padIndex].id) {
+          confirmingDeletePadId = padState.pads[padIndex].id;
+          openPadMenuId = padState.pads[padIndex].id;
+          renamingPadId = "";
+          renderPadListAndMenu();
+          return;
+        }
+        const deletingActive = padState.pads[padIndex].id === padState.activeId;
+        padState.pads.splice(padIndex, 1);
+        if (!padState.pads.length) padState.pads.push(createPad("Pad 1"));
+        if (deletingActive || !padState.pads.some((pad) => pad.id === padState.activeId)) {
+          padState.activeId = padState.pads[Math.max(0, padIndex - 1)]?.id || padState.pads[0].id;
+        }
+        const pad = activePad(padState);
+        textarea.value = pad?.content || "";
+        clearPadRowState();
+        writePads(padState);
+        renderPadTitle(padState, title);
+        renderPadListAndMenu();
+        status.textContent = textarea.value.trim() ? "Saved" : "Empty";
+        textarea.focus();
       }
     });
 
     document.addEventListener("pointerdown", (event) => {
       if (panel.hidden) return;
-      if (button.contains(event.target) || panel.contains(event.target)) return;
+      if (button.contains(event.target) || panel.contains(event.target) || actionMenu.contains(event.target)) return;
+      clearPadRowState();
+      renderPadListAndMenu();
       setOpen(root, panel, button, position, false);
     }, true);
 
@@ -254,13 +545,18 @@
       position = clampPosition(position);
       setButtonPosition(button, position);
       if (!panel.hidden) setPanelPosition(panel, position);
+      positionPadActionMenu();
       writeJson(POSITION_KEY, position);
     });
 
     function applyVisibility() {
       const enabled = scratchpadEnabled();
       root.hidden = !enabled;
-      if (!enabled) setOpen(root, panel, button, position, false);
+      if (!enabled) {
+        clearPadRowState();
+        renderPadListAndMenu();
+        setOpen(root, panel, button, position, false);
+      }
     }
 
     window.addEventListener("paper-scratchpad-setting-change", applyVisibility);

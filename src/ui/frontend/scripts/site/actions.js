@@ -15,6 +15,26 @@ function closeRenameNoteDialog() {
   elements.renameNoteDialog.close();
 }
 
+function filterNotesByTag(rawTag) {
+  const [tag] = normalizeTags([rawTag]);
+  if (!tag) return;
+  const activeTags = normalizeTags(state.activeTagFilters);
+  state.activeTagFilters = activeTags.includes(tag)
+    ? activeTags.filter((activeTag) => activeTag !== tag)
+    : [...activeTags, tag];
+  state.selectedNoteId = null;
+  renderApp();
+}
+
+function removeTagFilter(rawTag) {
+  const [tag] = normalizeTags([rawTag]);
+  if (!tag) return;
+  const activeTags = normalizeTags(state.activeTagFilters);
+  state.activeTagFilters = activeTags.filter((activeTag) => activeTag !== tag);
+  state.selectedNoteId = null;
+  renderApp();
+}
+
 function createCategory(name, parentId = null) {
   updateLibrary((library) => {
     const siblings = library.categories.filter((category) => (category.parentId || null) === (parentId || null));
@@ -173,13 +193,51 @@ function openTagDialog(noteId) {
   elements.tagInput.value = "";
   elements.tagDialogError.hidden = true;
   elements.tagDialogError.textContent = "";
+  renderTagSuggestions();
   elements.tagDialog.showModal();
   elements.tagInput.focus();
 }
 
 function closeTagDialog() {
   state.pendingTagNoteId = "";
+  if (elements.tagSuggestions) {
+    elements.tagSuggestions.hidden = true;
+    elements.tagSuggestions.innerHTML = "";
+  }
   elements.tagDialog.close();
+}
+
+function getExistingTagSuggestions(query = "") {
+  const limit = 10;
+  const normalizedQuery = normalizeText(query).toLowerCase();
+  const currentNoteTags = new Set(normalizeTags(getNoteById(state.pendingTagNoteId)?.tags));
+  const counts = new Map();
+  state.library.notes.forEach((note) => {
+    normalizeTags(note.tags).forEach((tag) => {
+      if (currentNoteTags.has(tag)) return;
+      if (normalizedQuery && !tag.toLowerCase().includes(normalizedQuery)) return;
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    });
+  });
+  const tags = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([tag]) => tag);
+  return {
+    tags: tags.slice(0, limit),
+    hasMore: tags.length > limit
+  };
+}
+
+function renderTagSuggestions() {
+  if (!elements.tagSuggestions) return;
+  const suggestions = getExistingTagSuggestions(elements.tagInput.value);
+  elements.tagSuggestions.hidden = !suggestions.tags.length && !suggestions.hasMore;
+  elements.tagSuggestions.innerHTML = `
+    ${suggestions.tags.map((tag) => `
+    <button class="tag-suggestion" type="button" data-tag-suggestion="${escapeHtml(tag)}">${escapeHtml(tag)}</button>
+  `).join("")}
+    ${suggestions.hasMore ? `<span class="tag-suggestion-more" title="More matching tags available">+ more</span>` : ""}
+  `;
 }
 
 function addNoteTag(noteId, rawTag) {
@@ -212,6 +270,19 @@ function removeNoteTag(noteId, rawTag) {
     entry.tags = normalizeTags(entry.tags).filter((item) => item !== tag);
   });
   return true;
+}
+
+function confirmRemoveNoteTag(noteId, rawTag) {
+  const note = getNoteById(noteId);
+  const [tag] = normalizeTags([rawTag]);
+  if (!note || !tag) return;
+  openConfirmDialog({
+    eyebrow: "Remove Tag",
+    title: `Remove #${tag}?`,
+    body: `This only removes the tag from "${note.title}". Other papers with this tag will stay unchanged.`,
+    actionLabel: "Remove",
+    action: () => removeNoteTag(noteId, tag)
+  });
 }
 
 async function renameNote(noteId, nextTitle) {

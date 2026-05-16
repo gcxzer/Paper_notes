@@ -61,7 +61,7 @@ class ContextCompressor:
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
-        self.previous_summary: str | None = None
+        self.current_summary: str | None = None
         self.last_summary_error: str | None = None
         self.last_summary_dropped_count = 0
         self.last_summary_fallback_used = False
@@ -147,8 +147,8 @@ class ContextCompressor:
                 ),
             )
 
-        previous_summary = self.previous_summary or ""
-        summary_index, previous_summary = self._find_latest_context_summary(
+        current_summary = self.current_summary or ""
+        summary_index, current_summary = self._find_latest_context_summary(
             pruned_messages,
             compress_start,
             compress_end,
@@ -156,15 +156,15 @@ class ContextCompressor:
         turns_to_summarize = pruned_messages[compress_start:compress_end]
         turns_start = compress_start
         if summary_index is not None:
-            if previous_summary and not self.previous_summary:
-                self.previous_summary = previous_summary
+            if current_summary and not self.current_summary:
+                self.current_summary = current_summary
             turns_to_summarize = pruned_messages[summary_index + 1 : compress_end]
             turns_start = summary_index + 1
 
         summary_body = self._generate_summary(
             turns_to_summarize,
             focus_topic=focus_topic,
-            previous_summary=previous_summary,
+            current_summary=current_summary,
             context_length=context_length,
         )
         if not summary_body:
@@ -234,7 +234,7 @@ class ContextCompressor:
             return copy.deepcopy(messages)
         if checkpoint.source_message_count and len(messages) < checkpoint.source_message_count:
             return copy.deepcopy(messages)
-        summary = self._with_summary_prefix(checkpoint.previous_summary)
+        summary = self._with_summary_prefix(checkpoint.current_summary)
         compressed = self._assemble_compressed_messages(
             copy.deepcopy(messages),
             compress_start=self._align_boundary_forward(messages, self.config.protect_first_n),
@@ -248,7 +248,7 @@ class ContextCompressor:
         turns: list[dict[str, Any]],
         *,
         focus_topic: str | None,
-        previous_summary: str = "",
+        current_summary: str = "",
         context_length: int | None = None,
     ) -> str | None:
         now = time.monotonic()
@@ -270,7 +270,7 @@ class ContextCompressor:
             provided = self._call_summary_provider(
                 copy.deepcopy(turns),
                 focus_topic=focus_topic,
-                previous_summary=previous_summary,
+                current_summary=current_summary,
                 max_output_tokens=int(summary_tokens * 1.3),
             )
         except Exception as error:
@@ -286,7 +286,7 @@ class ContextCompressor:
             self.last_summary_error = "context summary provider returned empty content"
             self._summary_failure_cooldown_until = now + self.config.summary_failure_cooldown_seconds
             return None
-        self.previous_summary = self._strip_summary_prefix(provided)
+        self.current_summary = self._strip_summary_prefix(provided)
         self._summary_failure_cooldown_until = 0.0
         self.last_summary_error = None
         return self._limit_summary(provided, context_length=context_length)
@@ -315,7 +315,10 @@ class ContextCompressor:
         summary_role = "user" if last_head_role in {"assistant", "tool"} else "assistant"
         if summary_role == first_tail_role:
             flipped = "assistant" if summary_role == "user" else "user"
-            if flipped != last_head_role:
+            first_tail = messages[compress_end] if compress_end < len(messages) else {}
+            if summary_role == "assistant" and first_tail.get("tool_calls"):
+                summary_role = "user"
+            elif flipped != last_head_role:
                 summary_role = flipped
             else:
                 merge_summary_into_tail = True
@@ -464,7 +467,7 @@ class ContextCompressor:
         turns: list[dict[str, Any]],
         *,
         focus_topic: str | None,
-        previous_summary: str,
+        current_summary: str,
         max_output_tokens: int,
     ) -> str | None:
         if self.summary_provider is None:
@@ -473,7 +476,7 @@ class ContextCompressor:
             return self.summary_provider(
                 turns,
                 focus_topic,
-                previous_summary=previous_summary,
+                current_summary=current_summary,
                 max_output_tokens=max_output_tokens,
             )
         except TypeError as error:

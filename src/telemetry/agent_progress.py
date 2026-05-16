@@ -317,7 +317,7 @@ def _visible_progress_event(event: AgentEvent, progress_event: dict[str, Any]) -
         detail = f"Approval needed for {name}."
     elif event_type == "tool_approval_resolved":
         return None
-    elif event_type in {"context_compressed", "context_overflow"}:
+    elif event_type in {"context_compressing", "context_compressed", "context_overflow"}:
         detail = progress_event["detail"]
     elif event_type in {"tool_calls_pending", "halted", "tool_halted", "cancelled"}:
         detail = progress_event["detail"]
@@ -434,6 +434,8 @@ def _visible_status_event(status: str, stage: str, detail: str, at: str) -> dict
 def _stage_and_detail(event: AgentEvent) -> tuple[str, str]:
     data = event.data or {}
     event_type = _clean_text(event.type)
+    if event_type == "context_compressing":
+        return "thinking", "Compacting context"
     if event_type == "context_compressed":
         before_count = int(data.get("before_message_count") or 0)
         after_count = int(data.get("after_message_count") or 0)

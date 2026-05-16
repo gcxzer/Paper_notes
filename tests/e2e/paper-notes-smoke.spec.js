@@ -283,8 +283,56 @@ test("floating scratchpad persists content and position across library and reade
   expect(panelBox).toBeTruthy();
   expect(panelBox.width).toBeGreaterThan(430);
   expect(panelBox.height).toBeGreaterThan(500);
+  await expect(page.locator(".floating-pad-list-panel")).toBeHidden();
+  await expect(page.locator(".floating-pad-panel")).not.toHaveClass(/is-list-open/);
   await page.locator(".floating-pad-input").fill("scratch idea\n\ncompare DeepSeek and Claude session UX");
   await expect(page.locator(".floating-pad-status")).toHaveText("Saved");
+  await expect(page.locator(".floating-pad-active-title")).toHaveText("Pad 1");
+  await page.locator("[data-floating-pad-clear]").click();
+  await expect(page.locator(".floating-pad-input")).toHaveValue("");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
+  await expect(page.locator(".floating-pad-input")).toHaveValue(/compare DeepSeek/);
+  await page.locator("[data-floating-pad-directory]").click();
+  await expect(page.locator(".floating-pad-list-panel")).toBeVisible();
+  await expect(page.locator(".floating-pad-input")).toBeHidden();
+  await expect(page.locator(".floating-pad-footer")).toBeHidden();
+  await expect(page.locator(".floating-pad-panel")).toHaveClass(/is-list-open/);
+  await page.locator("[data-floating-pad-new]").click();
+  await expect(page.locator(".floating-pad-list-panel")).toBeHidden();
+  await expect(page.locator(".floating-pad-input")).toHaveValue("");
+  await page.locator(".floating-pad-input").fill("second pad idea");
+  await page.locator("[data-floating-pad-directory]").click();
+  await expect(page.locator(".floating-pad-list-item")).toHaveCount(2);
+  await expect(page.locator(".floating-pad-list-item").filter({ hasText: "Pad 1" })).not.toContainText("scratch idea");
+  await page.locator(".floating-pad-list-row").last().hover();
+  await page.locator("[data-floating-pad-menu]").last().click();
+  await expect(page.locator(".floating-pad-action-menu:not([hidden])")).toBeVisible();
+  const menuBox = await page.locator(".floating-pad-action-menu:not([hidden])").boundingBox();
+  const viewport = page.viewportSize();
+  expect(menuBox).toBeTruthy();
+  expect(viewport).toBeTruthy();
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
+  await page.locator("[data-floating-pad-rename]").last().click();
+  await expect(page.locator(".floating-pad-rename-form")).toBeVisible();
+  await page.locator(".floating-pad-rename-form input").fill("Renamed pad");
+  await page.locator(".floating-pad-rename-form").locator("button", { hasText: "Save" }).click();
+  await expect(page.locator(".floating-pad-active-title")).toHaveText("Renamed pad");
+  await page.locator(".floating-pad-list-row").last().hover();
+  await page.locator("[data-floating-pad-menu]").last().click();
+  await page.locator("[data-floating-pad-delete]").last().click();
+  await expect(page.locator(".floating-pad-action-menu:not([hidden])")).toContainText("Confirm delete");
+  await page.locator("[data-floating-pad-delete]").last().click();
+  await expect(page.locator(".floating-pad-list-item")).toHaveCount(1);
+  await page.locator("[data-floating-pad-new]").click();
+  await page.locator(".floating-pad-input").fill("second pad idea");
+  await page.locator("[data-floating-pad-directory]").click();
+  await expect(page.locator(".floating-pad-list-item")).toHaveCount(2);
+  await page.locator(".floating-pad-list-item").filter({ hasText: "Pad 1" }).click();
+  await expect(page.locator(".floating-pad-input")).toHaveValue(/compare DeepSeek/);
+  await page.locator("[data-floating-pad-directory]").click();
+  await page.locator(".floating-pad-list-item").filter({ hasText: "Pad 2" }).click();
+  await expect(page.locator(".floating-pad-input")).toHaveValue("second pad idea");
   await page.locator(".floating-pad-input").click();
   await expect(page.locator(".floating-pad-panel")).toBeVisible();
   await page.locator(".app-shell").click({ position: { x: 20, y: 20 } });
@@ -300,6 +348,9 @@ test("floating scratchpad persists content and position across library and reade
   expect(Math.abs(readerBox.x - after.x)).toBeLessThan(2);
   expect(Math.abs(readerBox.y - after.y)).toBeLessThan(2);
   await expect(page.locator(".floating-pad-panel")).toBeVisible();
+  await expect(page.locator(".floating-pad-input")).toHaveValue("second pad idea");
+  await page.locator("[data-floating-pad-directory]").click();
+  await page.locator(".floating-pad-list-item").filter({ hasText: "Pad 1" }).click();
   await expect(page.locator(".floating-pad-input")).toHaveValue(/compare DeepSeek/);
 });
 
@@ -758,7 +809,26 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
 
 test("library tag add and remove flows persist through the details panel", async ({ page }) => {
   const syncPayloads = [];
+  const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
+  library.categories.push({ id: "agent", name: "Agent", parentId: null, order: 3, system: false });
+  library.notes.push({
+    ...library.notes[0],
+    id: "pdf-same-tag-e2e",
+    title: "Same Tag Paper",
+    date: "2026-05-12",
+    order: 1,
+    categoryId: "agent",
+    tags: ["tool-test", "agent"],
+  }, {
+    ...library.notes[0],
+    id: "pdf-other-tag-e2e",
+    title: "Other Tag Paper",
+    date: "2026-05-11",
+    order: 2,
+    tags: ["other"],
+  });
   await openFixtureLibrary(page, {
+    library,
     onLibrarySync: (payload) => {
       syncPayloads.push(payload);
     },
@@ -766,9 +836,45 @@ test("library tag add and remove flows persist through the details panel", async
 
   await expect(page.locator(".details-tags")).toContainText("tool-test");
   await expect(page.locator(".details-tags")).toContainText("deepseek");
+  await page.getByRole("button", { name: "Show papers tagged tool-test" }).click();
+  await expect(page.locator("#contentTitle")).toHaveText("All Notes");
+  await expect(page.locator("#libraryStatus")).toContainText("2 notes in All Notes");
+  await expect(page.locator(".library-status-tag")).toContainText(["#tool-test"]);
+  await expect(page.locator(".note-card h3")).toContainText(["DeepSeek V4", "Same Tag Paper"]);
+  await expect(page.locator("#notesGrid")).not.toContainText("Other Tag Paper");
+  await expect(page.locator("[data-category-id='all'] .category-count")).toHaveText("2");
+  await expect(page.locator("[data-category-id='agent'] .category-count")).toHaveText("1");
+  await expect(page.locator("[data-category-id='deepseek'] .category-count")).toHaveText("1");
+  await page.getByRole("button", { name: "Show papers tagged deepseek" }).click();
+  await expect(page.locator("#libraryStatus")).toContainText("1 notes in All Notes");
+  await expect(page.locator(".library-status-tag")).toContainText(["#tool-test", "#deepseek"]);
+  await page.getByRole("button", { name: "Remove tag filter deepseek" }).click();
+  await expect(page.locator("#libraryStatus")).toContainText("2 notes in All Notes");
+  await expect(page.locator(".library-status-tag")).toContainText(["#tool-test"]);
+  await page.locator("[data-category-id='deepseek']").click();
+  await expect(page.locator("#contentTitle")).toHaveText("DeepSeek");
+  await expect(page.locator("#libraryStatus")).toContainText("1 notes in DeepSeek");
+  await expect(page.locator(".library-status-tag")).toContainText(["#tool-test"]);
+  await expect(page.locator(".note-card h3")).toContainText(["DeepSeek V4"]);
+  await expect(page.locator("#notesGrid")).not.toContainText("Same Tag Paper");
+  await expect(page.locator("#notesGrid")).not.toContainText("Other Tag Paper");
+  await page.getByRole("button", { name: "Remove tag filter tool-test" }).click();
+  await expect(page.locator("#contentTitle")).toHaveText("DeepSeek");
+  await expect(page.locator("#libraryStatus")).toContainText("2 notes in DeepSeek");
+  await expect(page.locator(".library-status-tag")).toHaveCount(0);
+  await page.locator("#searchInput").fill("Same");
+  await expect(page.locator("[data-category-id='all'] .category-count")).toHaveText("1");
+  await expect(page.locator("[data-category-id='agent'] .category-count")).toHaveText("1");
+  await expect(page.locator("[data-category-id='deepseek'] .category-count")).toHaveText("0");
+  await page.locator("#searchInput").fill("");
 
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.locator("#tagDialog")).toBeVisible();
+  await expect(page.locator(".tag-suggestion")).toContainText(["agent", "other"]);
+  await page.locator("#tagInput").fill("ag");
+  await expect(page.locator(".tag-suggestion")).toContainText(["agent"]);
+  await page.locator(".tag-suggestion", { hasText: "agent" }).click();
+  await expect(page.locator("#tagInput")).toHaveValue("agent");
   await page.locator("#tagInput").fill("regression");
   await page.locator("#tagForm").getByRole("button", { name: "Add" }).click();
 
@@ -783,6 +889,9 @@ test("library tag add and remove flows persist through the details panel", async
 
   await page.locator(".details-tag", { hasText: "regression" }).hover();
   await page.getByRole("button", { name: "Remove regression tag" }).click();
+  await expect(page.locator("#confirmDialog")).toBeVisible();
+  await expect(page.locator("#confirmDialog")).toContainText("Remove #regression?");
+  await page.locator("#confirmDialogAction").click();
   await expect(page.locator(".details-tags")).not.toContainText("regression");
   expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
     "tool-test",
@@ -1385,17 +1494,16 @@ test("reader manual context compaction updates the popover and adds a divider", 
     });
   });
 
-  const askInput = page.getByPlaceholder("Ask anything");
-  if (!(await askInput.isVisible())) {
-    await page.getByRole("button", { name: "Ask" }).click();
-  }
-  await askInput.fill("总结一下这篇论文");
-  await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.locator("#askPane")).toContainText("DeepSeek V4");
+  await showAskPane(page);
+  await page.evaluate(() => {
+    setCurrentChatSessionId("e2e-session");
+  });
 
   await page.locator("#readerContextButton").click();
   await expect(page.locator("#readerContextPopover")).toBeVisible();
   await expect(page.locator("#readerContextPopover")).toContainText("88% full");
+  await expect(page.locator("#readerContextPopover")).not.toContainText("Threshold");
+  await expect(page.locator("#readerContextButton")).not.toHaveClass(/is-warning/);
   await page.locator("#readerContextCompactFocus").fill("tags only");
   await page.locator("[data-context-action='compact']").click();
   await expect(page.locator("[data-context-action='compact']")).toHaveText("Compacting");
@@ -1405,7 +1513,8 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
   await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
   await expect(page.locator("#readerContextPopover")).toContainText("50% full");
-  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted. Earlier conversation was summarized.");
+  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
+  await expect(page.locator(".ask-message-divider")).not.toContainText("Earlier conversation was summarized");
   expect(compressRequest).toMatchObject({
     sessionId: "e2e-session",
     focus: "tags only",
@@ -1485,6 +1594,95 @@ test("reader chat renders markdown blockquotes", async ({ page }) => {
   await expect(quote).toContainText("第二段引用");
   await expect(quote.locator("strong")).toHaveText("重点");
   await expect(bubble).not.toContainText("> 第一段引用");
+});
+
+test("reader chat renders context compaction markers", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    readerState.contextStatus = normalizeContextStatus({
+      provider: "openai",
+      model: "gpt-5.5",
+      contextLength: 128000,
+      tokensUsed: 64000,
+      percentFull: 50,
+      messageCount: 12,
+      compactionEnabled: true,
+      compressionCount: 3,
+      summaryAvailable: true,
+    });
+    readerState.contextPopoverOpen = true;
+    renderReaderContextControls();
+  });
+  await expect(page.locator("#readerContextPopover")).toContainText("Session compacted 3 times");
+  await expect(page.locator("#readerContextPopover")).toContainText("Accuracy may degrade. Consider starting a new chat.");
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "压缩后继续回答。",
+      runTrace: {
+        status: "completed",
+        events: [{
+          type: "context_compressed",
+          message: "Compressed long session context before model call.",
+          data: { before_message_count: 98, after_message_count: 24 },
+        }],
+      },
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  await expect(page.locator(".ask-context-compaction-divider")).toContainText("Context compacted");
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [
+      { role: "user", text: "Microcompact 解释一下" },
+      {
+        role: "assistant",
+        text: "压缩后继续回答。",
+        runTrace: {
+          status: "completed",
+          events: [{
+            type: "context_compressed",
+            message: "Compressed long session context before model call.",
+            data: { before_message_count: 98, after_message_count: 24 },
+          }],
+        },
+      },
+    ];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  await expect(page.locator(".ask-context-compaction-divider")).toHaveCount(1);
+  await expect(page.locator(".ask-context-compaction-divider")).toContainText("Context compacted");
+  const compactionOrder = await page.locator("#readerChatMessages > .ask-context-compaction-divider, #readerChatMessages > .ask-message").evaluateAll((nodes) => (
+    nodes.map((node) => node.classList.contains("ask-context-compaction-divider") ? "compact" : node.textContent?.trim() || "")
+  ));
+  expect(compactionOrder[0]).toBe("compact");
+  expect(compactionOrder[1]).toContain("Microcompact 解释一下");
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{ role: "user", text: "Microcompact 解释一下" }];
+    readerState.chatPendingBySession.__draft_chat_session__ = true;
+    readerState.chatProgressBySession.__draft_chat_session__ = {
+      status: "running",
+      detail: "Compacting context",
+      events: [{
+        type: "context_compressing",
+        detail: "Compacting context",
+        data: {},
+      }],
+    };
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  await expect(page.locator(".ask-context-compaction-divider.is-running")).toContainText("Compacting context");
+  await expect(page.locator(".ask-context-compaction-spinner")).toBeVisible();
 });
 
 test("reader chat linkifies adjacent Chinese parenthetical URLs separately", async ({ page }) => {
@@ -2403,7 +2601,7 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
   expect(requests[0].context.selection_text).toContain("stochastic");
   await expect(page.locator(".ask-user-selected-text-badge")).toContainText("Text selected: 1 word");
   await expect(page.locator(".ask-user-selected-text-badge")).not.toContainText("p.");
-  await expect(page.locator(".ask-user-selected-text-badge")).toHaveAttribute("title", /stochastic/);
+  await expect(page.locator(".ask-user-selected-text-badge")).toHaveAttribute("data-selected-text-preview", /stochastic/);
   await expect(page.locator(".ask-selected-text-chip")).toHaveCount(0);
 });
 

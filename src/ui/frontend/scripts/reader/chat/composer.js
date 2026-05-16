@@ -654,7 +654,6 @@ function readerChatContext() {
 function renderReaderContextControls() {
   const status = readerState.contextStatus || normalizeContextStatus({});
   const percent = Math.min(100, Math.max(0, status.percentFull || 0));
-  const compactPercent = Math.min(100, Math.max(0, status.thresholdPercent || 0));
   const provider = currentReaderProvider();
   const model = currentReaderModel();
   const providerName = providerDisplayName(status.provider || provider);
@@ -665,15 +664,18 @@ function renderReaderContextControls() {
   const compressedLine = status.compressionCount
     ? `${status.compressionCount} compacted${status.lastCompressedAt ? ` · ${formatChatSessionTime(status.lastCompressedAt)}` : ""}`
     : "No compaction yet";
+  const repeatedCompressionWarning = status.compressionCount >= 2
+    ? `Session compacted ${status.compressionCount} times\nAccuracy may degrade. Consider starting a new chat.`
+    : "";
   const warningText = status.lastCompressionError
     || (status.fallbackUsed ? "Fallback marker was used during the last compaction." : "")
-    || (status.compressionCount >= 2 ? "Multiple compactions can reduce context precision." : "");
+    || repeatedCompressionWarning;
 
   if (elements.readerContextButton) {
     elements.readerContextButton.style.setProperty("--context-percent", String(percent));
     elements.readerContextButton.classList.toggle("is-loading", readerState.contextStatusLoading);
-    elements.readerContextButton.classList.toggle("is-warning", compactPercent > 0 && percent >= compactPercent);
-    elements.readerContextButton.classList.toggle("is-full", percent >= 90);
+    elements.readerContextButton.classList.remove("is-warning");
+    elements.readerContextButton.classList.remove("is-full");
     elements.readerContextButton.title = `${percent}% full · ${tokenLine}`;
     elements.readerContextButton.setAttribute("aria-expanded", String(readerState.contextPopoverOpen));
   }
@@ -687,12 +689,11 @@ function renderReaderContextControls() {
     <div class="ask-context-tokens">${escapeHtml(tokenLine)}</div>
     <div class="ask-context-model">${escapeHtml(`${providerName} · ${modelLabel}`)}</div>
     <div class="ask-context-grid">
-      <span>Threshold</span><strong>${escapeHtml(`${formatTokenCount(status.thresholdTokens)} (${status.thresholdPercent}%)`)}</strong>
       <span>Messages</span><strong>${escapeHtml(String(status.messageCount))}</strong>
-      <span>Summary</span><strong>${escapeHtml(status.summaryAvailable ? "available" : "not yet")}</strong>
+      <span class="ask-context-help" tabindex="0" aria-label="Summary shows whether a compacted conversation summary is available for this session." data-tooltip="A compacted memory of earlier chat that the model can use after context compaction.">Summary</span><strong>${escapeHtml(status.summaryAvailable ? "available" : "not yet")}</strong>
       <span>Compactions</span><strong>${escapeHtml(compressedLine)}</strong>
     </div>
-    ${warningText ? `<div class="ask-context-warning">${escapeHtml(warningText)}</div>` : ""}
+    ${warningText ? `<div class="ask-context-warning">${escapeHtml(warningText).replace(/\n/g, "<br>")}</div>` : ""}
     ${readerState.contextCompactStatus ? `<div class="ask-context-status">${escapeHtml(readerState.contextCompactStatus)}</div>` : ""}
     <div class="ask-context-actions">
       <input class="ask-context-focus" id="readerContextCompactFocus" type="text" value="${escapeHtml(readerState.contextCompactFocus)}" placeholder="Focus" aria-label="Compaction focus">
@@ -777,8 +778,7 @@ async function compactReaderContext() {
       }
     });
     readerState.contextStatus = normalizeContextStatus(payload?.context);
-    readerState.contextCompactStatus = normalizeText(payload?.warning)
-      || (payload?.compressed ? "Context compacted." : "Nothing to compact yet.");
+    readerState.contextCompactStatus = payload?.compressed ? "Context compacted." : "Nothing to compact yet.";
     if (payload?.compressed) {
       const marker = normalizeApiChatMessage(payload?.message);
       if (marker) {

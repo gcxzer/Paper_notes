@@ -55,9 +55,9 @@ class OverflowThenSuccessProvider:
 
 
 def hermes_test_compressor(config: ContextCompressionConfig) -> ContextCompressor:
-    def summary_provider(turns, focus_topic=None, *, previous_summary="", max_output_tokens=None):
-        if previous_summary:
-            return f"{previous_summary}\n\n## Completed Actions\nUpdated with {len(turns)} new turn(s)."
+    def summary_provider(turns, focus_topic=None, *, current_summary="", max_output_tokens=None):
+        if current_summary:
+            return f"{current_summary}\n\n## Completed Actions\nUpdated with {len(turns)} new turn(s)."
         return "## Active Task\nlatest task\n\n## Goal\nKeep working from compacted context."
 
     return ContextCompressor(config, summary_provider=summary_provider)
@@ -629,8 +629,8 @@ def test_service_compresses_model_visible_context_without_replacing_transcript(t
 
     model_messages = provider.requests[0].messages
     assert any(str(message.get("content", "")).startswith(SUMMARY_PREFIX) for message in model_messages)
-    assert any(event.type == "context_compressed" for event in events)
-    assert any(event.type == "context_compressed" for event in result.events)
+    assert [event.type for event in events[:2]] == ["context_compressing", "context_compressed"]
+    assert [event.type for event in result.events[:2]] == ["context_compressing", "context_compressed"]
     persisted = store.require_session(session.metadata.session_id).messages
     checkpoint = service.compression_checkpoint_store.load(session.metadata.session_id)
     assert checkpoint is not None
@@ -820,7 +820,7 @@ def test_service_can_manually_compact_session_and_adds_transcript_marker(tmp_pat
     assert [event.type for event in result.events][:2] == ["context_compressing", "context_compressed"]
     checkpoint = service.compression_checkpoint_store.load(session.metadata.session_id)
     assert checkpoint is not None
-    assert checkpoint.previous_summary
+    assert checkpoint.current_summary
     persisted = store.require_session(session.metadata.session_id).messages
     assert len(persisted) == 17
     assert persisted[-1]["role"] == "divider"

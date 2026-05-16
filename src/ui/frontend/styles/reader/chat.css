@@ -52,6 +52,53 @@
   overflow-wrap: anywhere;
 }
 
+.ask-context-compaction-divider {
+  display: grid;
+  grid-template-columns: minmax(28px, 1fr) auto minmax(28px, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.ask-context-compaction-divider > span {
+  height: 1px;
+  background: var(--line);
+}
+
+.ask-context-compaction-divider strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ask-context-compaction-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: askContextCompactionSpin 0.8s linear infinite;
+}
+
+.ask-context-compaction-icon {
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+@keyframes askContextCompactionSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ask-message-stack {
   display: grid;
   max-width: 92%;
@@ -75,6 +122,10 @@
   color: var(--muted-strong);
   font-size: 0.68rem;
   font-weight: 850;
+}
+
+.ask-user-selected-text-badge {
+  position: relative;
 }
 
 .ask-selected-text-chip {
@@ -102,7 +153,8 @@
   white-space: nowrap;
 }
 
-.ask-selected-text-chip::after {
+.ask-selected-text-chip::after,
+.ask-user-selected-text-badge::after {
   content: attr(data-selected-text-preview);
   position: absolute;
   bottom: calc(100% + 12px);
@@ -118,7 +170,7 @@
   box-shadow: var(--shadow);
   color: var(--text);
   font-size: 0.74rem;
-  font-weight: 750;
+  font-weight: 400;
   line-height: 1.35;
   opacity: 0;
   overflow-wrap: anywhere;
@@ -130,8 +182,15 @@
   white-space: normal;
 }
 
+.ask-user-selected-text-badge::after {
+  right: 0;
+  left: auto;
+}
+
 .ask-selected-text-chip:hover::after,
-.ask-selected-text-chip:focus-within::after {
+.ask-selected-text-chip:focus-within::after,
+.ask-user-selected-text-badge:hover::after,
+.ask-user-selected-text-badge:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;

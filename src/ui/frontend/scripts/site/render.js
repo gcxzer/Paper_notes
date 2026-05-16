@@ -51,22 +51,41 @@ function renderContentHeader() {
 function renderStatus() {
   const notes = getVisibleNotes();
   const category = getSelectedCategory();
+  const activeTags = getActiveTagFilters();
   const label = category ? category.name : "All Notes";
-  elements.libraryStatus.textContent = `${notes.length} notes in ${label}`;
+  elements.libraryStatus.innerHTML = `
+    <span class="library-status-count">${notes.length} notes in ${escapeHtml(label)}</span>
+    ${activeTags.length ? `
+      <span class="library-status-tags" aria-label="Active tag filters">
+        ${activeTags.map((tag) => `
+          <span class="library-status-tag">
+            <span>#${escapeHtml(tag)}</span>
+            <button type="button" data-remove-tag-filter="${escapeHtml(tag)}" aria-label="Remove tag filter ${escapeHtml(tag)}">×</button>
+          </span>
+        `).join("")}
+      </span>
+    ` : ""}
+  `;
   elements.emptyState.hidden = Boolean(notes.length);
   elements.emptyState.innerHTML = notes.length ? "" : renderEmptyState(category, label);
 }
 
 function renderEmptyState(category, label) {
   const hasQuery = Boolean(state.query);
+  const activeTags = getActiveTagFilters();
+  const hasTagFilter = Boolean(activeTags.length);
   const isAllNotes = !category || category.id === ALL_CATEGORY_ID;
   const title = hasQuery
     ? "No matching notes"
+    : hasTagFilter
+      ? `No papers tagged ${activeTags.map((tag) => `#${tag}`).join(" ")}`
     : isAllNotes
       ? "Start your paper library"
       : `No notes in ${label}`;
   const body = hasQuery
     ? "Try another search, or clear the filter to see everything in this collection."
+    : hasTagFilter
+      ? "Pick another tag or clear this tag search to return to the full library."
     : isAllNotes
       ? "Import a PDF or paste a paper link. Once it lands here, you can read, annotate, and ask questions beside the paper."
       : "Bring a paper into this collection now, or move notes here later from their details panel.";
@@ -166,8 +185,14 @@ function renderDetails() {
       ${tags.length ? `
         <div class="details-tags" aria-label="Paper tags">
           ${tags.map((tag) => `
-            <span class="details-tag">
-              <span>${escapeHtml(tag)}</span>
+            <span class="details-tag${getActiveTagFilters().includes(tag) ? " is-filter-active" : ""}">
+              <button
+                class="details-tag-filter"
+                type="button"
+                data-filter-tag="${escapeHtml(tag)}"
+                aria-label="Show papers tagged ${escapeHtml(tag)}"
+                title="Show papers with this tag"
+              >${escapeHtml(tag)}</button>
               <button
                 class="details-tag-remove"
                 type="button"

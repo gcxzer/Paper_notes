@@ -35,13 +35,13 @@ class LLMContextSummaryProvider:
         turns: list[dict[str, Any]],
         focus_topic: str | None = None,
         *,
-        previous_summary: str = "",
+        current_summary: str = "",
         max_output_tokens: int | None = None,
     ) -> str | None:
         prompt = build_context_summary_prompt(
             turns,
             focus_topic=focus_topic,
-            previous_summary=previous_summary,
+            current_summary=current_summary,
             target_tokens=max_output_tokens,
         )
         try:
@@ -79,7 +79,7 @@ def build_context_summary_prompt(
     turns: list[dict[str, Any]],
     *,
     focus_topic: str | None = None,
-    previous_summary: str = "",
+    current_summary: str = "",
     target_tokens: int | None = None,
 ) -> str:
     content_to_summarize = serialize_turns_for_summary(turns)
@@ -133,13 +133,13 @@ def build_context_summary_prompt(
 
 Target ~{summary_budget} tokens. Be concrete. Write only the summary body."""
 
-    if previous_summary:
+    if current_summary:
         prompt = f"""{preamble}
 
-You are updating a context compaction summary. A previous compaction produced the summary below. New conversation turns have occurred since then and need to be incorporated.
+You are updating the current rolling context summary. New conversation turns have occurred since it was last written and need to be incorporated.
 
-PREVIOUS SUMMARY:
-{previous_summary}
+CURRENT SUMMARY:
+{current_summary}
 
 NEW TURNS TO INCORPORATE:
 {content_to_summarize}

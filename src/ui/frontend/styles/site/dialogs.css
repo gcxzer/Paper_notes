@@ -69,6 +69,46 @@
   margin: 10px 0 0;
 }
 
+.tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tag-suggestions[hidden] {
+  display: none;
+}
+
+.tag-suggestion {
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 62%, var(--modal-bg));
+  color: color-mix(in srgb, var(--accent) 50%, var(--text));
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 4px 11px;
+}
+
+.tag-suggestion:hover,
+.tag-suggestion:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 86%, var(--modal-bg));
+  outline: none;
+}
+
+.tag-suggestion-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  color: color-mix(in srgb, var(--muted) 82%, var(--text));
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 4px 4px;
+}
+
 .settings-hint {
   margin: 0;
   color: var(--muted);

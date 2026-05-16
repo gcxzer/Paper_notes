@@ -1009,6 +1009,25 @@ class AgentService:
                 tools=tools,
             )
             before_message_count = len(current_for_compression)
+            if (
+                reason != "manual"
+                and before_message_count >= self.context_compressor.config.resolved_min_messages()
+                and (force or before_request_tokens >= threshold)
+            ):
+                start_event = AgentEvent(
+                    "context_compressing",
+                    "Compacting session context.",
+                    {
+                        "reason": reason,
+                        "pass": pass_index,
+                        "attempt": attempt,
+                        "context_length": context_length,
+                        "before_message_count": before_message_count,
+                        "before_estimated_tokens": before_request_tokens,
+                    },
+                )
+                _emit_service_event(start_event, request.event_sink)
+                events.append(start_event)
             result = self.context_compressor.compress(
                 current_for_compression,
                 approx_tokens=before_request_tokens,
@@ -1108,7 +1127,7 @@ class AgentService:
         summary_body = self.context_compressor._strip_summary_prefix(result.summary)
         checkpoint = ContextCompressionCheckpoint(
             session_id=session_id,
-            previous_summary=summary_body,
+            current_summary=summary_body,
             compressed_until_message_index=compressed_until,
             source_message_count=raw_message_count,
             compression_count=int(metadata.get("compression_count") or ((existing.compression_count if existing else 0) + 1)),
@@ -1489,14 +1508,9 @@ def _last_user_message_attachments(messages: list[dict[str, Any]]) -> list[dict[
 def _context_compaction_marker_message(*, focus: str | None = None, warning: str | None = None) -> dict[str, Any]:
     focus_text = str(focus or "").strip()
     warning_text = str(warning or "").strip()
-    text = "Context compacted."
-    if focus_text:
-        text = f"{text} Focus: {focus_text}."
-    if warning_text:
-        text = f"{text} Note: {warning_text}"
     return {
         "role": "divider",
-        "content": text,
+        "content": "Context compacted",
         "metadata": {
             "type": "context_compaction_marker",
             "focus": focus_text,
@@ -1916,7 +1930,7 @@ def _compression_warning_events(result: Any) -> list[AgentEvent]:
     if compression_count >= 2:
         events.append(AgentEvent(
             "context_compression_warning",
-            f"Session compressed {compression_count} times; context accuracy may degrade. Consider starting a new chat if answers feel stale.",
+            f"Session compacted {compression_count} times. Accuracy may degrade. Consider starting a new chat.",
             {
                 "code": "repeated_compression",
                 "compression_count": compression_count,
@@ -1961,7 +1975,7 @@ def _compact_warning(events: list[AgentEvent], context: AgentContextStatus) -> s
     if context.fallback_used and context.last_compression_error:
         return f"Compression summary failed: {context.last_compression_error}. Inserted a fallback context marker."
     if context.compression_count >= 2:
-        return f"Session compressed {context.compression_count} times; context accuracy may degrade."
+        return f"Session compacted {context.compression_count} times. Accuracy may degrade. Consider starting a new chat."
     return None
 
 

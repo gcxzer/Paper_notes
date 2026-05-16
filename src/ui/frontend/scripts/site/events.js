@@ -130,9 +130,17 @@ document.addEventListener("click", (event) => {
 elements.searchInput.addEventListener("input", (event) => {
   state.query = event.target.value.trim();
   syncSelectedNote();
+  renderCategories();
   renderStatus();
   renderNotes();
   renderDetails();
+});
+
+elements.libraryStatus.addEventListener("click", (event) => {
+  const removeButton = event.target.closest("[data-remove-tag-filter]");
+  if (!removeButton) return;
+  event.preventDefault();
+  removeTagFilter(removeButton.dataset.removeTagFilter);
 });
 
 elements.newCategoryButton.addEventListener("click", () => {
@@ -451,7 +459,14 @@ elements.detailsCard.addEventListener("click", (event) => {
   if (removeTagButton) {
     event.preventDefault();
     event.stopPropagation();
-    removeNoteTag(removeTagButton.dataset.removeTagNote, removeTagButton.dataset.removeTag);
+    confirmRemoveNoteTag(removeTagButton.dataset.removeTagNote, removeTagButton.dataset.removeTag);
+    return;
+  }
+
+  const filterTagButton = event.target.closest("[data-filter-tag]");
+  if (filterTagButton) {
+    event.preventDefault();
+    filterNotesByTag(filterTagButton.dataset.filterTag);
     return;
   }
 
@@ -550,6 +565,16 @@ elements.tagForm.addEventListener("submit", (event) => {
     return;
   }
   closeTagDialog();
+});
+
+elements.tagInput.addEventListener("input", renderTagSuggestions);
+
+elements.tagSuggestions?.addEventListener("click", (event) => {
+  const suggestionButton = event.target.closest("[data-tag-suggestion]");
+  if (!suggestionButton) return;
+  elements.tagInput.value = suggestionButton.dataset.tagSuggestion || "";
+  elements.tagInput.focus();
+  renderTagSuggestions();
 });
 
 elements.confirmDialogAction.addEventListener("click", () => {

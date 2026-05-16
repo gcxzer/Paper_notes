@@ -253,6 +253,42 @@
   text-align: right;
 }
 
+.ask-context-help {
+  position: relative;
+  width: fit-content;
+  cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 55%, transparent);
+  text-underline-offset: 3px;
+}
+
+.ask-context-help::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 2;
+  width: min(260px, 72vw);
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+  color: var(--text);
+  content: attr(data-tooltip);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ask-context-help:hover::after,
+.ask-context-help:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .ask-context-warning,
 .ask-context-status {
   border-radius: 8px;

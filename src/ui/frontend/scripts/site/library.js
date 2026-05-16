@@ -194,17 +194,30 @@ function getLeafDescendants(categoryId) {
 }
 
 function getCategoryCount(categoryId) {
-  if (categoryId === ALL_CATEGORY_ID) return state.library.notes.length;
   const validIds = new Set(getLeafDescendants(categoryId).map((category) => category.id));
-  return state.library.notes.filter((note) => validIds.has(note.categoryId)).length;
+  return state.library.notes.filter((note) => validIds.has(note.categoryId) && noteMatchesActiveFilters(note)).length;
+}
+
+function getActiveTagFilters() {
+  return normalizeTags(state.activeTagFilters);
+}
+
+function noteMatchesActiveFilters(note) {
+  const query = state.query.toLowerCase();
+  const activeTags = getActiveTagFilters();
+  if (query && !note.title.toLowerCase().includes(query)) return false;
+  if (activeTags.length) {
+    const noteTags = normalizeTags(note.tags);
+    if (!activeTags.every((tag) => noteTags.includes(tag))) return false;
+  }
+  return true;
 }
 
 function getVisibleNotes() {
-  const query = state.query.toLowerCase();
   const visibleCategoryIds = new Set(getLeafDescendants(state.activeCategoryId).map((category) => category.id));
   const notes = state.library.notes.filter((note) => {
     if (!visibleCategoryIds.has(note.categoryId)) return false;
-    return note.title.toLowerCase().includes(query);
+    return noteMatchesActiveFilters(note);
   });
   return sortNotes(notes);
 }

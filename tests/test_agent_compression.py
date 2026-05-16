@@ -57,10 +57,10 @@ def test_compression_defaults_use_project_thresholds():
 
     assert config.context_length == DEFAULT_FALLBACK_CONTEXT_LENGTH
     assert config.protect_first_n == 3
-    assert config.protect_last_n == 20
-    assert config.resolved_threshold_tokens() == 204_800
-    assert config.resolved_threshold_tokens(context_length=272_000) == 217_600
-    assert config.resolved_tail_token_budget(context_length=272_000) == 43_520
+    assert config.protect_last_n == 3
+    assert config.resolved_threshold_tokens() == 230_400
+    assert config.resolved_threshold_tokens(context_length=272_000) == 244_800
+    assert config.resolved_tail_token_budget(context_length=272_000) == 48_960
     assert config.minimum_context_length == MINIMUM_CONTEXT_LENGTH
     assert config.summary_min_tokens == 2_000
     assert config.summary_tokens_ceiling == 12_000
@@ -102,11 +102,11 @@ def test_compressor_summarizes_middle_and_keeps_latest_user_message():
     messages.append({"role": "user", "content": "latest task should remain active"})
     calls = []
 
-    def summary_provider(turns, focus_topic=None, *, previous_summary="", max_output_tokens=None):
+    def summary_provider(turns, focus_topic=None, *, current_summary="", max_output_tokens=None):
         calls.append({
             "turns": turns,
             "focus_topic": focus_topic,
-            "previous_summary": previous_summary,
+            "current_summary": current_summary,
             "max_output_tokens": max_output_tokens,
         })
         return "## Active Task\nlatest task should remain active"
@@ -137,14 +137,14 @@ def test_llm_summary_provider_builds_hermes_prompt_and_redacts_output():
     summary = summary_provider(
         [{"role": "user", "content": "Please continue", "metadata": {"source": "test"}}],
         focus_topic="memory",
-        previous_summary="## Goal\nPrevious work",
+        current_summary="## Goal\nPrevious work",
         max_output_tokens=2_600,
     )
 
     prompt = provider.requests[0].messages[0]["content"]
     assert provider.requests[0].model == "summary-model"
     assert provider.requests[0].max_output_tokens == 2_600
-    assert "PREVIOUS SUMMARY" in prompt
+    assert "CURRENT SUMMARY" in prompt
     assert "NEW TURNS TO INCORPORATE" in prompt
     assert "FOCUS TOPIC" in prompt
     assert "## Pending User Asks" in prompt
@@ -219,3 +219,37 @@ def test_compression_tool_pair_sanitizer_uses_synthetic_missing_result():
     assert sanitized[1]["tool_call_id"] == "call_1"
     payload = json.loads(sanitized[1]["content"])
     assert payload["code"] == "missing_tool_result_synthetic"
+
+
+def test_compression_does_not_merge_summary_into_assistant_tool_call_tail():
+    compressor = ContextCompressor()
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+        {"role": "user", "content": "old request"},
+        {"role": "assistant", "content": "old answer"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{}"},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "result"},
+    ]
+
+    compressed = compressor._assemble_compressed_messages(
+        messages,
+        compress_start=3,
+        compress_end=4,
+        summary="## Active Task\nContinue lookup.",
+    )
+
+    assert compressed[3]["role"] == "user"
+    assert compressed[3]["metadata"]["context_compressed"] is True
+    assert compressed[4]["role"] == "assistant"
+    assert compressed[4]["tool_calls"][0]["id"] == "call_1"
+    assert compressed[4]["content"] == ""
+    assert "context_compressed" not in (compressed[4].get("metadata") or {})

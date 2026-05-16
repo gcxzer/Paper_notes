@@ -42,6 +42,24 @@ def test_sanitize_debug_payload_redacts_secrets_and_base64() -> None:
     assert "large-string-redacted" in payload["large"]
 
 
+def test_sanitize_debug_payload_keeps_numeric_token_usage() -> None:
+    payload = sanitize_debug_payload({
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "total_tokens": 120,
+        "before_estimated_tokens": 1000,
+        "access_token": "secret",
+        "custom_token": "secret",
+    })
+
+    assert payload["input_tokens"] == 100
+    assert payload["output_tokens"] == 20
+    assert payload["total_tokens"] == 120
+    assert payload["before_estimated_tokens"] == 1000
+    assert payload["access_token"] == "[redacted]"
+    assert payload["custom_token"] == "[redacted]"
+
+
 def test_chat_success_writes_debug_run(tmp_path) -> None:
     provider = FakeProvider([ModelResponse(content="Debug answer.")])
     service = AgentService(

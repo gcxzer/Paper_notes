@@ -11,7 +11,7 @@ class ContextSummaryProvider(Protocol):
         turns: list[dict[str, Any]],
         focus_topic: str | None = None,
         *,
-        previous_summary: str = "",
+        current_summary: str = "",
         max_output_tokens: int | None = None,
     ) -> str | None:
         """Generate a structured handoff summary for compacted turns."""
@@ -25,10 +25,10 @@ MINIMUM_CONTEXT_LENGTH = 64_000
 class ContextCompressionConfig:
     enabled: bool = True
     context_length: int = DEFAULT_FALLBACK_CONTEXT_LENGTH
-    threshold_percent: float = 0.80
+    threshold_percent: float = 0.90
     target_ratio: float = 0.20
     protect_first_n: int = 3
-    protect_last_n: int = 20
+    protect_last_n: int = 3
     minimum_context_length: int = MINIMUM_CONTEXT_LENGTH
     min_messages: int | None = None
     max_estimated_tokens: int | None = None
@@ -102,7 +102,7 @@ class ContextCompressionResult:
 @dataclass(slots=True)
 class ContextCompressionCheckpoint:
     session_id: str
-    previous_summary: str = ""
+    current_summary: str = ""
     compressed_until_message_index: int = 0
     source_message_count: int = 0
     compression_count: int = 0
@@ -113,13 +113,13 @@ class ContextCompressionCheckpoint:
 
     @property
     def summary_available(self) -> bool:
-        return bool(self.previous_summary.strip())
+        return bool(self.current_summary.strip())
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": 1,
             "session_id": self.session_id,
-            "previous_summary": self.previous_summary,
+            "current_summary": self.current_summary,
             "compressed_until_message_index": self.compressed_until_message_index,
             "source_message_count": self.source_message_count,
             "compression_count": self.compression_count,
@@ -133,7 +133,7 @@ class ContextCompressionCheckpoint:
     def from_dict(cls, data: dict[str, Any]) -> "ContextCompressionCheckpoint":
         return cls(
             session_id=str(data.get("session_id") or data.get("sessionId") or ""),
-            previous_summary=str(data.get("previous_summary") or data.get("previousSummary") or ""),
+            current_summary=str(data.get("current_summary") or ""),
             compressed_until_message_index=int(
                 data.get("compressed_until_message_index")
                 or data.get("compressedUntilMessageIndex")

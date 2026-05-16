@@ -20,6 +20,20 @@ _SECRET_KEY_PATTERN = re.compile(
     r"(api[_-]?key|authorization|bearer|token|secret|password|credential|refresh[_-]?token|access[_-]?token)",
     re.IGNORECASE,
 )
+_SAFE_TOKEN_METRIC_KEYS = frozenset({
+    "after_estimated_tokens",
+    "before_estimated_tokens",
+    "cache_deleted_input_tokens",
+    "cached_input_tokens",
+    "completion_tokens",
+    "input_tokens",
+    "message_after_estimated_tokens",
+    "message_before_estimated_tokens",
+    "output_tokens",
+    "prompt_tokens",
+    "reasoning_tokens",
+    "total_tokens",
+})
 _IMAGE_DATA_URL_PATTERN = re.compile(r"^data:image/[a-z0-9.+-]+;base64,", re.IGNORECASE)
 _BASE64ISH_PATTERN = re.compile(r"^[A-Za-z0-9+/=\s]+$")
 
@@ -220,7 +234,9 @@ def sanitize_debug_payload(value: Any, *, _depth: int = 0) -> Any:
                 sanitized["__truncated__"] = True
                 break
             text_key = str(key)
-            if _SECRET_KEY_PATTERN.search(text_key):
+            if _is_safe_token_metric(text_key, item):
+                sanitized[text_key] = item
+            elif _SECRET_KEY_PATTERN.search(text_key):
                 sanitized[text_key] = _REDACTED
             else:
                 sanitized[text_key] = sanitize_debug_payload(item, _depth=_depth + 1)
@@ -239,6 +255,11 @@ def sanitize_debug_payload(value: Any, *, _depth: int = 0) -> Any:
             return f"{value[:_MAX_DEBUG_STRING]}...[truncated:{len(value) - _MAX_DEBUG_STRING}]"
         return value
     return value
+
+
+def _is_safe_token_metric(key: str, value: Any) -> bool:
+    normalized = key.strip().lower()
+    return normalized in _SAFE_TOKEN_METRIC_KEYS and isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _normalize_error(error: dict[str, Any] | str | None) -> dict[str, Any] | None:

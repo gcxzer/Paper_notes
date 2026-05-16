@@ -24,6 +24,7 @@ const SENSITIVE_AGENT_ERROR_PATTERN = /(SSL validation failed|ValidationExceptio
 const state = {
   library: null,
   activeCategoryId: ALL_CATEGORY_ID,
+  activeTagFilters: [],
   selectedNoteId: null,
   query: "",
   pendingCategoryId: null,
@@ -124,6 +125,7 @@ const elements = {
   tagDialog: document.querySelector("#tagDialog"),
   tagForm: document.querySelector("#tagForm"),
   tagInput: document.querySelector("#tagInput"),
+  tagSuggestions: document.querySelector("#tagSuggestions"),
   tagDialogError: document.querySelector("#tagDialogError"),
   closeTagDialog: document.querySelector("#closeTagDialog"),
   cancelTagDialog: document.querySelector("#cancelTagDialog"),

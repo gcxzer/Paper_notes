@@ -1046,6 +1046,7 @@ function renderChatProgress() {
   if (!progress) return "";
   const terminalVisible = ["cancelled", "failed"].includes(progress.status);
   if (!isChatSessionPending() && !terminalVisible) return "";
+  const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: !terminalVisible });
   const visibleSteps = progress.workTrace?.items?.length
     ? progress.workTrace.items.map((item) => ({ detail: item.text }))
     : progress.visibleEvents.length
@@ -1055,6 +1056,7 @@ function renderChatProgress() {
   const canCancel = ["queued", "running", "waiting"].includes(progress.status) && Boolean(progress.requestId || currentChatProgressRequestId());
   const showSpinner = !["cancelled", "failed", "stopped"].includes(progress.status);
   return `
+    ${compactionMarkerHtml}
     <div class="ask-message ask-message-assistant ask-message-progress">
       <div class="ask-message-stack">
         <div class="ask-progress-card" role="status" aria-live="polite">
@@ -1077,6 +1079,37 @@ function renderChatProgress() {
           ` : ""}
         </div>
       </div>
+    </div>
+  `;
+}
+
+function renderContextCompactionMarker(events, { running = false } = {}) {
+  const normalizedEvents = Array.isArray(events) ? events : [];
+  const hasCompacted = normalizedEvents.some((event) => normalizeText(event?.type) === "context_compressed");
+  const hasCompacting = normalizedEvents.some((event) => normalizeText(event?.type) === "context_compressing");
+  if (hasCompacted) return renderContextCompactionDivider("Context compacted", "done");
+  if (hasCompacting && running) return renderContextCompactionDivider("Compacting context", "running");
+  return "";
+}
+
+function messageContextCompactionMarker(message, options = {}) {
+  const normalized = normalizeChatMessage(message);
+  if (normalized.role !== "assistant") return "";
+  return renderContextCompactionMarker(normalized.runTrace?.events, options);
+}
+
+function renderContextCompactionDivider(text, state = "done") {
+  const running = state === "running";
+  return `
+    <div class="ask-context-compaction-divider is-${escapeHtml(state)}" role="status" aria-live="polite">
+      <span></span>
+      <strong>
+        ${running
+          ? `<span class="ask-context-compaction-spinner" aria-hidden="true"></span>`
+          : `<span class="ask-context-compaction-icon" aria-hidden="true">▧</span>`}
+        <span>${escapeHtml(text)}</span>
+      </strong>
+      <span></span>
     </div>
   `;
 }
@@ -1261,10 +1294,20 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     if (message.role === "divider") {
       return renderChatDivider(message);
     }
+    const nextCompactionMarkerHtml = message.role === "user"
+      ? messageContextCompactionMarker(readerState.chatMessages[index + 1])
+      : "";
     const sourcesHtml = message.role === "assistant" ? renderChatSources(message.sources) : "";
     const imageHtml = renderChatImages([...(message.attachments || []), ...(message.artifacts || [])]);
     const noteEditHtml = message.role === "assistant" ? renderNoteEditDraft(message.noteEdit) : "";
     const toolActivityHtml = message.role === "assistant" ? renderChatToolActivity(message.toolActivity, { activityScope: `message-${index}` }) : "";
+    const previousMessage = normalizeChatMessage(readerState.chatMessages[index - 1]);
+    const moveCompactionMarkerToPreviousUser = message.role === "assistant"
+      && previousMessage.role === "user"
+      && Boolean(renderContextCompactionMarker(message.runTrace?.events));
+    const compactionMarkerHtml = message.role === "assistant" && !moveCompactionMarkerToPreviousUser
+      ? renderContextCompactionMarker(message.runTrace?.events)
+      : "";
     const traceHtml = message.role === "assistant" ? renderRunTraceSummary(message.runTrace, message.workTrace) : "";
     const editing = message.role === "user" && readerState.chatEditingIndex === index;
     const userContextBadgesHtml = message.role === "user" ? renderUserContextBadges(message) : "";
@@ -1274,7 +1317,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
       : message.text
         ? `<div class="ask-bubble">${rawMessage.streaming ? renderStreamingChatText(message.text) : renderChatMarkdown(message.text)}</div>`
         : "";
-    return `
+    return `${nextCompactionMarkerHtml}${compactionMarkerHtml}
     <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}">
       <div class="ask-message-stack">
         ${traceHtml}
@@ -1310,7 +1353,7 @@ function renderUserSelectedTextBadge(selectedTextContext) {
   const context = normalizeSelectedTextContext(selectedTextContext);
   if (!context) return "";
   const wordCount = Number(context.wordCount) || context.text.split(/\s+/).filter(Boolean).length;
-  return `<div class="ask-user-generation-badge ask-user-selected-text-badge" title="${escapeHtml(context.text)}">Text selected: ${wordCount} ${wordCount === 1 ? "word" : "words"}</div>`;
+  return `<div class="ask-user-generation-badge ask-user-selected-text-badge" data-selected-text-preview="${escapeHtml(context.text)}" aria-label="Selected text preview">Text selected: ${wordCount} ${wordCount === 1 ? "word" : "words"}</div>`;
 }
 
 function renderUserContextBadges(message) {
@@ -1321,7 +1364,9 @@ function renderUserContextBadges(message) {
 }
 
 function renderChatDivider(message) {
-  const text = message.text || "Context compacted. Earlier conversation was summarized.";
+  const text = ["context_compaction_marker", "context_compaction"].includes(message.markerType)
+    ? "Context compacted"
+    : (message.text || "Context compacted");
   return `
     <div class="ask-message-divider" role="status">
       <span></span>

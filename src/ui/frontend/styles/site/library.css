@@ -232,9 +232,60 @@
 }
 
 .library-status {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
   margin: 16px 0 18px;
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.library-status-count {
+  display: block;
+}
+
+.library-status-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.library-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 68%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--panel));
+  color: var(--accent);
+  font-weight: 800;
+  line-height: 1;
+  padding: 6px 8px 6px 12px;
+}
+
+.library-status-tag button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0;
+}
+
+.library-status-tag button:hover,
+.library-status-tag button:focus-visible {
+  background: var(--accent);
+  color: var(--panel);
+  outline: none;
 }
 
 .notes-grid {
@@ -534,6 +585,31 @@
   overflow-wrap: anywhere;
 }
 
+.details-tag-filter {
+  max-width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.details-tag:hover,
+.details-tag:focus-within,
+.details-tag.is-filter-active {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 92%, var(--panel)), var(--panel));
+}
+
+.details-tag-filter:focus-visible {
+  outline: none;
+}
+
 .details-tag-remove {
   position: absolute;
   top: -7px;
@@ -581,7 +657,7 @@
 
 .details-summary-input {
   width: 100%;
-  min-height: 132px;
+  min-height: 250px;
   resize: vertical;
   border: 1px solid var(--line-strong);
   border-radius: 10px;

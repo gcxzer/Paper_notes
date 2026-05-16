@@ -127,7 +127,7 @@ class StreamingReasoningDeltaBlockingProvider(BlockingProvider):
 
 
 def hermes_test_compressor(config: ContextCompressionConfig) -> ContextCompressor:
-    def summary_provider(turns, focus_topic=None, *, previous_summary="", max_output_tokens=None):
+    def summary_provider(turns, focus_topic=None, *, current_summary="", max_output_tokens=None):
         return "## Active Task\ncompact from API\n\n## Goal\nPreserve context."
 
     return ContextCompressor(config, summary_provider=summary_provider)
