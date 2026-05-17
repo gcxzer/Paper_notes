@@ -8,7 +8,7 @@
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
   <link rel="stylesheet" href="/node_modules/katex/dist/katex.min.css">
-  <link rel="stylesheet" href="styles/reader/index.css?v=shared-debug-ui-v1">
+  <link rel="stylesheet" href="styles/reader/index.css?v=debug-unified-v1">
 </head>
 <body>
   <div class="reader-shell">
@@ -119,6 +119,7 @@
           <div class="ask-session-popover-header">
             <strong id="chatSessionPopoverTitle">Sessions</strong>
             <div class="ask-session-header-actions">
+              <button class="ask-session-new" type="button" id="newChatSession">New chat</button>
               <button class="ask-session-clear" type="button" id="clearTrashSessions" hidden>Clear all</button>
             </div>
           </div>
@@ -444,37 +445,44 @@
     </div>
   </dialog>
 
-  <dialog class="modal debug-modal" id="readerDebugDialog">
+  <dialog class="modal debug-modal" id="debugDialog">
     <div class="modal-card debug-card">
       <div class="modal-header debug-header">
         <div>
           <div class="modal-eyebrow">Agent</div>
           <h3>Debug</h3>
         </div>
-        <button class="icon-button" type="button" id="readerCloseDebugDialog" aria-label="Close debug">x</button>
-      </div>
-      <div class="debug-toolbar">
-        <button class="toolbar-button" type="button" id="readerRefreshDebugRuns">Refresh</button>
-        <div class="debug-cleanup-control">
-          <button class="toolbar-button" type="button" id="readerCleanupDebugRuns" aria-haspopup="menu" aria-expanded="false">Clean old</button>
-          <div class="debug-cleanup-menu" id="readerCleanupDebugMenu" role="menu" hidden>
-            <button type="button" data-debug-cleanup-days="1" role="menuitem">Older than 1 day</button>
-            <button type="button" data-debug-cleanup-days="7" role="menuitem">Older than 7 days</button>
-            <button type="button" data-debug-cleanup-days="30" role="menuitem">Older than 30 days</button>
-            <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
+        <div class="debug-header-actions">
+          <div class="debug-toolbar">
+            <button class="toolbar-button" type="button" id="refreshDebugRuns">Refresh</button>
+            <div class="debug-cleanup-control">
+              <button class="toolbar-button" type="button" id="cleanupDebugRuns" aria-haspopup="menu" aria-expanded="false">Clean old</button>
+              <div class="debug-cleanup-menu" id="cleanupDebugMenu" role="menu" hidden>
+                <button type="button" data-debug-cleanup-days="1" role="menuitem">Older than 1 day</button>
+                <button type="button" data-debug-cleanup-days="7" role="menuitem">Older than 7 days</button>
+                <button type="button" data-debug-cleanup-days="30" role="menuitem">Older than 30 days</button>
+                <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
+              </div>
+            </div>
+            <button class="toolbar-button" type="button" id="copyDebugRun">Copy JSON</button>
           </div>
+          <button class="icon-button" type="button" id="closeDebugDialog" aria-label="Close debug">x</button>
         </div>
-        <button class="toolbar-button" type="button" id="readerCopyDebugRun">Copy JSON</button>
       </div>
-      <p class="field-error" id="readerDebugError" hidden></p>
+      <p class="field-error" id="debugError" hidden></p>
       <div class="debug-layout">
-        <div class="debug-run-list" id="readerDebugRunList" aria-live="polite"></div>
-        <div class="debug-run-detail" id="readerDebugRunDetail"></div>
+        <div class="debug-run-list" id="debugRunList" aria-live="polite"></div>
+        <div class="debug-run-detail" id="debugRunDetail"></div>
+      </div>
+      <div class="modal-actions debug-settings-actions">
+        <span class="ai-settings-action-spacer"></span>
+        <button class="toolbar-button" type="button" id="cancelDebugDialog">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="button" id="saveDebugDialog">Save</button>
       </div>
     </div>
   </dialog>
 
   <script src="/node_modules/katex/dist/katex.min.js"></script>
-  <script type="module" src="scripts/reader/loader.js?v=shared-debug-ui-v1"></script>
+  <script type="module" src="scripts/reader/loader.js?v=debug-unified-v1"></script>
 </body>
 </html>

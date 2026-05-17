@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=ai-provider-actions-v1">
+  <link rel="stylesheet" href="styles/site/index.css?v=mcp-save-error-inline-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -310,6 +310,11 @@
         <span id="memoryCount">0 saved</span>
       </div>
       <div class="memory-list" id="memoryList" aria-live="polite"></div>
+      <div class="modal-actions memory-settings-actions">
+        <span class="ai-settings-action-spacer"></span>
+        <button class="toolbar-button" type="button" id="cancelMemoryDialog">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="button" id="saveMemoryDialog">Save</button>
+      </div>
     </div>
   </dialog>
 
@@ -371,19 +376,24 @@
           <div class="modal-eyebrow">Agent</div>
           <h3>MCP</h3>
         </div>
-        <button class="icon-button" type="button" id="closeMcpSettingsDialog" aria-label="Close MCP settings">x</button>
-      </div>
-
-      <div class="mcp-settings-toolbar">
-        <strong id="mcpSettingsCount">0 servers</strong>
-        <div class="mcp-settings-toolbar-actions">
+        <div class="mcp-settings-header-actions">
           <button class="toolbar-button" type="button" id="refreshMcpSettings">Refresh</button>
           <button class="toolbar-button" type="button" id="addMcpServer">Add server</button>
+          <button class="icon-button" type="button" id="closeMcpSettingsDialog" aria-label="Close MCP settings">x</button>
         </div>
       </div>
 
       <div class="mcp-settings-layout">
-        <div class="mcp-server-list" id="mcpServerList" aria-live="polite"></div>
+        <aside class="mcp-settings-sidebar" aria-label="MCP server list">
+          <label class="mcp-search-field">
+            <span class="mcp-search-label">
+              <span>Search</span>
+              <strong id="mcpSettingsCount">0 servers</strong>
+            </span>
+            <input id="mcpSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search servers">
+          </label>
+          <div class="mcp-server-list" id="mcpServerList" aria-live="polite"></div>
+        </aside>
         <article class="mcp-server-editor" id="mcpServerEditor" aria-live="polite"></article>
       </div>
 
@@ -407,18 +417,19 @@
           <div class="modal-eyebrow">Agent</div>
           <h3>Skills</h3>
         </div>
-        <button class="icon-button" type="button" id="closeSkillsSettingsDialog" aria-label="Close skills">x</button>
-      </div>
-
-      <div class="skills-settings-toolbar">
-        <strong id="skillsSettingsCount">0 skills</strong>
-        <button class="toolbar-button" type="button" id="refreshSkillsSettings">Refresh</button>
+        <div class="skills-settings-header-actions">
+          <button class="toolbar-button" type="button" id="refreshSkillsSettings">Refresh</button>
+          <button class="icon-button" type="button" id="closeSkillsSettingsDialog" aria-label="Close skills">x</button>
+        </div>
       </div>
 
       <div class="skills-settings-layout">
         <aside class="skills-settings-sidebar" aria-label="Skills list">
           <label class="skills-search-field">
-            <span>Search</span>
+            <span class="skills-search-label">
+              <span>Search</span>
+              <strong id="skillsSettingsCount">0 skills</strong>
+            </span>
             <input id="skillsSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search skills">
           </label>
           <div class="skills-settings-list" id="skillsSettingsList" aria-live="polite"></div>
@@ -439,6 +450,11 @@
 
       <p class="settings-hint" id="skillsSettingsSource"></p>
       <p class="field-error" id="skillsSettingsError" hidden></p>
+      <div class="modal-actions skills-settings-actions">
+        <span class="ai-settings-action-spacer"></span>
+        <button class="toolbar-button" type="button" id="cancelSkillsSettings">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="button" id="saveSkillsSettings">Save</button>
+      </div>
     </div>
   </dialog>
 
@@ -621,41 +637,48 @@
           <div class="modal-eyebrow">Agent</div>
           <h3>Debug</h3>
         </div>
-        <button class="icon-button" type="button" id="closeDebugDialog" aria-label="Close debug">x</button>
-      </div>
-      <div class="debug-toolbar">
-        <button class="toolbar-button" type="button" id="refreshDebugRuns">Refresh</button>
-        <div class="debug-cleanup-control">
-          <button class="toolbar-button" type="button" id="cleanupDebugRuns" aria-haspopup="menu" aria-expanded="false">Clean old</button>
-          <div class="debug-cleanup-menu" id="cleanupDebugMenu" role="menu" hidden>
-            <button type="button" data-debug-cleanup-days="1" role="menuitem">Older than 1 day</button>
-            <button type="button" data-debug-cleanup-days="7" role="menuitem">Older than 7 days</button>
-            <button type="button" data-debug-cleanup-days="30" role="menuitem">Older than 30 days</button>
-            <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
+        <div class="debug-header-actions">
+          <div class="debug-toolbar">
+            <button class="toolbar-button" type="button" id="refreshDebugRuns">Refresh</button>
+            <div class="debug-cleanup-control">
+              <button class="toolbar-button" type="button" id="cleanupDebugRuns" aria-haspopup="menu" aria-expanded="false">Clean old</button>
+              <div class="debug-cleanup-menu" id="cleanupDebugMenu" role="menu" hidden>
+                <button type="button" data-debug-cleanup-days="1" role="menuitem">Older than 1 day</button>
+                <button type="button" data-debug-cleanup-days="7" role="menuitem">Older than 7 days</button>
+                <button type="button" data-debug-cleanup-days="30" role="menuitem">Older than 30 days</button>
+                <button type="button" data-debug-cleanup-days="90" role="menuitem">Older than 90 days</button>
+              </div>
+            </div>
+            <button class="toolbar-button" type="button" id="copyDebugRun">Copy JSON</button>
           </div>
+          <button class="icon-button" type="button" id="closeDebugDialog" aria-label="Close debug">x</button>
         </div>
-        <button class="toolbar-button" type="button" id="copyDebugRun">Copy JSON</button>
       </div>
       <p class="field-error" id="debugError" hidden></p>
       <div class="debug-layout">
         <div class="debug-run-list" id="debugRunList" aria-live="polite"></div>
         <div class="debug-run-detail" id="debugRunDetail"></div>
       </div>
+      <div class="modal-actions debug-settings-actions">
+        <span class="ai-settings-action-spacer"></span>
+        <button class="toolbar-button" type="button" id="cancelDebugDialog">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="button" id="saveDebugDialog">Save</button>
+      </div>
     </div>
   </dialog>
 
   <script src="scripts/site/page_state.js?v=ai-provider-actions-v1"></script>
-  <script src="scripts/site/library.js?v=paper-url-import-v1"></script>
+  <script src="scripts/site/library.js?v=settings-info-hint-v1"></script>
   <script src="scripts/site/render.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/ai.js?v=model-capabilities-v1"></script>
-  <script src="scripts/site/settings/tools.js?v=tools-ui-v14"></script>
-  <script src="scripts/site/settings/mcp.js?v=mcp-env-headers-v1"></script>
-  <script src="scripts/site/settings/skills.js?v=skills-ui-v2"></script>
-  <script src="scripts/site/settings/memory.js?v=memory-ui-v1"></script>
+  <script src="scripts/site/settings/tools.js?v=tools-unlocked-enabled-v1"></script>
+  <script src="scripts/site/settings/mcp.js?v=mcp-connect-info-v1"></script>
+  <script src="scripts/site/settings/skills.js?v=settings-footer-actions-v1"></script>
+  <script src="scripts/site/settings/memory.js?v=settings-footer-actions-v1"></script>
   <script src="scripts/shared/debug-panel.js?v=shared-debug-v1"></script>
-  <script src="scripts/site/debug.js?v=shared-debug-v1"></script>
+  <script src="scripts/site/debug.js?v=settings-footer-actions-v1"></script>
   <script src="scripts/site/actions.js?v=import-url-polish-v1"></script>
-  <script src="scripts/site/events.js?v=skills-ui-v2"></script>
+  <script src="scripts/site/events.js?v=settings-footer-actions-v1"></script>
   <script src="scripts/shared/floating-pad.js?v=floating-pad-v1"></script>
 </body>
 </html>

@@ -1132,6 +1132,58 @@ def test_mcp_handler_returns_success_error_and_disconnect_payloads():
     assert disconnected["code"] == "mcp_server_disconnected"
 
 
+def test_mcp_tool_error_classifies_timeout_and_rate_limit_guidance():
+    registry = ToolRegistry(availability_ttl_seconds=0)
+    manager = MCPManager(registry)
+    server = FakeMCPServer()
+    manager._servers[server.id] = server
+    manager._statuses[server.id] = {"connected": True, "error": "", "tools": [], "toolCount": 0}
+    manager._register_server_tools(server)
+
+    server.result = SimpleNamespace(
+        isError=True,
+        content=[SimpleNamespace(text="Error: arXiv API timed out after 15000ms")],
+        structuredContent=None,
+    )
+    timeout = json.loads(registry.dispatch("mcp_filesystem_read_file", {}).content)
+    assert timeout["success"] is False
+    assert timeout["code"] == "mcp_timeout"
+    assert timeout["retry"]["immediate"] is False
+    assert "Do not retry repeatedly" in timeout["recovery"]
+
+    server.result = SimpleNamespace(
+        isError=True,
+        content=[
+            SimpleNamespace(
+                text="Error: arXiv rate limit exceeded\n\nRecovery: Wait for error.data.retryAfter seconds before retrying."
+            )
+        ],
+        structuredContent={"error": {"data": {"retryAfter": 42}}},
+    )
+    limited = json.loads(registry.dispatch("mcp_filesystem_read_file", {}).content)
+    assert limited["success"] is False
+    assert limited["code"] == "mcp_rate_limited"
+    assert limited["retry"] == {"allowed": True, "immediate": False, "reason": "rate_limited", "afterSeconds": 42}
+    assert "Do not retry immediately" in limited["recovery"]
+
+
+def test_mcp_exception_rate_limit_does_not_mark_server_disconnected():
+    registry = ToolRegistry(availability_ttl_seconds=0)
+    manager = MCPManager(registry)
+    server = FakeMCPServer()
+    server.raise_error = RuntimeError("HTTP 429 Too Many Requests retryAfter: 30")
+    manager._servers[server.id] = server
+    manager._statuses[server.id] = {"connected": True, "error": "", "tools": [], "toolCount": 0}
+    manager._register_server_tools(server)
+
+    limited = json.loads(registry.dispatch("mcp_filesystem_read_file", {}).content)
+
+    assert limited["success"] is False
+    assert limited["code"] == "mcp_rate_limited"
+    assert limited["retry"]["afterSeconds"] == 30
+    assert manager.statuses()["filesystem"]["connected"] is True
+
+
 def test_mcp_suspicious_tool_resource_and_prompt_results_include_warnings():
     registry = ToolRegistry(availability_ttl_seconds=0)
     manager = MCPManager(registry)
@@ -1340,6 +1392,29 @@ def test_real_stdio_fixture_lists_calls_errors_and_shutdowns():
 
     assert registry.get("mcp_stdio_fixture_echo") is None
     assert manager.statuses() == {}
+
+
+def test_register_servers_removes_disabled_or_removed_mcp_tools():
+    registry = ToolRegistry(availability_ttl_seconds=0)
+    manager = MCPManager(registry)
+    config = _stdio_config()
+    try:
+        names = manager.register_servers([config])
+        assert "mcp_stdio_fixture_echo" in names
+        assert registry.get("mcp_stdio_fixture_echo") is not None
+        assert manager.statuses()["stdio_fixture"]["connected"] is True
+
+        manager.register_servers([{**config, "enabled": False}])
+        assert registry.get("mcp_stdio_fixture_echo") is None
+        assert "stdio_fixture" not in manager.statuses()
+
+        names = manager.register_servers([config])
+        assert "mcp_stdio_fixture_echo" in names
+        manager.register_servers([])
+        assert registry.get("mcp_stdio_fixture_echo") is None
+        assert manager.statuses() == {}
+    finally:
+        manager.shutdown()
 
 
 def test_real_stdio_fixture_timeout_and_crash_errors_are_sanitized():

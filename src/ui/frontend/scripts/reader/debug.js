@@ -1,23 +1,23 @@
-const readerDebugPanel = createDebugPanel({
+const debugPanel = createDebugPanel({
   state: readerState,
   elements: {
-    dialog: elements.readerDebugDialog,
-    error: elements.readerDebugError,
-    runList: elements.readerDebugRunList,
-    runDetail: elements.readerDebugRunDetail,
-    cleanupButton: elements.readerCleanupDebugRuns,
-    cleanupMenu: elements.readerCleanupDebugMenu
+    dialog: elements.debugDialog,
+    error: elements.debugError,
+    runList: elements.debugRunList,
+    runDetail: elements.debugRunDetail,
+    cleanupButton: elements.cleanupDebugRuns,
+    cleanupMenu: elements.cleanupDebugMenu
   },
   fetchJson: fetchAgentJson,
-  copyError: "Could not copy debug log."
+  copyError: "Could not copy debug JSON."
 });
 
-const renderReaderDebugDialog = readerDebugPanel.renderDebugPanel;
-const normalizeDebugRun = readerDebugPanel.normalizeDebugRun;
-const setReaderDebugCleanupMenuOpen = readerDebugPanel.setDebugCleanupMenuOpen;
-const loadReaderDebugRuns = readerDebugPanel.loadDebugRuns;
-const loadReaderDebugRunDetail = readerDebugPanel.loadDebugRunDetail;
-const openReaderDebugDialog = readerDebugPanel.openDebugPanel;
-const closeReaderDebugDialog = readerDebugPanel.closeDebugPanel;
-const cleanupReaderDebugRunsAction = readerDebugPanel.cleanupDebugRuns;
-const copyActiveReaderDebugRun = readerDebugPanel.copyActiveDebugRun;
+const renderDebugDialog = debugPanel.renderDebugPanel;
+const normalizeDebugRun = debugPanel.normalizeDebugRun;
+const setDebugCleanupMenuOpen = debugPanel.setDebugCleanupMenuOpen;
+const loadDebugRuns = debugPanel.loadDebugRuns;
+const loadDebugRunDetail = debugPanel.loadDebugRunDetail;
+const openDebugDialog = debugPanel.openDebugPanel;
+const closeDebugDialog = debugPanel.closeDebugPanel;
+const cleanupDebugRunsAction = debugPanel.cleanupDebugRuns;
+const copyActiveDebugRun = debugPanel.copyActiveDebugRun;

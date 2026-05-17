@@ -32,6 +32,12 @@ def external_skill_roots(settings_path: str | Path | None = None) -> tuple[Path,
     return tuple(_dedupe_paths(roots))
 
 
+def disabled_skill_names(settings_path: str | Path | None = None) -> tuple[str, ...]:
+    settings = read_skill_settings(settings_path)
+    names = normalize_disabled_skills(settings.get("disabledSkills", settings.get("disabled_skills")))
+    return tuple(names)
+
+
 def environment_skill_roots() -> tuple[Path, ...]:
     override = os.environ.get("PAPER_NOTES_SKILLS_PATHS", "").strip()
     if not override:
@@ -51,6 +57,23 @@ def default_skill_roots(settings_path: str | Path | None = None) -> tuple[Path, 
 def normalize_external_directories(value: Any) -> list[str]:
     roots = _paths_from_value(value)
     return [str(path) for path in _dedupe_paths(roots)]
+
+
+def normalize_disabled_skills(value: Any) -> list[str]:
+    if isinstance(value, str):
+        candidates = [part.strip() for part in value.replace(",", "\n").splitlines()]
+    elif isinstance(value, list):
+        candidates = [str(item or "").strip() if isinstance(item, str) else "" for item in value]
+    else:
+        candidates = []
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in candidates:
+        if not name or "\x00" in name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
 
 
 def _paths_from_value(value: Any) -> list[Path]:

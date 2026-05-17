@@ -163,7 +163,7 @@ function handleReaderChatMessageAction(event) {
   }
   const debugButton = event.target.closest("[data-debug-run-open]");
   if (debugButton) {
-    void openReaderDebugDialog(debugButton.dataset.debugRunOpen);
+    void openDebugDialog(debugButton.dataset.debugRunOpen);
     return;
   }
 }
@@ -519,25 +519,27 @@ function initializeReaderChat() {
   elements.readerChatMessages?.addEventListener("click", (event) => {
     handleToolActivityClick(event).catch((error) => setReaderChatError(error.message || GENERIC_AGENT_ERROR));
   });
-  elements.readerCloseDebugDialog?.addEventListener("click", closeReaderDebugDialog);
-  elements.readerRefreshDebugRuns?.addEventListener("click", () => {
-    void loadReaderDebugRuns();
+  elements.closeDebugDialog?.addEventListener("click", closeDebugDialog);
+  elements.cancelDebugDialog?.addEventListener("click", closeDebugDialog);
+  elements.saveDebugDialog?.addEventListener("click", closeDebugDialog);
+  elements.refreshDebugRuns?.addEventListener("click", () => {
+    void loadDebugRuns();
   });
-  elements.readerCleanupDebugRuns?.addEventListener("click", () => {
-    setReaderDebugCleanupMenuOpen(!readerState.debugCleanupMenuOpen);
+  elements.cleanupDebugRuns?.addEventListener("click", () => {
+    setDebugCleanupMenuOpen(!readerState.debugCleanupMenuOpen);
   });
-  elements.readerCleanupDebugMenu?.addEventListener("click", (event) => {
+  elements.cleanupDebugMenu?.addEventListener("click", (event) => {
     const option = event.target.closest("[data-debug-cleanup-days]");
     if (!option) return;
     const days = Number(option.dataset.debugCleanupDays || 30);
-    void cleanupReaderDebugRunsAction(Number.isFinite(days) ? days : 30);
+    void cleanupDebugRunsAction(Number.isFinite(days) ? days : 30);
   });
-  elements.readerCopyDebugRun?.addEventListener("click", () => {
-    void copyActiveReaderDebugRun();
+  elements.copyDebugRun?.addEventListener("click", () => {
+    void copyActiveDebugRun();
   });
-  elements.readerDebugRunList?.addEventListener("click", (event) => {
+  elements.debugRunList?.addEventListener("click", (event) => {
     const row = event.target.closest("[data-debug-run-id]");
-    if (row) void loadReaderDebugRunDetail(row.dataset.debugRunId);
+    if (row) void loadDebugRunDetail(row.dataset.debugRunId);
   });
   elements.readerModelMenuButton?.addEventListener("click", () => {
     setReaderModelMenuOpen(!readerState.modelMenuOpen);
@@ -639,7 +641,7 @@ function initializeReaderChat() {
       closeReaderToolMenu();
     }
     if (!event.target.closest(".debug-cleanup-control")) {
-      setReaderDebugCleanupMenuOpen(false);
+      setDebugCleanupMenuOpen(false);
     }
   });
   document.addEventListener("keydown", (event) => {
@@ -648,7 +650,7 @@ function initializeReaderChat() {
     if (readerState.modelMenuOpen) closeReaderModelMenu();
     if (readerState.contextPopoverOpen) closeReaderContextPopover();
     if (readerState.toolMenuOpen) closeReaderToolMenu();
-    if (readerState.debugCleanupMenuOpen) setReaderDebugCleanupMenuOpen(false);
+    if (readerState.debugCleanupMenuOpen) setDebugCleanupMenuOpen(false);
   });
   resizeReaderChatInput();
 }

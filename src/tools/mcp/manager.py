@@ -79,6 +79,22 @@ _SESSION_EXPIRED_MARKERS = (
     "broken pipe",
     "end of file",
 )
+_RATE_LIMIT_ERROR_MARKERS = (
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "retry-after",
+    "retry after",
+    "retryafter",
+    "http 429",
+    "status 429",
+    "429 too many",
+)
+_TIMEOUT_ERROR_MARKERS = (
+    "timed out",
+    "timeout",
+    "deadline exceeded",
+)
 
 _mcp_loop: asyncio.AbstractEventLoop | None = None
 _mcp_thread: threading.Thread | None = None
@@ -606,10 +622,22 @@ class MCPManager:
 
     def register_servers(self, servers: list[dict[str, Any]]) -> list[str]:
         enabled_servers = [server for server in servers if server.get("enabled") is not False]
-        if not enabled_servers:
-            return []
+        enabled_ids = {str(server.get("id") or "").strip() for server in enabled_servers if str(server.get("id") or "").strip()}
 
         async def _register_all() -> list[str]:
+            with self._lock:
+                replaced_servers = list(self._servers.values())
+                registered_names = [name for server in replaced_servers for name in server.registered_tool_names]
+                self._servers.clear()
+                for server_id in list(self._statuses):
+                    if server_id not in enabled_ids:
+                        self._statuses.pop(server_id, None)
+            for name in registered_names:
+                self.registry.deregister(name)
+            if replaced_servers:
+                await asyncio.gather(*(server.shutdown() for server in replaced_servers), return_exceptions=True)
+            if not enabled_servers:
+                return []
             results = await asyncio.gather(
                 *(self._connect_and_register(server) for server in enabled_servers),
                 return_exceptions=True,
@@ -1100,13 +1128,10 @@ class MCPManager:
                         "server_id": server_id,
                     }
             error_text = sanitize_mcp_error(f"MCP call failed: {type(error).__name__}: {_format_exception(error)}")
-            self._mark_server_disconnected(server_id, error_text)
-            return False, {
-                "success": False,
-                "error": error_text,
-                "code": "mcp_call_failed",
-                "server_id": server_id,
-            }
+            payload = _mcp_error_payload(error_text, server_id=server_id, default_code="mcp_call_failed")
+            if payload.get("code") != "mcp_rate_limited":
+                self._mark_server_disconnected(server_id, error_text)
+            return False, payload
 
     def _retry_after_reconnect(self, server: MCPServerTask, timeout: float, call_factory: Any) -> Any:
         async def _retry() -> Any:
@@ -1274,12 +1299,12 @@ def _mcp_tool_output_schema(tool: Any, *, warnings: list[dict[str, Any]] | None 
 def _tool_result_payload(result: Any, *, server_id: str, media_store: Any = None, tool_name: str = "") -> dict[str, Any]:
     if bool(getattr(result, "isError", False)):
         error_text = _content_blocks_text(getattr(result, "content", None)) or "MCP tool returned an error."
-        payload = {
-            "success": False,
-            "error": sanitize_mcp_error(error_text),
-            "code": "mcp_tool_error",
-            "server_id": server_id,
-        }
+        payload = _mcp_error_payload(
+            error_text,
+            server_id=server_id,
+            default_code="mcp_tool_error",
+            details=_first_field(result, "structuredContent", "structured_content"),
+        )
         _attach_mcp_security_payload(payload, _mcp_security_warnings(error_text, surface="tool_result"))
         return payload
     rendered = _render_mcp_content_blocks(
@@ -1302,6 +1327,89 @@ def _tool_result_payload(result: Any, *, server_id: str, media_store: Any = None
     _attach_mcp_media_payload(payload, rendered["artifacts"], rendered["mediaErrors"])
     _attach_mcp_security_payload(payload, _mcp_security_warnings(payload, surface="tool_result"))
     return payload
+
+
+def _mcp_error_payload(
+    error_text: Any,
+    *,
+    server_id: str,
+    default_code: str = "mcp_tool_error",
+    details: Any = None,
+) -> dict[str, Any]:
+    safe_error = sanitize_mcp_error(error_text)
+    code = _mcp_error_code(safe_error, default_code=default_code)
+    payload: dict[str, Any] = {
+        "success": False,
+        "error": safe_error,
+        "code": code,
+        "server_id": server_id,
+    }
+    if code == "mcp_rate_limited":
+        retry_after = _extract_retry_after_seconds(details, error_text)
+        payload["retry"] = {
+            "allowed": True,
+            "immediate": False,
+            "reason": "rate_limited",
+        }
+        if retry_after is not None:
+            payload["retry"]["afterSeconds"] = retry_after
+        payload["recovery"] = "Do not retry immediately. Wait for the remote MCP server cooldown before retrying."
+    elif code == "mcp_timeout":
+        payload["retry"] = {
+            "allowed": True,
+            "immediate": False,
+            "reason": "timeout",
+        }
+        payload["recovery"] = "Do not retry repeatedly in the same turn. Retry later or increase the MCP tool timeout."
+    return payload
+
+
+def _mcp_error_code(error_text: Any, *, default_code: str) -> str:
+    text = str(error_text or "").lower()
+    if any(marker in text for marker in _RATE_LIMIT_ERROR_MARKERS):
+        return "mcp_rate_limited"
+    if any(marker in text for marker in _TIMEOUT_ERROR_MARKERS):
+        return "mcp_timeout"
+    return default_code
+
+
+def _extract_retry_after_seconds(*values: Any) -> int | None:
+    for value in values:
+        found = _find_retry_after_value(value)
+        if found is None:
+            continue
+        try:
+            seconds = int(float(str(found).strip()))
+        except (TypeError, ValueError):
+            continue
+        if seconds >= 0:
+            return seconds
+    return None
+
+
+def _find_retry_after_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized_key = str(key or "").replace("_", "").replace("-", "").lower()
+            if normalized_key in {"retryafter", "retryafterseconds"}:
+                return item
+            found = _find_retry_after_value(item)
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            found = _find_retry_after_value(item)
+            if found is not None:
+                return found
+        return None
+    text = str(value or "")
+    match = re.search(r"(?i)\bretry[-_\s]*after(?:\s*seconds)?\s*[:=]\s*(\d+(?:\.\d+)?)", text)
+    if match:
+        return match.group(1)
+    return None
 
 
 def _content_blocks_text(content: Any) -> str:

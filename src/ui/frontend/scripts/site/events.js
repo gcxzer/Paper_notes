@@ -216,6 +216,8 @@ elements.scratchpadSettingsSwitch?.addEventListener("click", () => {
 elements.openAiSettings?.addEventListener("click", settingsLinkHandler(openAiSettingsDialog));
 elements.openDebugSettings?.addEventListener("click", settingsLinkHandler(() => openDebugDialog()));
 elements.closeDebugDialog?.addEventListener("click", closeDebugDialog);
+elements.cancelDebugDialog?.addEventListener("click", closeDebugDialog);
+elements.saveDebugDialog?.addEventListener("click", closeDebugDialog);
 elements.refreshDebugRuns?.addEventListener("click", () => {
   void loadDebugRuns();
 });
@@ -270,6 +272,10 @@ elements.openMemorySettings?.addEventListener("click", settingsLinkHandler(openM
 elements.openToolSettings?.addEventListener("click", settingsLinkHandler(openToolSettingsDialog));
 elements.openMcpSettings?.addEventListener("click", settingsLinkHandler(openMcpSettingsDialog));
 elements.openSkillsSettings?.addEventListener("click", settingsLinkHandler(openSkillsSettingsDialog));
+elements.cancelSkillsSettings?.addEventListener("click", closeSkillsSettingsDialog);
+elements.saveSkillsSettings?.addEventListener("click", () => {
+  void saveSkillsSettingsDialog();
+});
 elements.closeToolSettingsDialog?.addEventListener("click", closeToolSettingsDialog);
 elements.cancelToolSettings?.addEventListener("click", closeToolSettingsDialog);
 elements.toolSettingsForm?.addEventListener("submit", async (event) => {
@@ -344,15 +350,23 @@ elements.toolSettingsList?.addEventListener("input", (event) => {
     }
   };
 });
-elements.closeMcpSettingsDialog?.addEventListener("click", closeMcpSettingsDialog);
-elements.cancelMcpSettings?.addEventListener("click", closeMcpSettingsDialog);
+elements.closeMcpSettingsDialog?.addEventListener("click", cancelMcpSettingsDialog);
+elements.cancelMcpSettings?.addEventListener("click", cancelMcpSettingsDialog);
 elements.refreshMcpSettings?.addEventListener("click", () => {
-  void loadMcpSettings();
+  void refreshMcpSettings();
+});
+elements.mcpSettingsDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelMcpSettingsDialog();
 });
 elements.addMcpServer?.addEventListener("click", addMcpServer);
 elements.mcpSettingsForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveMcpSettings();
+});
+elements.mcpSearchInput?.addEventListener("input", (event) => {
+  state.mcpSearchQuery = normalizeText(event.target.value);
+  renderMcpSettingsDialog();
 });
 elements.mcpServerList?.addEventListener("click", (event) => {
   const row = event.target.closest("[data-mcp-select]");
@@ -364,6 +378,9 @@ elements.mcpServerList?.addEventListener("click", (event) => {
 elements.mcpServerEditor?.addEventListener("input", (event) => {
   const fieldInput = event.target.closest("[data-mcp-field]");
   if (fieldInput) {
+    const fieldType = normalizeText(fieldInput.type).toLowerCase();
+    const tagName = normalizeText(fieldInput.tagName).toLowerCase();
+    if (fieldType === "checkbox" || tagName === "select") return;
     updateCurrentMcpServerField(fieldInput);
     return;
   }
@@ -388,7 +405,18 @@ elements.mcpServerEditor?.addEventListener("input", (event) => {
 });
 elements.mcpServerEditor?.addEventListener("change", (event) => {
   const fieldInput = event.target.closest("[data-mcp-field]");
-  if (fieldInput) updateCurrentMcpServerField(fieldInput);
+  if (!fieldInput) return;
+  const previousServer = currentMcpServer();
+  if (!previousServer) return;
+  const field = fieldInput.dataset.mcpField;
+  if (field === "enabled") {
+    const enabled = Boolean(fieldInput.checked);
+    clearMcpTransientFeedback();
+    updateMcpServer(previousServer.id, (current) => ({ ...current, enabled }), false);
+    void connectMcpServer(previousServer.id);
+    return;
+  }
+  updateCurrentMcpServerField(fieldInput);
 });
 elements.mcpServerEditor?.addEventListener("click", (event) => {
   const emptyAddButton = event.target.closest("[data-mcp-empty-add]");
@@ -408,6 +436,16 @@ elements.mcpServerEditor?.addEventListener("click", (event) => {
   const testButton = event.target.closest("[data-mcp-test]");
   if (testButton) {
     void testMcpServer(testButton.dataset.mcpTest);
+    return;
+  }
+  const connectButton = event.target.closest("[data-mcp-connect]");
+  if (connectButton) {
+    const server = (state.mcpSettings || normalizeMcpSettings({})).servers.find((entry) => entry.id === connectButton.dataset.mcpConnect);
+    if (server?.enabled === false) {
+      clearMcpTransientFeedback();
+      updateMcpServer(server.id, (current) => ({ ...current, enabled: true }), false);
+    }
+    void connectMcpServer(connectButton.dataset.mcpConnect);
     return;
   }
   const reconnectButton = event.target.closest("[data-mcp-reconnect]");
@@ -503,6 +541,11 @@ elements.skillsSettingsDetail?.addEventListener("click", (event) => {
   if (!fileButton || !state.selectedSkillName) return;
   void loadSkillDetail(state.selectedSkillName, fileButton.dataset.skillFile);
 });
+elements.skillsSettingsDetail?.addEventListener("change", (event) => {
+  const enabledInput = event.target.closest("[data-skill-enabled]");
+  if (!enabledInput) return;
+  setSkillEnabled(enabledInput.dataset.skillEnabled, enabledInput.checked);
+});
 elements.skillsSettingsDetail?.addEventListener("submit", (event) => {
   const form = event.target.closest("[data-skill-edit-form]");
   if (!form) return;
@@ -510,6 +553,10 @@ elements.skillsSettingsDetail?.addEventListener("submit", (event) => {
   void saveSkillEdit(form);
 });
 elements.closeMemoryDialog?.addEventListener("click", closeMemoryDialog);
+elements.cancelMemoryDialog?.addEventListener("click", closeMemoryDialog);
+elements.saveMemoryDialog?.addEventListener("click", () => {
+  void saveMemoryDialog();
+});
 elements.memoryForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveMemoryEntry();

@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "empty-chat-v1";
+const READER_SCRIPT_VERSION = "debug-unified-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=floating-pad-v1",

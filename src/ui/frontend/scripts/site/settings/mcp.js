@@ -7,6 +7,10 @@ function normalizeMcpSettings(payload) {
   };
 }
 
+function cloneMcpSettings(settings) {
+  return normalizeMcpSettings(JSON.parse(JSON.stringify(settings || {})));
+}
+
 function normalizeMcpServer(server) {
   const transport = normalizeText(server?.transport || (server?.url ? "http" : "stdio")).toLowerCase() === "http" ? "http" : "stdio";
   const status = server?.status && typeof server.status === "object" ? server.status : {};
@@ -155,6 +159,20 @@ function currentMcpServer() {
   return settings.servers.find((server) => server.id === state.mcpEditingId) || settings.servers[0] || null;
 }
 
+function filterMcpServers(servers) {
+  const query = normalizeText(state.mcpSearchQuery).toLowerCase();
+  if (!query) return servers || [];
+  return (servers || []).filter((server) => [
+    server.name,
+    server.id,
+    server.transport,
+    server.command,
+    server.url,
+    mcpServerEndpoint(server),
+    mcpStatusMeta(server).label
+  ].some((value) => normalizeText(value).toLowerCase().includes(query)));
+}
+
 function displayMcpSettingsPath(path) {
   const normalized = normalizeText(path || ".paper-notes/mcp-servers.json");
   const marker = ".paper-notes/";
@@ -205,7 +223,7 @@ function renderMcpActionErrorRegion(actions, serverId = "") {
 function renderMcpSaveError() {
   if (!elements.mcpSaveError) return;
   const error = mcpActionError("save");
-  elements.mcpSaveError.innerHTML = error ? `<strong>${escapeHtml(error.title)}</strong><span>${escapeHtml(error.message)}</span>` : "";
+  elements.mcpSaveError.innerHTML = error ? `<span>${escapeHtml(error.message)}</span>` : "";
   elements.mcpSaveError.hidden = !error;
 }
 
@@ -232,14 +250,18 @@ function renderMcpSettingsDialog() {
   if (!elements.mcpSettingsDialog) return;
   const settings = state.mcpSettings || normalizeMcpSettings({});
   const servers = settings.servers || [];
+  const visibleServers = filterMcpServers(servers);
   const active = currentMcpServer();
   const isEmpty = !state.mcpSettingsLoading && !servers.length;
 
   elements.mcpSettingsCount.textContent = `${servers.length} ${servers.length === 1 ? "server" : "servers"}`;
+  if (elements.mcpSearchInput && elements.mcpSearchInput.value !== state.mcpSearchQuery) {
+    elements.mcpSearchInput.value = state.mcpSearchQuery;
+  }
   elements.mcpSettingsSource.textContent = `Config file: ${displayMcpSettingsPath(settings.settingsPath)}`;
   elements.saveMcpSettings.disabled = state.mcpSettingsLoading;
   elements.mcpSettingsForm?.classList.toggle("is-empty", isEmpty);
-  elements.mcpServerList?.parentElement?.classList.toggle("is-empty", isEmpty);
+  elements.mcpServerList?.closest(".mcp-settings-layout")?.classList.toggle("is-empty", isEmpty);
 
   if (state.mcpSettingsLoading) {
     elements.mcpServerList.innerHTML = `<p class="mcp-list-empty">Loading MCP servers...</p>`;
@@ -247,8 +269,10 @@ function renderMcpSettingsDialog() {
     return;
   }
 
-  elements.mcpServerList.innerHTML = servers.length
-    ? servers.map(renderMcpServerListItem).join("")
+  elements.mcpServerList.innerHTML = visibleServers.length
+    ? visibleServers.map(renderMcpServerListItem).join("")
+    : servers.length
+      ? `<p class="mcp-list-empty">No matching servers.</p>`
     : "";
   elements.mcpServerEditor.innerHTML = active ? renderMcpServerEditor(active) : renderMcpEmptyEditor();
   renderMcpSaveError();
@@ -256,6 +280,7 @@ function renderMcpSettingsDialog() {
 
 function mcpStatusMeta(server) {
   if (!server.enabled) return { label: "Off", tone: "off" };
+  if (state.mcpOperationId === `connect:${server.id}`) return { label: "Connecting", tone: "warning" };
   if (server.status.circuitOpen) return { label: "Circuit open", tone: "warning" };
   if (server.status.state === "reconnecting") return { label: "Reconnecting", tone: "warning" };
   if (server.status.state === "connecting") return { label: "Connecting", tone: "warning" };
@@ -348,6 +373,7 @@ function renderMcpStatusSection(server) {
   const reconnecting = state.mcpOperationId === `reconnect:${server.id}`;
   const resetting = state.mcpOperationId === `reset:${server.id}`;
   const loadingLog = state.mcpOperationId === `log:${server.id}`;
+  const busy = Boolean(state.mcpOperationId);
   const rows = [
     ["State", status.label],
     ["Tools", String(server.status.toolCount || server.tools.length || 0)],
@@ -373,13 +399,13 @@ function renderMcpStatusSection(server) {
       ${warningCount ? `<p class="mcp-status-note is-warning">${escapeHtml(mcpWarningLabel(warningCount))} detected in MCP metadata.</p>` : ""}
       <div class="mcp-status-actions">
         <div class="mcp-action-slot">
-          <button class="toolbar-button" type="button" data-mcp-reconnect="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${reconnecting ? "Reconnecting..." : "Reconnect"}</button>
+          <button class="toolbar-button" type="button" data-mcp-reconnect="${escapeHtml(server.id)}"${busy ? " disabled" : ""}>${reconnecting ? "Reconnecting..." : "Reconnect"}</button>
         </div>
         <div class="mcp-action-slot">
-          <button class="toolbar-button" type="button" data-mcp-reset-circuit="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${resetting ? "Resetting..." : "Reset circuit"}</button>
+          <button class="toolbar-button" type="button" data-mcp-reset-circuit="${escapeHtml(server.id)}"${busy ? " disabled" : ""}>${resetting ? "Resetting..." : "Reset circuit"}</button>
         </div>
         <div class="mcp-action-slot">
-          <button class="toolbar-button" type="button" data-mcp-view-log="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${loadingLog ? "Loading log..." : "View stderr log"}</button>
+          <button class="toolbar-button" type="button" data-mcp-view-log="${escapeHtml(server.id)}"${busy ? " disabled" : ""}>${loadingLog ? "Loading log..." : "View stderr log"}</button>
         </div>
       </div>
       ${renderMcpActionErrorRegion(["reconnect", "reset", "log"], server.id)}
@@ -406,6 +432,8 @@ function renderMcpLogPanel(server) {
 function renderMcpServerEditor(server) {
   const test = state.mcpTestResult?.id === server.id ? state.mcpTestResult : null;
   const testWarningCount = mcpTestWarningCount(test);
+  const connecting = state.mcpOperationId === `connect:${server.id}`;
+  const busy = Boolean(state.mcpOperationId);
   const testHtml = test && test.success !== false ? `
     <section class="mcp-test-result ${test.success ? "is-success" : "is-error"}">
       <div class="mcp-test-summary">
@@ -425,12 +453,11 @@ function renderMcpServerEditor(server) {
         <div class="mcp-editor-name-row">
           <strong>${escapeHtml(server.name)}</strong>
           <label class="mcp-switch mcp-title-switch">
-            <input type="checkbox" data-mcp-field="enabled"${server.enabled ? " checked" : ""}>
+            <input type="checkbox" data-mcp-field="enabled"${server.enabled ? " checked" : ""}${busy ? " disabled" : ""}>
             <span aria-hidden="true"></span>
             <em>${server.enabled ? "Enabled" : "Off"}</em>
           </label>
         </div>
-        <small>${escapeHtml(mcpServerEndpoint(server))}</small>
       </div>
       <div class="mcp-editor-state">
         <button class="toolbar-button toolbar-button-danger mcp-title-remove" type="button" data-mcp-delete="${escapeHtml(server.id)}">Delete</button>
@@ -476,10 +503,13 @@ function renderMcpServerEditor(server) {
     ${testHtml}
     <div class="mcp-editor-actions">
       <div class="mcp-action-slot">
-        <button class="toolbar-button" type="button" data-mcp-test="${escapeHtml(server.id)}"${state.mcpTestingId ? " disabled" : ""}>${state.mcpTestingId === server.id ? "Testing..." : "Test"}</button>
+        <button class="toolbar-button" type="button" data-mcp-test="${escapeHtml(server.id)}"${state.mcpTestingId || busy ? " disabled" : ""}>${state.mcpTestingId === server.id ? "Testing..." : "Test"}</button>
+      </div>
+      <div class="mcp-action-slot">
+        <button class="toolbar-button toolbar-button-primary" type="button" data-mcp-connect="${escapeHtml(server.id)}"${state.mcpTestingId || busy ? " disabled" : ""}>${connecting ? "Connecting..." : "Connect"}</button>
       </div>
     </div>
-    ${renderMcpActionErrorRegion(["test"], server.id)}
+    ${renderMcpActionErrorRegion(["test", "connect"], server.id)}
   `;
 }
 
@@ -487,7 +517,10 @@ function renderMcpFilterFields(server) {
   return `
     <section class="mcp-section">
       <div class="mcp-section-title">
-        <strong>Tool filters</strong>
+        <strong class="settings-title-with-info">
+          Tool filters
+          ${renderInfoHint("Use MCP tool names or wildcard patterns. Empty include allows all tools; exclude is applied last and wins over include.", "Tool filters", "mcp-tool-filters")}
+        </strong>
         <span>Optional</span>
       </div>
       <div class="mcp-editor-grid">
@@ -534,9 +567,11 @@ function renderMcpHttpFields(server) {
         <input type="url" value="${escapeHtml(server.url)}" data-mcp-field="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:8000/mcp">
       </label>
       <label class="field">
-        <span>Bearer token env var</span>
+        <span class="settings-label-with-info">
+          Bearer token env var
+          ${renderInfoHint("Reads this variable from the process environment or local env files.", "Bearer token env var", "mcp-bearer-token-env-var")}
+        </span>
         <input type="text" value="${escapeHtml(server.bearerTokenEnvVar || "")}" data-mcp-field="bearerTokenEnvVar" autocomplete="off" spellcheck="false" placeholder="MCP_BEARER_TOKEN">
-        <small class="mcp-field-hint">Reads this variable from the process environment or local env files.</small>
       </label>
     </section>
     ${renderMcpSecretEditor("Headers", "headers", server.headers)}
@@ -545,20 +580,26 @@ function renderMcpHttpFields(server) {
       namePlaceholder: "Authorization",
       valuePlaceholder: "MCP_AUTH_HEADER",
       valueType: "text",
-      hint: "Only the declared variables are read from the process environment or local env files."
+      hint: "Only the declared variables are read from the process environment or local env files.",
+      hintKey: "mcp-header-env-vars"
     })}
   `;
 }
 
 function renderMcpSecretEditor(title, kind, entries, options = {}) {
   const rows = (entries || []).map((entry, index) => renderMcpSecretRow(kind, entry, index, options)).join("");
+  const titleHint = options.hint
+    ? renderInfoHint(options.hint, title, options.hintKey || `mcp-${kind}-hint`)
+    : "";
   return `
     <section class="mcp-section mcp-secret-section">
       <div class="mcp-section-title mcp-secret-header">
-        <strong>${escapeHtml(title)}</strong>
+        <strong class="${titleHint ? "settings-title-with-info" : ""}">
+          ${escapeHtml(title)}
+          ${titleHint}
+        </strong>
         <button class="toolbar-button" type="button" data-mcp-secret-add="${escapeHtml(kind)}">${escapeHtml(options.addLabel || "Add")}</button>
       </div>
-      ${options.hint ? `<p class="mcp-inline-hint">${escapeHtml(options.hint)}</p>` : ""}
       <div class="mcp-secret-list">
         ${rows || `<p class="mcp-inline-empty">None configured.</p>`}
       </div>
@@ -585,6 +626,8 @@ async function loadMcpSettings() {
   try {
     const payload = await fetchJson("/api/settings/mcp");
     state.mcpSettings = normalizeMcpSettings(payload);
+    state.mcpSettingsBaseline = cloneMcpSettings(state.mcpSettings);
+    state.mcpRuntimePreviewDirty = false;
     if (!state.mcpEditingId && state.mcpSettings.servers[0]) {
       state.mcpEditingId = state.mcpSettings.servers[0].id;
     }
@@ -603,15 +646,28 @@ async function loadMcpSettings() {
 async function openMcpSettingsDialog() {
   closeSettingsMenu();
   setMcpSettingsError("");
+  state.mcpRuntimePreviewDirty = false;
   elements.mcpSettingsDialog.showModal();
   renderMcpSettingsDialog();
   await loadMcpSettings();
 }
 
-function closeMcpSettingsDialog() {
+async function refreshMcpSettings() {
+  await restoreMcpRuntimeFromBaseline();
+  await loadMcpSettings();
+}
+
+function closeMcpSettingsDialog(options = {}) {
   setMcpSettingsError("");
   elements.mcpSettingsDialog.close();
   clearSettingsPanelUrl();
+  if (options.restoreRuntime) {
+    void restoreMcpRuntimeFromBaseline();
+  }
+}
+
+function cancelMcpSettingsDialog() {
+  closeMcpSettingsDialog({ restoreRuntime: true });
 }
 
 function updateMcpServer(id, updater, shouldRender = true) {
@@ -772,6 +828,8 @@ async function saveMcpSettings() {
       body: { servers: settings.servers.map(mcpServerForSave) }
     });
     state.mcpSettings = normalizeMcpSettings(payload);
+    state.mcpSettingsBaseline = cloneMcpSettings(state.mcpSettings);
+    state.mcpRuntimePreviewDirty = false;
     setMcpSettingsError("");
     closeMcpSettingsDialog();
     void loadToolSettings();
@@ -824,6 +882,71 @@ async function testMcpServer(id) {
   } finally {
     state.mcpTestingId = "";
     renderMcpSettingsDialog();
+  }
+}
+
+async function connectMcpServer(id) {
+  if (!id || state.mcpOperationId) return;
+  const settings = state.mcpSettings || normalizeMcpSettings({});
+  const server = settings.servers.find((entry) => entry.id === id);
+  if (!server) return;
+  const validationError = validateMcpSettings(settings);
+  if (validationError) {
+    state.mcpTestResult = null;
+    setMcpActionError("connect", id, validationError, "Connect failed");
+    setMcpSettingsError("");
+    renderMcpSettingsDialog();
+    return;
+  }
+  state.mcpOperationId = `connect:${id}`;
+  state.mcpLogResult = null;
+  clearMcpActionError("connect", id);
+  setMcpSettingsError("");
+  renderMcpSettingsDialog();
+  try {
+    const payload = await fetchJson("/api/settings/mcp/connect", {
+      method: "POST",
+      body: {
+        serverId: id,
+        servers: settings.servers.map(mcpServerForSave),
+        persist: false
+      }
+    });
+    if (payload?.success === false) {
+      setMcpActionError("connect", id, payload.error || "Could not connect MCP server.", "Connect failed");
+      return;
+    }
+    state.mcpSettings = normalizeMcpSettings(payload);
+    state.mcpEditingId = id;
+    state.mcpRuntimePreviewDirty = true;
+    state.mcpTestResult = null;
+    clearMcpActionError("connect", id);
+    void loadToolSettings();
+  } catch (error) {
+    setMcpActionError("connect", id, mcpRequestErrorMessage(error, "Could not connect MCP server."), "Connect failed");
+  } finally {
+    state.mcpOperationId = "";
+    renderMcpSettingsDialog();
+  }
+}
+
+async function restoreMcpRuntimeFromBaseline() {
+  if (!state.mcpRuntimePreviewDirty) return;
+  const baseline = cloneMcpSettings(state.mcpSettingsBaseline || normalizeMcpSettings({}));
+  state.mcpRuntimePreviewDirty = false;
+  try {
+    await fetchJson("/api/settings/mcp/connect", {
+      method: "POST",
+      body: {
+        serverId: state.mcpEditingId || "",
+        servers: baseline.servers.map(mcpServerForSave),
+        persist: false
+      }
+    });
+    state.mcpSettings = baseline;
+    void loadToolSettings();
+  } catch (error) {
+    console.error("Could not restore MCP runtime state.", error);
   }
 }
 

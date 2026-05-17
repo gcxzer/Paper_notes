@@ -672,6 +672,7 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
     if (["error", "warning"].includes(message.type())) consoleIssues.push(message.text());
   });
   const importUrlRequests = [];
+  const savedToolPayloads = [];
   await page.route("**/notes.json**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -735,6 +736,85 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await page.route("**/api/library", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: route.request().postData() || "{}" });
   });
+  await page.route("**/api/memory", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ entries: [] }),
+    });
+  });
+  await page.route("**/api/settings/tools", async (route) => {
+    if (route.request().method() === "POST") {
+      savedToolPayloads.push(route.request().postDataJSON());
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        globalAccess: "default",
+        defaultWriteMode: "ask",
+        builtInTools: [
+          {
+            name: "paper_notes",
+            label: "Paper Notes",
+            description: "Local note tools.",
+            readOnly: false,
+            mutating: true,
+            enabled: true,
+            access: "inherit",
+          },
+          {
+            name: "session_search",
+            label: "Session Search",
+            description: "Search previous chat transcripts.",
+            readOnly: true,
+            mutating: false,
+            enabled: false,
+            access: "readonly",
+          },
+        ],
+        customTools: [
+          {
+            name: "web_search",
+            label: "Custom Web Search",
+            description: "Search the web with a configured provider.",
+            readOnly: true,
+            mutating: false,
+            enabled: false,
+            access: "readonly",
+          },
+          {
+            name: "mcp",
+            label: "MCP",
+            description: "Call tools discovered from enabled MCP servers.",
+            readOnly: true,
+            mutating: false,
+            enabled: true,
+            access: "readonly",
+          },
+        ],
+        tools: [],
+        disabledTools: ["session_search", "web_search"],
+        disabledToolsets: ["session_search", "web_search"],
+        enabledToolsets: ["mcp"],
+        webSearchProviders: {
+          native_provider: {
+            openaiCodex: { enabled: false },
+            openaiAPIKey: { enabled: false },
+            anthropic: { enabled: false },
+            gemini: { enabled: false },
+          },
+          custom_provider: {
+            Tavily: { enabled: false },
+            Brave: { enabled: false },
+          },
+          tavilyKeyConfigured: false,
+          braveSearchKeyConfigured: false,
+        },
+        settingsPath: ".paper-notes/tool-settings.json",
+      }),
+    });
+  });
 
   await page.goto("/index.html");
   await expect(page).toHaveTitle("Paper Notes");
@@ -789,6 +869,29 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#openSkillsSettings")).toBeVisible();
   await expect(page.locator("#openDebugSettings")).toBeVisible();
 
+  await page.locator("#openToolSettings").click();
+  await expect(page.locator("#toolSettingsDialog")).toBeVisible();
+  await expect(page.locator("#toolSettingsCount")).toHaveText("1 tool");
+  await expect(page.locator("#toolSettingsList")).not.toContainText("MCP");
+  const sessionSearchToggle = page.locator('[data-tool-enabled="session_search"]');
+  await expect(sessionSearchToggle).toBeEnabled();
+  await expect(sessionSearchToggle).not.toBeChecked();
+  await expect(page.locator(".tool-settings-item", { hasText: "Session Search" })).toContainText("Enabled");
+  const tavilyToggle = page.locator('[data-web-search-provider-enabled="Tavily"]');
+  await expect(tavilyToggle).toBeEnabled();
+  await expect(tavilyToggle).not.toBeChecked();
+  await expect(page.locator(".web-search-provider-row", { hasText: "Tavily" })).toContainText("Enabled");
+  await expect(page.locator(".web-search-provider-row", { hasText: "Tavily" })).not.toContainText("Off");
+  await sessionSearchToggle.check();
+  await tavilyToggle.check();
+  await page.locator("#saveToolSettings").click();
+  await expect(page.locator("#toolSettingsDialog")).not.toBeVisible();
+  expect(savedToolPayloads).toHaveLength(1);
+  expect(savedToolPayloads[0].tools.find((tool) => tool.name === "session_search")?.enabled).toBe(true);
+  expect(savedToolPayloads[0].tools.map((tool) => tool.name)).not.toContain("mcp");
+  expect(savedToolPayloads[0].webSearchProviders.custom_provider.Tavily.enabled).toBe(true);
+
+  await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openAiSettings").click();
   await expect(page.locator("#aiSettingsDialog")).toBeVisible();
   await page.locator("#compareModelsButton").click();
@@ -823,14 +926,27 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#aiSettingsDialog")).not.toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator("#openMemorySettings").click();
+  await expect(page.locator("#memoryDialog")).toBeVisible();
+  await expect(page.locator("#cancelMemoryDialog")).toBeVisible();
+  await expect(page.locator("#saveMemoryDialog")).toBeVisible();
+  await page.locator("#cancelMemoryDialog").click();
+  await expect(page.locator("#memoryDialog")).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openSkillsSettings").click();
   await expect(page.locator("#skillsSettingsDialog")).toBeVisible();
   await expect(page.locator("#skillsSettingsDialog")).toContainText("External directories");
   await expect(page.locator("#skillsSettingsDialog")).toContainText("file-artifact-creator");
+  await expect(page.locator("#cancelSkillsSettings")).toBeVisible();
+  await expect(page.locator("#saveSkillsSettings")).toBeVisible();
+  await expect(page.locator('[data-skill-name="image-artifact-creator"] .skill-list-status')).toContainText(/Ready|Off/);
   await page.locator('[data-skill-name="image-artifact-creator"]').click();
-  await expect(page.locator("#skillsSettingsDetail")).toContainText("image-artifact-creator");
+  await expect(page.locator("#skillsSettingsDetail .skill-enabled-switch")).toContainText(/Enabled|Off/);
+  await expect(page.locator("#skillsSettingsDetail .skill-detail-title-row")).not.toContainText("image-artifact-creator");
   await expect(page.locator("#skillsSettingsDetail")).toContainText("Image Artifact Creator");
-  await page.locator("#closeSkillsSettingsDialog").click();
+  await page.locator("#saveSkillsSettings").click();
+  await expect(page.locator("#skillsSettingsDialog")).not.toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openDebugSettings").click();
@@ -838,6 +954,10 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#debugDialog")).toContainText("Debug");
   await expect(page.locator("#refreshDebugRuns")).toBeVisible();
   await expect(page.locator("#cleanupDebugRuns")).toBeVisible();
+  await expect(page.locator("#cancelDebugDialog")).toBeVisible();
+  await expect(page.locator("#saveDebugDialog")).toBeVisible();
+  await page.locator("#saveDebugDialog").click();
+  await expect(page.locator("#debugDialog")).not.toBeVisible();
 
   expect(consoleIssues).toEqual([]);
 });
@@ -860,6 +980,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   let currentServers = [];
   const savedPayloads = [];
   const testPayloads = [];
+  const connectPayloads = [];
   const opsPayloads = [];
   const publicSettings = () => ({
     success: true,
@@ -922,6 +1043,36 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
       });
       return;
     }
+    if (url.pathname.endsWith("/api/settings/mcp/connect")) {
+      const payload = route.request().postDataJSON();
+      connectPayloads.push(payload);
+      currentServers = payload.servers || [];
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          serverId: payload.serverId,
+          settingsPath: ".paper-notes/mcp-servers.json",
+          servers: currentServers.map((server) => ({
+            ...server,
+            status: {
+              connected: server.enabled !== false,
+              error: "",
+              toolCount: server.enabled === false ? 0 : 1,
+              state: server.enabled === false ? "disconnected" : "connected",
+              failureCount: 0,
+              circuitOpen: false,
+            },
+            tools: server.enabled === false ? [] : [{
+              name: "search",
+              generatedName: "mcp_filesystem_search",
+              readOnly: true,
+            }],
+          })),
+        }),
+      });
+      return;
+    }
     if (url.pathname.endsWith("/api/settings/mcp/reconnect") || url.pathname.endsWith("/api/settings/mcp/reset-circuit")) {
       opsPayloads.push({ path: url.pathname, body: route.request().postDataJSON() });
       await route.fulfill({
@@ -940,6 +1091,11 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
 
   await page.goto("/index.html?settings=mcp");
   await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
+  await expect(page.locator(".mcp-settings-header-actions")).toContainText("Refresh");
+  await expect(page.locator(".mcp-settings-header-actions")).toContainText("Add server");
+  await expect(page.locator(".mcp-settings-toolbar")).toHaveCount(0);
+  await expect(page.locator("#mcpSearchInput")).toBeVisible();
+  await expect(page.locator("#mcpSettingsCount")).toHaveText("0 servers");
   await expect(page.locator("#openMcpSettings .settings-theme-value")).toHaveText("External tool servers");
   await expect(page.locator(".settings-menu-item .settings-theme-title")).toHaveText([
     "AI Provider",
@@ -951,11 +1107,26 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   ]);
 
   await page.locator("#addMcpServer").click();
+  await expect(page.locator("#mcpSettingsCount")).toHaveText("1 server");
   await page.locator('[data-mcp-field="name"]').fill("Filesystem");
   await page.locator('[data-mcp-transport-option="http"]').click();
+  await page.locator("#mcpSearchInput").fill("filesystem");
+  await expect(page.locator(".mcp-server-row")).toHaveCount(1);
+  await page.locator("#mcpSearchInput").fill("missing-server");
+  await expect(page.locator(".mcp-server-row")).toHaveCount(0);
+  await expect(page.locator("#mcpServerList")).toContainText("No matching servers");
+  await page.locator("#mcpSearchInput").fill("");
   await page.locator('[data-mcp-field="url"]').fill("http://127.0.0.1:7777/mcp");
   await page.locator('[data-mcp-field="bearerTokenEnvVar"]').fill("MCP_BEARER_TOKEN");
+  await expect(page.locator('[data-settings-info-hint="mcp-bearer-token-env-var"]')).toBeVisible();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Reads this variable from the process environment or local env files." })).toBeHidden();
+  await page.locator('[data-settings-info-hint="mcp-bearer-token-env-var"]').hover();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Reads this variable from the process environment or local env files." })).toBeVisible();
   const headerEnvSection = page.locator(".mcp-section").filter({ hasText: "Headers from environment variables" });
+  await expect(headerEnvSection.locator('[data-settings-info-hint="mcp-header-env-vars"]')).toBeVisible();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Only the declared variables are read from the process environment or local env files." })).toBeHidden();
+  await headerEnvSection.locator('[data-settings-info-hint="mcp-header-env-vars"]').hover();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Only the declared variables are read from the process environment or local env files." })).toBeVisible();
   await headerEnvSection.getByRole("button", { name: "Add variable" }).click();
   await headerEnvSection.locator('[data-mcp-secret-name="headerEnvVars"]').fill("X-API-Key");
   await headerEnvSection.locator('[data-mcp-secret-value="headerEnvVars"]').fill("MCP_API_KEY");
@@ -965,6 +1136,13 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await expect(page.locator(".mcp-test-result")).toContainText("Discovered 1 tools");
   await expect(page.locator(".mcp-test-result")).toContainText("2 security warnings");
   await expect(page.locator(".mcp-tool-chip").filter({ hasText: "mcp_filesystem_search" })).toContainText("Warning");
+  await page.locator('[data-mcp-field="enabled"]').uncheck();
+  await expect(page.locator(".mcp-status-grid")).toContainText("Off");
+  await expect(page.locator(".mcp-status-grid")).toContainText("0");
+  await page.locator('[data-mcp-field="enabled"]').check();
+  await expect(page.locator(".mcp-status-grid")).toContainText("Connected");
+  await expect(page.locator(".mcp-status-grid")).toContainText("1");
+  expect(connectPayloads).toHaveLength(2);
   await page.locator("#saveMcpSettings").click();
   await expect(page.locator("#mcpSettingsDialog")).not.toBeVisible();
 
@@ -978,6 +1156,25 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
     includeTools: ["search", "list_resources"],
     excludeTools: ["write_*"],
   });
+  expect(connectPayloads[0]).toMatchObject({
+    persist: false,
+    servers: [{ enabled: false }],
+  });
+  expect(connectPayloads[1]).toMatchObject({
+    persist: false,
+  });
+  expect(connectPayloads[1].servers[0]).toMatchObject({
+    name: "Filesystem",
+    transport: "http",
+    enabled: true,
+    url: "http://127.0.0.1:7777/mcp",
+    bearerTokenEnvVar: "MCP_BEARER_TOKEN",
+    headerEnvVars: [{ name: "X-API-Key", value: "MCP_API_KEY" }],
+    includeTools: ["search", "list_resources"],
+    excludeTools: ["write_*"],
+  });
+  expect(connectPayloads[1].servers[0].status).toBeUndefined();
+  expect(connectPayloads[1].servers[0].tools).toBeUndefined();
   expect(savedPayloads[0].servers[0]).toMatchObject({
     name: "Filesystem",
     transport: "http",
@@ -1055,6 +1252,13 @@ test("MCP settings renders each operation error under its button", async ({ page
       });
       return;
     }
+    if (url.pathname.endsWith("/api/settings/mcp/connect")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "Connect denied" }),
+      });
+      return;
+    }
     if (url.pathname.endsWith("/api/settings/mcp/reconnect")) {
       await route.fulfill({
         contentType: "application/json",
@@ -1105,6 +1309,9 @@ test("MCP settings renders each operation error under its button", async ({ page
   await page.locator('[data-mcp-test]').click();
   await expect(page.locator('[data-mcp-action-error="test"]')).toContainText("Connection failed");
   await expect(page.locator('[data-mcp-action-error="test"]')).toContainText("Connection refused");
+  await page.locator('[data-mcp-connect]').click();
+  await expect(page.locator('[data-mcp-action-error="connect"]')).toContainText("Connect failed");
+  await expect(page.locator('[data-mcp-action-error="connect"]')).toContainText("Connect denied");
   await expect(page.locator(".mcp-test-result.is-error")).toHaveCount(0);
   await page.locator('[data-mcp-view-log]').click();
   await expect(page.locator('[data-mcp-action-error="log"]')).toContainText("Log unavailable");
@@ -1126,20 +1333,121 @@ test("MCP settings renders each operation error under its button", async ({ page
       resetButton: buttonFor("[data-mcp-reset-circuit]"),
       logButton: buttonFor("[data-mcp-view-log]"),
       testButton: buttonFor("[data-mcp-test]"),
+      connectButton: buttonFor("[data-mcp-connect]"),
       reconnectError: errorFor("reconnect"),
       resetError: errorFor("reset"),
       logError: errorFor("log"),
       testError: errorFor("test"),
+      connectError: errorFor("connect"),
     };
   });
   expect(layout.reconnectError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
   expect(layout.resetError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
   expect(layout.logError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
   expect(layout.testError.top).toBeGreaterThanOrEqual(layout.editorActions.bottom);
+  expect(layout.connectError.top).toBeGreaterThanOrEqual(layout.editorActions.bottom);
   expect(layout.reconnectError.width).toBeGreaterThan(layout.reconnectButton.width * 2);
   expect(layout.resetError.width).toBeGreaterThan(layout.resetButton.width * 2);
   expect(layout.logError.width).toBeGreaterThan(layout.logButton.width * 2);
   expect(layout.testError.width).toBeGreaterThan(layout.testButton.width * 2);
+  expect(layout.connectError.width).toBeGreaterThan(layout.connectButton.width * 2);
+});
+
+test("MCP settings cancel restores preview runtime registration", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await page.route("**/notes.json**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
+    });
+  });
+  await page.route("**/api/settings/tools", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
+    });
+  });
+
+  const persistedServers = [{
+    id: "mcp_cancel_fixture",
+    name: "Cancel fixture",
+    enabled: false,
+    transport: "http",
+    url: "http://127.0.0.1:8888/mcp",
+    timeoutSeconds: 120,
+    connectTimeoutSeconds: 10,
+    status: { connected: false, error: "", toolCount: 0, state: "disconnected" },
+    tools: [],
+  }];
+  const connectPayloads = [];
+  let firstConnectStarted = false;
+  let releaseFirstConnect = null;
+  await page.route("**/api/settings/mcp**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/api/settings/mcp/connect")) {
+      const payload = route.request().postDataJSON();
+      connectPayloads.push(payload);
+      if (payload.servers?.[0]?.enabled !== false && connectPayloads.length === 1) {
+        firstConnectStarted = true;
+        await new Promise((resolve) => {
+          releaseFirstConnect = resolve;
+        });
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          serverId: payload.serverId,
+          settingsPath: ".paper-notes/mcp-servers.json",
+          servers: (payload.servers || []).map((server) => ({
+            ...server,
+            status: {
+              connected: server.enabled !== false,
+              error: "",
+              toolCount: server.enabled === false ? 0 : 1,
+              state: server.enabled === false ? "disconnected" : "connected",
+            },
+            tools: server.enabled === false ? [] : [{
+              name: "search",
+              generatedName: "mcp_cancel_fixture_search",
+              readOnly: true,
+            }],
+          })),
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        settingsPath: ".paper-notes/mcp-servers.json",
+        servers: persistedServers,
+      }),
+    });
+  });
+
+  await page.goto("/index.html?settings=mcp");
+  await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
+  await expect(page.locator(".mcp-status-grid")).toContainText("Off");
+  const enablePromise = page.locator('[data-mcp-field="enabled"]').check();
+  await expect.poll(() => firstConnectStarted).toBe(true);
+  await expect(page.locator(".mcp-status-grid")).toContainText("Connecting");
+  releaseFirstConnect?.();
+  await enablePromise;
+  await expect(page.locator(".mcp-status-grid")).toContainText("Connected");
+  await expect(page.locator(".mcp-status-grid")).toContainText("1");
+  await page.locator("#cancelMcpSettings").click();
+  await expect(page.locator("#mcpSettingsDialog")).not.toBeVisible();
+  await expect.poll(() => connectPayloads.length).toBe(2);
+  expect(connectPayloads[0]).toMatchObject({
+    persist: false,
+    servers: [{ id: "mcp_cancel_fixture", enabled: true }],
+  });
+  expect(connectPayloads[1]).toMatchObject({
+    persist: false,
+    servers: [{ id: "mcp_cancel_fixture", enabled: false }],
+  });
 });
 
 test("library tag add and remove flows persist through the details panel", async ({ page }) => {
@@ -1353,9 +1661,9 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
 
   await page.locator(`[data-debug-run-open="${DEBUG_REQUEST_ID}"]`).click();
-  await expect(page.locator("#readerDebugDialog")).toBeVisible();
-  await expect(page.locator("#readerDebugDialog")).toContainText(DEBUG_REQUEST_ID);
-  await expect(page.locator("#readerDebugDialog")).toContainText("model_request");
+  await expect(page.locator("#debugDialog")).toBeVisible();
+  await expect(page.locator("#debugDialog")).toContainText(DEBUG_REQUEST_ID);
+  await expect(page.locator("#debugDialog")).toContainText("model_request");
 
   expect(consoleIssues).toEqual([]);
 });
@@ -1505,6 +1813,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
 
   await page.locator("#chatSessionArchivedButton").click();
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
+  await expect(page.locator("#newChatSession")).toBeHidden();
   await expect(page.locator("#clearTrashSessions")).toBeHidden();
   await expect(page.getByText("Archived chat")).toBeVisible();
   await expect(page.locator(".ask-session-row", { hasText: "Archived chat" }).locator(".ask-session-meta")).toContainText("DeepSeek V4");
@@ -1515,6 +1824,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
 
   await page.locator("#chatSessionMenuButton").click();
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Sessions");
+  await expect(page.locator("#newChatSession")).toBeVisible();
   await expect(page.getByText("Active chat")).toBeVisible();
   await expect(page.locator(".ask-session-row", { hasText: "Active chat" })).toContainText("DeepSeek V4");
   await page.locator(".ask-session-row", { hasText: "Active chat" }).hover();
@@ -1755,7 +2065,7 @@ test("reader chats tab opens immediately from a closed session menu", async ({ p
   await expect(page.locator("#chatSessionPopover")).toBeVisible();
 });
 
-test("reader new chat lives at the bottom of the ask tools menu", async ({ page }) => {
+test("reader new chat is available in sessions and at the bottom of the ask tools menu", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
   await page.route("**/api/chat/sessions**", async (route) => {
@@ -1773,8 +2083,21 @@ test("reader new chat lives at the bottom of the ask tools menu", async ({ page 
   }
   await page.locator("#chatSessionMenuButton").click();
   await expect(page.locator("#chatSessionPopover")).toBeVisible();
-  await expect(page.locator("#chatSessionPopover")).not.toContainText("New chat");
+  await expect(page.locator("#newChatSession")).toBeVisible();
   await page.locator("#chatSessionMenuButton").click();
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{ role: "assistant", text: "Old session text." }];
+    setCurrentChatSessionId("session-before-new-chat");
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+  await expect(page.locator("#readerChatMessages")).toContainText("Old session text.");
+
+  await page.locator("#chatSessionMenuButton").click();
+  await page.locator("#newChatSession").click();
+  await expect(page.locator("#chatSessionPopover")).toBeHidden();
+  await expect(page.locator("#readerChatMessages")).not.toContainText("Old session text.");
+  await expect(askInput).toBeFocused();
 
   await page.evaluate(() => {
     readerState.chatMessages = [{ role: "assistant", text: "Old session text." }];

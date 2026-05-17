@@ -136,7 +136,7 @@ async function saveMemoryEntry() {
   const content = normalizeText(elements.memoryContentInput.value);
   if (!content) {
     setMemoryError("Memory cannot be empty.");
-    return;
+    return false;
   }
 
   const editingEntry = state.memoryEntries.find((entry) => entry.id === state.memoryEditingId);
@@ -163,12 +163,23 @@ async function saveMemoryEntry() {
     elements.memoryContentInput.value = "";
     setMemoryError("");
     renderMemoryDialog();
+    return true;
   } catch (error) {
     setMemoryError(error.message || "Could not save memory.");
     console.error(error);
+    return false;
   } finally {
     elements.saveMemoryEntry.disabled = false;
   }
+}
+
+async function saveMemoryDialog() {
+  const hasDraft = Boolean(normalizeText(elements.memoryContentInput.value));
+  if (state.memoryEditingId || hasDraft) {
+    const saved = await saveMemoryEntry();
+    if (!saved) return;
+  }
+  closeMemoryDialog();
 }
 
 async function deleteMemoryEntry(id) {

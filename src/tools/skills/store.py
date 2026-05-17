@@ -13,34 +13,49 @@ from tools.skills.constants import (
 )
 from tools.skills.files import linked_files, read_supporting_file, read_text
 from tools.skills.frontmatter import frontmatter_get, matches_platform, metadata_string_list, parse_frontmatter
-from tools.skills.settings import default_skill_roots
+from tools.skills.settings import default_skill_roots, disabled_skill_names, normalize_disabled_skills
 from tools.skills.setup import required_commands, required_environment_variables, setup_help
 
 
 class SkillStore:
-    def __init__(self, roots: list[str | Path] | tuple[str | Path, ...] | None = None) -> None:
-        self.roots = tuple(_normalize_root(root) for root in (roots or default_skill_roots()))
+    def __init__(
+        self,
+        roots: list[str | Path] | tuple[str | Path, ...] | None = None,
+        *,
+        disabled_skills: list[str] | tuple[str, ...] | set[str] | None = None,
+        settings_path: str | Path | None = None,
+    ) -> None:
+        if roots is None:
+            roots = default_skill_roots(settings_path)
+            if disabled_skills is None:
+                disabled_skills = disabled_skill_names(settings_path)
+        elif disabled_skills is None and settings_path is not None:
+            disabled_skills = disabled_skill_names(settings_path)
+        self.roots = tuple(_normalize_root(root) for root in roots)
+        self.disabled_skills = frozenset(normalize_disabled_skills(list(disabled_skills or [])))
 
     def ensure_user_dir(self) -> None:
         if PAPER_NOTES_SKILLS_DIR.resolve() in self.roots:
             PAPER_NOTES_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    def list(self, *, category: str = "") -> dict[str, Any]:
+    def list(
+        self,
+        *,
+        category: str = "",
+        include_disabled: bool = False,
+        include_enabled_state: bool = False,
+    ) -> dict[str, Any]:
         self.ensure_user_dir()
         skills = _sort_skills(list(self._iter_skill_records()))
+        if not include_disabled:
+            skills = [skill for skill in skills if self._skill_enabled(skill["name"])]
         if category:
             skills = [skill for skill in skills if skill.get("category") == category]
         categories = sorted({str(skill.get("category")) for skill in skills if skill.get("category")})
         payload = {
             "success": True,
             "skills": [
-                {
-                    "name": skill["name"],
-                    "description": skill["description"],
-                    "category": skill.get("category"),
-                    "path": skill["path"],
-                    "source": skill["source"],
-                }
+                self._skill_list_item(skill, include_enabled_state=include_enabled_state)
                 for skill in skills
             ],
             "categories": categories,
@@ -55,7 +70,14 @@ class SkillStore:
             )
         return payload
 
-    def view(self, *, name: str, file_path: str = "") -> dict[str, Any]:
+    def view(
+        self,
+        *,
+        name: str,
+        file_path: str = "",
+        include_disabled: bool = False,
+        include_enabled_state: bool = False,
+    ) -> dict[str, Any]:
         self.ensure_user_dir()
         normalized_name = str(name or "").strip()
         if not normalized_name:
@@ -63,27 +85,44 @@ class SkillStore:
 
         record = self._find_skill(normalized_name)
         if record is None:
-            available = [skill["name"] for skill in _sort_skills(list(self._iter_skill_records()))[:20]]
+            available_records = _sort_skills(list(self._iter_skill_records()))
+            if not include_disabled:
+                available_records = [skill for skill in available_records if self._skill_enabled(skill["name"])]
+            available = [skill["name"] for skill in available_records[:20]]
             return {
                 "success": False,
                 "error": f"Skill '{normalized_name}' not found.",
                 "available_skills": available,
                 "hint": "Use skills_list to see all available skills.",
             }
+        enabled = self._skill_enabled(record["name"])
+        if not enabled and not include_disabled:
+            return {
+                "success": False,
+                "code": "skill_disabled",
+                "error": f"Skill '{record['name']}' is disabled.",
+                "hint": "Enable this skill in Settings > Skills before using it.",
+            }
 
         skill_dir = record["skill_dir"]
         if file_path:
-            return read_supporting_file(record, file_path)
+            payload = read_supporting_file(record, file_path)
+            if include_enabled_state:
+                payload["enabled"] = enabled
+            return payload
 
         skill_md = record["skill_md"]
         content = read_text(skill_md)
         frontmatter, _ = parse_frontmatter(content)
         if not matches_platform(frontmatter):
-            return {
+            payload = {
                 "success": False,
                 "error": f"Skill '{normalized_name}' is not supported on this platform.",
                 "readiness_status": "unsupported",
             }
+            if include_enabled_state:
+                payload["enabled"] = enabled
+            return payload
         linked = linked_files(skill_dir)
         required_env = required_environment_variables(frontmatter)
         missing_env = [entry["name"] for entry in required_env if not entry.get("optional") and not os.getenv(entry["name"])]
@@ -112,6 +151,8 @@ class SkillStore:
             "setup_skipped": False,
             "readiness_status": "setup_needed" if missing_env else "available",
         }
+        if include_enabled_state:
+            result["enabled"] = enabled
         help_text = setup_help(frontmatter, required_env)
         if help_text:
             result["setup_help"] = help_text
@@ -185,6 +226,21 @@ class SkillStore:
                 if record is not None:
                     return record
         return None
+
+    def _skill_enabled(self, name: str) -> bool:
+        return str(name or "").strip() not in self.disabled_skills
+
+    def _skill_list_item(self, skill: dict[str, Any], *, include_enabled_state: bool) -> dict[str, Any]:
+        item = {
+            "name": skill["name"],
+            "description": skill["description"],
+            "category": skill.get("category"),
+            "path": skill["path"],
+            "source": skill["source"],
+        }
+        if include_enabled_state:
+            item["enabled"] = self._skill_enabled(skill["name"])
+        return item
 
 
 def _normalize_root(root: str | Path) -> Path:

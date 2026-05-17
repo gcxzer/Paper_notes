@@ -124,6 +124,95 @@ def test_mcp_test_endpoint_probes_without_persisting(tmp_path, monkeypatch):
     assert not (tmp_path / "mcp-servers.json").exists()
 
 
+def test_mcp_connect_endpoint_saves_and_registers(tmp_path):
+    settings_path = tmp_path / ".paper-notes" / "mcp-servers.json"
+    registered = []
+
+    class FakeManager:
+        def register_servers(self, servers):
+            registered.append(servers)
+            return ["mcp_arxiv_search"]
+
+        def statuses(self):
+            return {
+                "arxiv": {
+                    "connected": True,
+                    "error": "",
+                    "state": "connected",
+                    "toolCount": 1,
+                    "tools": [{"name": "arxiv_search", "generatedName": "mcp_arxiv_arxiv_search"}],
+                }
+            }
+
+    class FakeService:
+        mcp_manager = FakeManager()
+
+    payload = mcp_api.connect_mcp_server({
+        "serverId": "arxiv",
+        "servers": [{
+            "id": "arxiv",
+            "name": "arxiv",
+            "enabled": True,
+            "transport": "http",
+            "url": "https://arxiv.caseyjhand.com/mcp",
+            "timeoutSeconds": 120,
+            "connectTimeoutSeconds": 10,
+        }],
+    }, settings_path=settings_path, service=FakeService())
+
+    stored = read_mcp_settings(settings_path)["servers"][0]
+    assert stored["id"] == "arxiv"
+    assert stored["url"] == "https://arxiv.caseyjhand.com/mcp"
+    assert registered[0][0]["id"] == "arxiv"
+    assert payload["serverId"] == "arxiv"
+    assert payload["servers"][0]["status"]["connected"] is True
+    assert payload["servers"][0]["status"]["toolCount"] == 1
+    assert payload["servers"][0]["tools"][0]["generatedName"] == "mcp_arxiv_arxiv_search"
+
+
+def test_mcp_connect_endpoint_can_register_without_persisting(tmp_path):
+    settings_path = tmp_path / ".paper-notes" / "mcp-servers.json"
+    registered = []
+
+    class FakeManager:
+        def register_servers(self, servers):
+            registered.append(servers)
+            return ["mcp_arxiv_search"]
+
+        def statuses(self):
+            return {
+                "arxiv": {
+                    "connected": True,
+                    "error": "",
+                    "state": "connected",
+                    "toolCount": 1,
+                    "tools": [{"name": "arxiv_search", "generatedName": "mcp_arxiv_arxiv_search"}],
+                }
+            }
+
+    class FakeService:
+        mcp_manager = FakeManager()
+
+    payload = mcp_api.connect_mcp_server({
+        "serverId": "arxiv",
+        "persist": False,
+        "servers": [{
+            "id": "arxiv",
+            "name": "arxiv",
+            "enabled": True,
+            "transport": "http",
+            "url": "https://arxiv.caseyjhand.com/mcp",
+            "timeoutSeconds": 120,
+            "connectTimeoutSeconds": 10,
+        }],
+    }, settings_path=settings_path, service=FakeService())
+
+    assert not settings_path.exists()
+    assert registered[0][0]["id"] == "arxiv"
+    assert payload["serverId"] == "arxiv"
+    assert payload["servers"][0]["status"]["connected"] is True
+
+
 def test_public_mcp_settings_includes_status_and_never_plaintext():
     payload = public_mcp_settings(
         {

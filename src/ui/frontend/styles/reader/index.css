@@ -5,7 +5,7 @@
 @import "./ask.css";
 @import "./chat.css";
 @import "./prompts.css";
-@import "./debug.css";
+@import "./debug.css?v=debug-unified-v1";
 @import "./artifacts.css";
 @import "./note.css";
 @import "./responsive.css";

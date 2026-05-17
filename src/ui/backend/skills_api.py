@@ -7,7 +7,7 @@ from typing import Any
 from app_infra.formatting import normalize_text
 from app_infra.storage import atomic_write_json, atomic_write_text
 from tools.skills import DEFAULT_SKILL_SETTINGS_PATH, SkillStore, default_skill_roots
-from tools.skills.settings import normalize_external_directories, skill_settings_path
+from tools.skills.settings import normalize_disabled_skills, normalize_external_directories, skill_settings_path
 
 
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(?P<frontmatter>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)")
@@ -16,7 +16,11 @@ _MAX_SKILL_CONTENT_LENGTH = 200_000
 
 
 def list_skills(category: str = "", *, settings_path: str | Path | None = None) -> dict[str, Any]:
-    payload = SkillStore(default_skill_roots(settings_path)).list(category=normalize_text(category))
+    payload = SkillStore(default_skill_roots(settings_path), settings_path=settings_path).list(
+        category=normalize_text(category),
+        include_disabled=True,
+        include_enabled_state=True,
+    )
     payload.update(_skill_settings_payload(settings_path=settings_path))
     return payload
 
@@ -25,7 +29,12 @@ def view_skill(name: str, file_path: str = "", *, settings_path: str | Path | No
     normalized_name = normalize_text(name)
     if not normalized_name:
         raise ValueError("Skill name is required.")
-    return SkillStore(default_skill_roots(settings_path)).view(name=normalized_name, file_path=normalize_text(file_path))
+    return SkillStore(default_skill_roots(settings_path), settings_path=settings_path).view(
+        name=normalized_name,
+        file_path=normalize_text(file_path),
+        include_disabled=True,
+        include_enabled_state=True,
+    )
 
 
 def update_skill(body: Any, *, settings_path: str | Path | None = None) -> dict[str, Any]:
@@ -67,11 +76,24 @@ def update_skill(body: Any, *, settings_path: str | Path | None = None) -> dict[
 def update_skill_settings(body: Any, *, settings_path: str | Path | None = None) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise ValueError("Request body must be a JSON object.")
-    external_directories = normalize_external_directories(
-        body.get("externalDirectories", body.get("external_directories", []))
-    )
     path = skill_settings_path(settings_path)
-    atomic_write_json(path, {"externalDirectories": external_directories})
+    existing = _read_settings_path(path)
+    external_directories = normalize_external_directories(
+        body.get(
+            "externalDirectories",
+            body.get(
+                "external_directories",
+                existing.get("externalDirectories", existing.get("external_directories", [])),
+            ),
+        )
+    )
+    disabled_skills = normalize_disabled_skills(
+        body.get(
+            "disabledSkills",
+            body.get("disabled_skills", existing.get("disabledSkills", existing.get("disabled_skills", []))),
+        )
+    )
+    atomic_write_json(path, {"externalDirectories": external_directories, "disabledSkills": disabled_skills})
     _reset_agent_service()
     return _skill_settings_payload(settings_path=settings_path)
 
@@ -82,9 +104,11 @@ def _skill_settings_payload(*, settings_path: str | Path | None = None) -> dict[
     external_directories = normalize_external_directories(
         settings.get("externalDirectories", settings.get("external_directories", []))
     )
+    disabled_skills = normalize_disabled_skills(settings.get("disabledSkills", settings.get("disabled_skills", [])))
     return {
         "success": True,
         "settingsPath": str(path),
+        "disabledSkills": disabled_skills,
         "externalDirectories": [
             {
                 "path": directory,

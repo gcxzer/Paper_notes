@@ -45,6 +45,60 @@ def update_mcp_settings(
     return public_mcp_settings(read_mcp_settings(settings_path), settings_path=settings_path)
 
 
+def connect_mcp_server(
+    body: Any,
+    *,
+    settings_path: str | Path | None = None,
+    service: Any = None,
+) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise ValueError("Request body must be a JSON object.")
+    persist = body.get("persist") is not False
+    current = read_mcp_settings(settings_path)
+    if isinstance(body.get("servers"), list):
+        settings = normalize_mcp_settings_update(body, current=current)
+        server_id = str(body.get("serverId") or body.get("server_id") or "").strip()
+    else:
+        server = normalize_mcp_server_config(body, strict=True)
+        server_id = str(server.get("id") or "").strip()
+        replaced = False
+        servers: list[dict[str, Any]] = []
+        for existing in current.get("servers") or []:
+            if str(existing.get("id") or "") == server_id:
+                servers.append(server)
+                replaced = True
+            else:
+                servers.append(existing)
+        if not replaced:
+            servers.append(server)
+        settings = normalize_mcp_settings_update({"servers": servers}, current=current)
+
+    agent_service = service
+    should_register = service is not None or not persist
+    if agent_service is None:
+        if persist:
+            write_mcp_settings(settings, settings_path)
+            _reset_agent_service()
+        from ui.backend.agent_api import get_agent_service
+
+        agent_service = get_agent_service()
+    else:
+        if persist:
+            write_mcp_settings(settings, settings_path)
+    if should_register:
+        manager = getattr(agent_service, "mcp_manager", None)
+        register = getattr(manager, "register_servers", None)
+        if callable(register):
+            register(settings.get("servers") or [])
+
+    manager = getattr(agent_service, "mcp_manager", None)
+    statuses = manager.statuses() if manager is not None else {}
+    payload_settings = read_mcp_settings(settings_path) if persist else settings
+    payload = public_mcp_settings(payload_settings, statuses=statuses, settings_path=settings_path)
+    payload["serverId"] = server_id
+    return payload
+
+
 def test_mcp_server(body: Any) -> dict[str, Any]:
     server = normalize_mcp_server_config(body, strict=True)
     return probe_mcp_server(server)
@@ -112,6 +166,7 @@ def _reset_agent_service() -> None:
 
 
 __all__ = [
+    "connect_mcp_server",
     "get_mcp_settings",
     "get_mcp_stderr_log",
     "reconnect_mcp_server",

@@ -4,14 +4,37 @@ function normalizeSkillSummary(skill) {
     description: normalizeText(skill?.description),
     category: normalizeText(skill?.category),
     path: normalizeText(skill?.path),
-    source: normalizeText(skill?.source)
+    source: normalizeText(skill?.source),
+    enabled: skill?.enabled !== false
   };
 }
 
+function normalizeSkillNameList(value) {
+  const entries = typeof value === "string"
+    ? value.replace(/,/g, "\n").split(/\r?\n/)
+    : Array.isArray(value) ? value : [];
+  const names = [];
+  const seen = new Set();
+  entries.forEach((entry) => {
+    const name = normalizeText(entry);
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  });
+  return names;
+}
+
 function normalizeSkillsSettings(payload) {
+  const disabledFromPayload = normalizeSkillNameList(payload?.disabledSkills || payload?.disabled_skills);
+  const disabledSet = new Set(disabledFromPayload);
   const skills = Array.isArray(payload?.skills)
     ? payload.skills.map(normalizeSkillSummary).filter((skill) => skill.name)
+      .map((skill) => ({ ...skill, enabled: disabledSet.has(skill.name) ? false : skill.enabled }))
     : [];
+  const disabledSkills = normalizeSkillNameList([
+    ...disabledFromPayload,
+    ...skills.filter((skill) => skill.enabled === false).map((skill) => skill.name)
+  ]);
   const externalDirectories = Array.isArray(payload?.externalDirectories || payload?.external_directories)
     ? (payload.externalDirectories || payload.external_directories).map((entry) => {
       if (typeof entry === "string") {
@@ -28,6 +51,7 @@ function normalizeSkillsSettings(payload) {
     skills,
     categories: Array.isArray(payload?.categories) ? payload.categories.map(normalizeText).filter(Boolean) : [],
     count: Number(payload?.count) || skills.length,
+    disabledSkills,
     message: normalizeText(payload?.message),
     hint: normalizeText(payload?.hint),
     uiHint: normalizeText(payload?.uiHint || payload?.ui_hint),
@@ -57,6 +81,7 @@ function normalizeSkillDetail(payload) {
     path: normalizeText(payload?.path),
     skillDir: normalizeText(payload?.skill_dir || payload?.skillDir),
     source: normalizeText(payload?.source),
+    enabled: payload?.enabled !== false,
     linkedFiles,
     usageHint: normalizeText(payload?.usage_hint || payload?.usageHint),
     readinessStatus: normalizeText(payload?.readiness_status || payload?.readinessStatus || "available"),
@@ -102,6 +127,10 @@ function skillStatusLabel(detail) {
   return "Available";
 }
 
+function skillEnabledStatus(skill) {
+  return skill?.enabled === false ? "Off" : "Ready";
+}
+
 function renderSkillMetaPills(values, emptyLabel = "") {
   const normalized = (values || []).map(normalizeText).filter(Boolean);
   if (!normalized.length && !emptyLabel) return "";
@@ -116,6 +145,40 @@ function basename(path) {
 
 function skillListSubtitle(skill) {
   return normalizeText(skill.category || skill.source || basename(skill.path) || "local");
+}
+
+function currentDisabledSkillNames() {
+  const settings = state.skillsSettings || normalizeSkillsSettings({});
+  return normalizeSkillNameList([
+    ...(settings.disabledSkills || []),
+    ...((settings.skills || []).filter((skill) => skill.enabled === false).map((skill) => skill.name))
+  ]);
+}
+
+function currentSkillSummary(name) {
+  const normalizedName = normalizeText(name);
+  const settings = state.skillsSettings || normalizeSkillsSettings({});
+  return (settings.skills || []).find((skill) => skill.name === normalizedName) || null;
+}
+
+function setSkillEnabled(name, enabled) {
+  const normalizedName = normalizeText(name);
+  if (!normalizedName) return;
+  const settings = normalizeSkillsSettings(state.skillsSettings || {});
+  const disabled = new Set(currentDisabledSkillNames());
+  if (enabled) disabled.delete(normalizedName);
+  else disabled.add(normalizedName);
+  state.skillsSettings = {
+    ...settings,
+    disabledSkills: Array.from(disabled),
+    skills: (settings.skills || []).map((skill) => (
+      skill.name === normalizedName ? { ...skill, enabled } : skill
+    ))
+  };
+  if (normalizeSkillDetail(state.selectedSkillDetail).name === normalizedName) {
+    state.selectedSkillDetail = { ...(state.selectedSkillDetail || {}), enabled };
+  }
+  renderSkillsSettingsDialog();
 }
 
 function filterSkills(skills) {
@@ -239,10 +302,8 @@ function renderSkillDetail() {
   const isEditing = isEditableSkill && state.skillEditingName === detail.name;
   const content = detail.isBinary || isEditing ? rawContent : stripLeadingMarkdownHeading(rawContent);
   const displayTitle = activeFile ? basename(activeFile) : leadingMarkdownHeading(rawContent) || detail.name || "Skill";
-  const namePill = !activeFile && detail.name && detail.name !== displayTitle
-    ? `<span class="skill-meta-pill">${escapeHtml(detail.name)}</span>`
-    : "";
   elements.skillsSettingsDetail.classList.toggle("is-editing", isEditing);
+  const skillEnabled = detail.enabled !== false;
   const setupNote = detail.missingRequiredEnvironmentVariables.length || detail.missingRequiredCommands.length ? `
     <p class="skill-setup-note">Missing setup: ${escapeHtml([...detail.missingRequiredEnvironmentVariables, ...detail.missingRequiredCommands].join(", "))}</p>
   ` : "";
@@ -251,8 +312,13 @@ function renderSkillDetail() {
       <div>
         <div class="skill-detail-title-row">
           <strong>${escapeHtml(displayTitle)}</strong>
-          <span class="skill-status-pill">${escapeHtml(skillStatusLabel(detail))}</span>
-          ${namePill}
+          ${!activeFile ? `
+            <label class="mcp-switch skill-enabled-switch">
+              <input type="checkbox" data-skill-enabled="${escapeHtml(detail.name)}"${skillEnabled ? " checked" : ""}${state.skillsSettingsSaving ? " disabled" : ""}>
+              <span aria-hidden="true"></span>
+              <em>${skillEnabled ? "Enabled" : "Off"}</em>
+            </label>
+          ` : ""}
         </div>
         ${isEditing ? `
           <textarea class="skill-description-edit" name="description" form="skillEditForm" rows="3" spellcheck="true"${state.skillEditSaving ? " disabled" : ""}>${escapeHtml(detail.description || "")}</textarea>
@@ -287,6 +353,8 @@ function renderSkillsSettingsDialog() {
   elements.skillsSettingsSource.textContent = "Skill folders: .paper-notes/skills, src/skills, and external directories.";
   elements.refreshSkillsSettings.disabled = state.skillsSettingsLoading;
   elements.addExternalSkillDirectory.disabled = state.skillsSettingsLoading || state.skillsSettingsSaving;
+  elements.saveSkillsSettings.disabled = state.skillsSettingsLoading || state.skillsSettingsSaving || state.skillEditSaving;
+  elements.saveSkillsSettings.textContent = state.skillsSettingsSaving ? "Saving" : "Save";
   if (elements.skillsSearchInput && elements.skillsSearchInput.value !== state.skillsSearchQuery) {
     elements.skillsSearchInput.value = state.skillsSearchQuery;
   }
@@ -312,7 +380,10 @@ function renderSkillsSettingsDialog() {
     const selected = skill.name === state.selectedSkillName;
     return `
       <button class="skill-list-item${selected ? " is-active" : ""}" type="button" data-skill-name="${escapeHtml(skill.name)}">
-        <strong>${escapeHtml(skill.name)}</strong>
+        <span class="skill-list-title-row">
+          <strong>${escapeHtml(skill.name)}</strong>
+          <small class="skill-list-status${skill.enabled === false ? " is-off" : ""}">${escapeHtml(skillEnabledStatus(skill))}</small>
+        </span>
         <span>${escapeHtml(skillListSubtitle(skill))}</span>
       </button>
     `;
@@ -342,7 +413,7 @@ async function saveExternalSkillDirectories(paths) {
   try {
     const payload = await fetchJson("/api/skills/settings", {
       method: "POST",
-      body: { externalDirectories: paths }
+      body: { externalDirectories: paths, disabledSkills: currentDisabledSkillNames() }
     });
     state.skillsSettings = normalizeSkillsSettings({
       ...(state.skillsSettings || {}),
@@ -363,6 +434,34 @@ async function saveExternalSkillDirectories(paths) {
 function currentExternalSkillDirectoryPaths() {
   const settings = state.skillsSettings || normalizeSkillsSettings({});
   return (settings.externalDirectories || []).map((entry) => entry.path).filter(Boolean);
+}
+
+async function saveSkillSettingsPayload() {
+  state.skillsSettingsSaving = true;
+  renderSkillsSettingsDialog();
+  try {
+    const payload = await fetchJson("/api/skills/settings", {
+      method: "POST",
+      body: {
+        externalDirectories: currentExternalSkillDirectoryPaths(),
+        disabledSkills: currentDisabledSkillNames()
+      }
+    });
+    state.skillsSettings = normalizeSkillsSettings({
+      ...(state.skillsSettings || {}),
+      ...payload
+    });
+    setSkillsSettingsError("");
+    setSkillsExternalError("");
+    return true;
+  } catch (error) {
+    setSkillsSettingsError(error.message || "Could not save skills settings.");
+    console.error(error);
+    return false;
+  } finally {
+    state.skillsSettingsSaving = false;
+    renderSkillsSettingsDialog();
+  }
 }
 
 async function addExternalSkillDirectory() {
@@ -400,8 +499,11 @@ async function loadSkillDetail(name, filePath = "") {
     const params = new URLSearchParams({ name: normalizedName });
     if (state.selectedSkillFilePath) params.set("filePath", state.selectedSkillFilePath);
     const payload = await fetchJson(`/api/skills/view?${params.toString()}`);
+    const summary = currentSkillSummary(normalizedName);
     state.selectedSkillDetail = normalizeSkillDetail({
       ...payload,
+      name: payload.name || normalizedName,
+      enabled: payload.enabled ?? summary?.enabled,
       file_path: state.selectedSkillFilePath || payload.file_path
     });
     setSkillsSettingsError("");
@@ -421,7 +523,7 @@ async function loadSkillDetail(name, filePath = "") {
 }
 
 async function saveSkillEdit(form) {
-  if (!form || !state.selectedSkillName || state.selectedSkillFilePath) return;
+  if (!form || !state.selectedSkillName || state.selectedSkillFilePath) return false;
   const formData = new FormData(form);
   state.skillEditSaving = true;
   renderSkillDetail();
@@ -436,15 +538,29 @@ async function saveSkillEdit(form) {
     });
     state.selectedSkillDetail = normalizeSkillDetail(payload);
     state.skillEditingName = "";
+    const disabledSkills = currentDisabledSkillNames();
     const settingsPayload = await fetchJson("/api/skills");
-    state.skillsSettings = normalizeSkillsSettings(settingsPayload);
+    state.skillsSettings = normalizeSkillsSettings({ ...settingsPayload, disabledSkills });
     setSkillsSettingsError("");
+    return true;
   } catch (error) {
     setSkillsSettingsError(error.message || "Could not save skill.");
+    return false;
   } finally {
     state.skillEditSaving = false;
     renderSkillsSettingsDialog();
   }
+}
+
+async function saveSkillsSettingsDialog() {
+  const editForm = elements.skillsSettingsDetail?.querySelector("[data-skill-edit-form]");
+  if (editForm) {
+    const saved = await saveSkillEdit(editForm);
+    if (!saved) return;
+  }
+  const settingsSaved = await saveSkillSettingsPayload();
+  if (!settingsSaved) return;
+  closeSkillsSettingsDialog();
 }
 
 async function loadSkillsSettings() {

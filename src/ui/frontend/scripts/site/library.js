@@ -369,6 +369,23 @@ function escapeHtml(value) {
   return MODEL.escapeHtml(value);
 }
 
+function renderInfoHint(text, label = "More information", key = "") {
+  const message = normalizeText(text);
+  if (!message) return "";
+  const hintLabel = normalizeText(label) || "More information";
+  const keyAttribute = key ? ` data-settings-info-hint="${escapeHtml(key)}"` : "";
+  return `
+    <span class="settings-info-hint" tabindex="0" role="img" aria-label="${escapeHtml(`${hintLabel}: ${message}`)}"${keyAttribute}>
+      <svg class="settings-info-hint-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6.2"></circle>
+        <path d="M8 7.25v4.1"></path>
+        <path d="M8 4.75h.01"></path>
+      </svg>
+      <em role="tooltip">${escapeHtml(message)}</em>
+    </span>
+  `;
+}
+
 function safeLinkHref(rawHref) {
   const href = normalizeText(rawHref);
   if (!href) return "";

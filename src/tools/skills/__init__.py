@@ -9,7 +9,12 @@ from tools.skills.tool import (
     skill_view,
     skills_list,
 )
-from tools.skills.settings import DEFAULT_SKILL_SETTINGS_PATH, default_skill_roots
+from tools.skills.settings import (
+    DEFAULT_SKILL_SETTINGS_PATH,
+    default_skill_roots,
+    disabled_skill_names,
+    normalize_disabled_skills,
+)
 
 __all__ = [
     "DEFAULT_SKILL_SETTINGS_PATH",
@@ -20,6 +25,8 @@ __all__ = [
     "create_skill_view_tool_definition",
     "create_skills_list_tool_definition",
     "default_skill_roots",
+    "disabled_skill_names",
+    "normalize_disabled_skills",
     "register_skills_tools",
     "skill_view",
     "skills_list",

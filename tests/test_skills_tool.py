@@ -170,3 +170,29 @@ def test_skills_tools_register_and_dispatch(tmp_path):
     assert registry.tool_names_for_toolset("skills") == ["skill_view", "skills_list"]
     assert listed["skills"][0]["name"] == "writer"
     assert viewed["content"].endswith("Write clearly.")
+
+
+def test_disabled_skills_are_hidden_from_agent_tools(tmp_path):
+    enabled_dir = tmp_path / "skills" / "enabled"
+    enabled_dir.mkdir(parents=True)
+    (enabled_dir / "SKILL.md").write_text(
+        "---\nname: enabled\ndescription: Enabled skill.\n---\n\nUse this one.",
+        encoding="utf-8",
+    )
+    disabled_dir = tmp_path / "skills" / "disabled"
+    disabled_dir.mkdir(parents=True)
+    (disabled_dir / "SKILL.md").write_text(
+        "---\nname: disabled\ndescription: Disabled skill.\n---\n\nDo not expose this one.",
+        encoding="utf-8",
+    )
+    store = SkillStore([tmp_path / "skills"], disabled_skills=["disabled"])
+
+    listed = store.list()
+    hidden = store.view(name="disabled")
+    visible_for_settings = store.view(name="disabled", include_disabled=True, include_enabled_state=True)
+
+    assert [skill["name"] for skill in listed["skills"]] == ["enabled"]
+    assert hidden["success"] is False
+    assert hidden["code"] == "skill_disabled"
+    assert visible_for_settings["success"] is True
+    assert visible_for_settings["enabled"] is False

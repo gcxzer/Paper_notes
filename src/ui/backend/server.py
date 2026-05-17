@@ -48,6 +48,7 @@ from app_infra.formatting import normalize_text
 from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
 from ui.backend.memory_api import list_memory, update_memory
 from ui.backend.mcp_api import (
+    connect_mcp_server,
     get_mcp_settings,
     get_mcp_stderr_log,
     reconnect_mcp_server,
@@ -248,6 +249,7 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/settings/ai": self.handle_update_ai_settings,
             "/api/settings/tools": self.handle_update_tool_settings,
             "/api/settings/mcp": self.handle_update_mcp_settings,
+            "/api/settings/mcp/connect": self.handle_connect_mcp_server,
             "/api/settings/mcp/test": self.handle_test_mcp_server,
             "/api/settings/mcp/reconnect": self.handle_reconnect_mcp_server,
             "/api/settings/mcp/reset-circuit": self.handle_reset_mcp_server_circuit,
@@ -554,6 +556,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_test_mcp_server(self) -> None:
         self.send_json(HTTPStatus.OK, test_mcp_server(self.read_json_body()))
+
+    def handle_connect_mcp_server(self) -> None:
+        self.send_json(HTTPStatus.OK, connect_mcp_server(self.read_json_body()))
 
     def handle_reconnect_mcp_server(self) -> None:
         self.send_json(HTTPStatus.OK, reconnect_mcp_server(self.read_json_body()))
