@@ -8,6 +8,7 @@ from threading import Lock
 from typing import Any
 
 from agent_runtime import AgentEvent
+from agent_runtime.tool_trace import read_paper_progress_detail
 
 
 DEFAULT_PROGRESS_TTL_SECONDS = 30 * 60
@@ -297,7 +298,7 @@ def _progress_event(event: AgentEvent) -> dict[str, Any]:
 def _visible_progress_event(event: AgentEvent, progress_event: dict[str, Any]) -> dict[str, Any] | None:
     event_type = _clean_text(event.type)
     data = event.data or {}
-    if event_type in {"model_request", "model_response", "completed"}:
+    if event_type in {"model_request", "model_response", "model_delta", "completed"}:
         return None
     if event_type in {"work_trace_delta", "work_trace_item"}:
         detail = _clean_text(data.get("text") or event.message)
@@ -535,8 +536,7 @@ def _tool_start_detail(name: str, data: dict[str, Any]) -> str:
     if name == "create_image_artifact":
         return "Generating image."
     if name == "read_paper":
-        action = _clean_text(args.get("action") or "read")
-        return f"Reading paper source ({action}){f' for {note_id}' if note_id else ''}."
+        return read_paper_progress_detail(args, suffix=".")
     if name == "review_note":
         action = _clean_text(args.get("action") or "validate_html")
         return f"Reviewing note ({action}){f' for {note_id}' if note_id else ''}."
@@ -586,7 +586,7 @@ def _visible_tool_start_detail(name: str, data: dict[str, Any]) -> str:
     if name == "create_image_artifact":
         return "Generating image..."
     if name == "read_paper":
-        return "Reading paper source..."
+        return read_paper_progress_detail(args)
     if name == "review_note":
         return "Reviewing note..."
     if name == "write_note":

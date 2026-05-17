@@ -7,7 +7,7 @@ from typing import Any
 
 from app_infra.formatting import normalize_text
 from tools.paper_notes.annotations import create_annotation, delete_annotation, update_annotation
-from tools.paper_notes.common import tool_error, truthy
+from tools.paper_notes.common import resolve_note, tool_error, truthy
 from tools.paper_notes.manifest import TOOL_GROUP
 from tools.paper_notes.media import write_note_from_paper_image
 from tools.paper_notes.notes import (
@@ -288,14 +288,27 @@ def read_paper(
             action = "search_text"
         else:
             action = "read_pages"
+    args, correction = _read_paper_args_with_note_id_correction(args, action=action, library_path=library_path)
     if action == "search_text":
-        return search_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir)
+        return _with_note_id_correction(
+            search_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir),
+            correction,
+        )
     if action == "read_pages":
-        return read_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir)
+        return _with_note_id_correction(
+            read_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir),
+            correction,
+        )
     if action == "render_page":
-        return render_paper_page(args, library_path=library_path, papers_dir=papers_dir, paper_page_cache_dir=paper_page_cache_dir, media_store=media_store)
+        return _with_note_id_correction(
+            render_paper_page(args, library_path=library_path, papers_dir=papers_dir, paper_page_cache_dir=paper_page_cache_dir, media_store=media_store),
+            correction,
+        )
     if action == "extract_images":
-        return extract_paper_images(args, library_path=library_path, papers_dir=papers_dir, paper_image_cache_dir=paper_image_cache_dir, media_store=media_store)
+        return _with_note_id_correction(
+            extract_paper_images(args, library_path=library_path, papers_dir=papers_dir, paper_image_cache_dir=paper_image_cache_dir, media_store=media_store),
+            correction,
+        )
     if action == "analyze_image":
         if not callable(paper_image_analyzer):
             return tool_error("image_analysis_unavailable", "Image analysis is not available in this registry.", note_id=normalize_text(args.get("note_id")))
@@ -305,6 +318,40 @@ def read_paper(
             "question": args.get("query") or args.get("question") or "Analyze this paper image.",
         })
     return tool_error("invalid_action", "action must be search_text, read_pages, render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
+
+
+def _read_paper_args_with_note_id_correction(
+    args: dict[str, Any],
+    *,
+    action: str,
+    library_path: Path | None,
+) -> tuple[dict[str, Any], dict[str, str] | None]:
+    if action not in {"search_text", "read_pages", "render_page", "extract_images"}:
+        return args, None
+    note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
+    if "error" in note_result:
+        return args, None
+    if not note_result.get("note_id_corrected"):
+        return args, None
+    note = note_result.get("note") if isinstance(note_result.get("note"), dict) else {}
+    corrected_note_id = normalize_text(note.get("id"))
+    requested_note_id = normalize_text(note_result.get("requested_note_id"))
+    if not corrected_note_id or corrected_note_id == requested_note_id:
+        return args, None
+    return {**args, "note_id": corrected_note_id}, {
+        "requested_note_id": requested_note_id,
+        "corrected_note_id": corrected_note_id,
+    }
+
+
+def _with_note_id_correction(payload: dict[str, Any], correction: dict[str, str] | None) -> dict[str, Any]:
+    if not correction:
+        return payload
+    return {
+        **payload,
+        "requested_note_id": correction["requested_note_id"],
+        "note_id_corrected": True,
+    }
 
 
 def write_note(

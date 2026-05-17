@@ -159,6 +159,19 @@ function currentMcpServer() {
   return settings.servers.find((server) => server.id === state.mcpEditingId) || settings.servers[0] || null;
 }
 
+function ensureMcpSelectedServer(settings = state.mcpSettings || normalizeMcpSettings({}), visibleServers = null) {
+  const servers = Array.isArray(settings?.servers) ? settings.servers : [];
+  if (!servers.length) {
+    state.mcpEditingId = "";
+    return null;
+  }
+  const selected = servers.find((server) => server.id === state.mcpEditingId);
+  if (selected) return selected;
+  const fallback = Array.isArray(visibleServers) && visibleServers.length ? visibleServers[0] : servers[0];
+  state.mcpEditingId = fallback.id;
+  return fallback;
+}
+
 function filterMcpServers(servers) {
   const query = normalizeText(state.mcpSearchQuery).toLowerCase();
   if (!query) return servers || [];
@@ -251,7 +264,7 @@ function renderMcpSettingsDialog() {
   const settings = state.mcpSettings || normalizeMcpSettings({});
   const servers = settings.servers || [];
   const visibleServers = filterMcpServers(servers);
-  const active = currentMcpServer();
+  const active = ensureMcpSelectedServer(settings, visibleServers);
   const isEmpty = !state.mcpSettingsLoading && !servers.length;
 
   elements.mcpSettingsCount.textContent = `${servers.length} ${servers.length === 1 ? "server" : "servers"}`;
@@ -279,14 +292,30 @@ function renderMcpSettingsDialog() {
 }
 
 function mcpStatusMeta(server) {
-  if (!server.enabled) return { label: "Off", tone: "off" };
   if (state.mcpOperationId === `connect:${server.id}`) return { label: "Connecting", tone: "warning" };
-  if (server.status.circuitOpen) return { label: "Circuit open", tone: "warning" };
-  if (server.status.state === "reconnecting") return { label: "Reconnecting", tone: "warning" };
-  if (server.status.state === "connecting") return { label: "Connecting", tone: "warning" };
-  if (server.status.connected) return { label: "Connected", tone: "connected" };
-  if (server.status.error) return { label: "Error", tone: "error" };
+  const status = mcpDisplayStatus(server);
+  if (!server.enabled) return { label: "Off", tone: "off" };
+  if (status.circuitOpen) return { label: "Circuit open", tone: "warning" };
+  if (status.state === "reconnecting") return { label: "Reconnecting", tone: "warning" };
+  if (status.state === "connecting") return { label: "Connecting", tone: "warning" };
+  if (status.connected) return { label: "Connected", tone: "connected" };
+  if (status.error) return { label: "Error", tone: "error" };
   return { label: "Ready", tone: "idle" };
+}
+
+function mcpDisplayStatus(server) {
+  const connectError = mcpActionError("connect", server.id)?.message || "";
+  if (!connectError) return server.status || {};
+  return {
+    ...(server.status || {}),
+    connected: false,
+    error: connectError,
+    toolCount: 0,
+    state: "error",
+    failureCount: 0,
+    nextRetryAt: null,
+    circuitOpen: false
+  };
 }
 
 function mcpServerEndpoint(server) {
@@ -319,19 +348,20 @@ function formatMcpRetryTime(value) {
 }
 
 function mcpServerStatusDetail(server) {
-  const retryLabel = formatMcpRetryTime(server.status.nextRetryAt);
-  if (server.status.circuitOpen) {
-    const failures = server.status.failureCount ? `${server.status.failureCount} failures` : "Circuit paused";
+  const status = mcpDisplayStatus(server);
+  const retryLabel = formatMcpRetryTime(status.nextRetryAt);
+  if (status.circuitOpen) {
+    const failures = status.failureCount ? `${status.failureCount} failures` : "Circuit paused";
     return retryLabel ? `${failures}, retry ${retryLabel}` : failures;
   }
-  if (server.status.connected) return `${server.status.toolCount || server.tools.length || 0} tools`;
-  if (server.status.failureCount) return `${server.status.failureCount} failures${retryLabel ? `, retry ${retryLabel}` : ""}`;
-  if (server.status.error) return server.status.error;
+  if (status.connected) return `${status.toolCount || server.tools.length || 0} tools`;
+  if (status.failureCount) return `${status.failureCount} failures${retryLabel ? `, retry ${retryLabel}` : ""}`;
+  if (status.error) return status.error;
   return mcpServerEndpoint(server);
 }
 
 function renderMcpServerListItem(server) {
-  const active = server.id === state.mcpEditingId || (!state.mcpEditingId && server === currentMcpServer());
+  const active = server.id === state.mcpEditingId;
   const status = mcpStatusMeta(server);
   const toolLabel = mcpServerStatusDetail(server);
   return `
@@ -367,8 +397,10 @@ function renderMcpToolChip(tool) {
 }
 
 function renderMcpStatusSection(server) {
+  const displayStatus = mcpDisplayStatus(server);
+  const connectError = mcpActionError("connect", server.id);
   const status = mcpStatusMeta(server);
-  const retryLabel = formatMcpRetryTime(server.status.nextRetryAt);
+  const retryLabel = formatMcpRetryTime(displayStatus.nextRetryAt);
   const warningCount = mcpWarningCount(server);
   const reconnecting = state.mcpOperationId === `reconnect:${server.id}`;
   const resetting = state.mcpOperationId === `reset:${server.id}`;
@@ -376,9 +408,9 @@ function renderMcpStatusSection(server) {
   const busy = Boolean(state.mcpOperationId);
   const rows = [
     ["State", status.label],
-    ["Tools", String(server.status.toolCount || server.tools.length || 0)],
+    ["Tools", String(displayStatus.toolCount || server.tools.length || 0)],
   ];
-  if (server.status.failureCount) rows.push(["Failures", String(server.status.failureCount)]);
+  if (displayStatus.failureCount) rows.push(["Failures", String(displayStatus.failureCount)]);
   if (retryLabel) rows.push(["Next retry", retryLabel]);
   if (warningCount) rows.push(["Warnings", mcpWarningLabel(warningCount)]);
   return `
@@ -395,7 +427,7 @@ function renderMcpStatusSection(server) {
           </div>
         `).join("")}
       </div>
-      ${server.status.error ? `<p class="mcp-status-note is-error">${escapeHtml(server.status.error)}</p>` : ""}
+      ${server.status.error && !connectError ? `<p class="mcp-status-note is-error">${escapeHtml(server.status.error)}</p>` : ""}
       ${warningCount ? `<p class="mcp-status-note is-warning">${escapeHtml(mcpWarningLabel(warningCount))} detected in MCP metadata.</p>` : ""}
       <div class="mcp-status-actions">
         <div class="mcp-action-slot">
@@ -628,9 +660,7 @@ async function loadMcpSettings() {
     state.mcpSettings = normalizeMcpSettings(payload);
     state.mcpSettingsBaseline = cloneMcpSettings(state.mcpSettings);
     state.mcpRuntimePreviewDirty = false;
-    if (!state.mcpEditingId && state.mcpSettings.servers[0]) {
-      state.mcpEditingId = state.mcpSettings.servers[0].id;
-    }
+    ensureMcpSelectedServer(state.mcpSettings);
     setMcpSettingsError("");
   } catch (error) {
     state.mcpSettings = normalizeMcpSettings({});
@@ -890,7 +920,7 @@ async function connectMcpServer(id) {
   const settings = state.mcpSettings || normalizeMcpSettings({});
   const server = settings.servers.find((entry) => entry.id === id);
   if (!server) return;
-  const validationError = validateMcpSettings(settings);
+  const validationError = validateMcpServer(server);
   if (validationError) {
     state.mcpTestResult = null;
     setMcpActionError("connect", id, validationError, "Connect failed");

@@ -205,6 +205,41 @@ def test_paper_text_search_read_and_build_context_use_cache(tmp_path):
     assert context_payload["paper_matches"][0]["page"] == 1
 
 
+def test_read_paper_corrects_unique_near_note_id(tmp_path):
+    library_path = tmp_path / "notes.json"
+    cache_dir = tmp_path / "paper-text"
+    note_id = "pdf-paper-textual-frequency-law-mp8j9yvt"
+    truncated_id = "pdf-paper-textual-frequency-law-mp8j9yv"
+    write_library({
+        "categories": [],
+        "notes": [{
+            "id": note_id,
+            "title": "Paper",
+            "href": "resources/Papers/paper.pdf",
+        }],
+    }, library_path)
+    cache_dir.mkdir()
+    (cache_dir / f"{note_id}.json").write_text(json.dumps({
+        "pages": [{"page": 1, "text": "A corrected note id can still read this paper."}],
+    }), encoding="utf-8")
+    registry = create_paper_notes_registry(library_path=library_path, paper_text_cache_dir=cache_dir)
+
+    result = registry.dispatch("read_paper", {
+        "action": "read_pages",
+        "note_id": truncated_id,
+        "page_start": 1,
+        "page_end": 1,
+    })
+    payload = json.loads(result.content)
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert payload["note_id"] == note_id
+    assert payload["requested_note_id"] == truncated_id
+    assert payload["note_id_corrected"] is True
+    assert "corrected note id" in payload["text"]
+
+
 def test_paper_notes_facade_tools_route_to_internal_capabilities(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 

@@ -32,7 +32,9 @@ function normalizeRunTrace(rawTrace) {
   const events = Array.isArray(rawTrace.events)
     ? rawTrace.events.map((event) => ({
       type: normalizeText(event?.type),
+      stage: normalizeText(event?.stage),
       message: sanitizeChatProgressDetail(event?.message || event?.detail),
+      at: normalizeText(event?.at),
       data: event?.data && typeof event.data === "object" ? event.data : {}
     })).filter((event) => event.type || event.message)
     : [];
@@ -59,12 +61,24 @@ function normalizeWorkTrace(rawTrace) {
       source: normalizeText(item?.source)
     })).filter((item) => item.text)
     : [];
-  const items = compactWorkTraceItems(rawItems);
+  const items = sortTraceItemsChronologically(compactWorkTraceItems(rawItems));
   if (!items.length) return null;
   return {
     status: normalizeText(rawTrace.status) || "completed",
     items
   };
+}
+
+function sortTraceItemsChronologically(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({ item, index, time: Date.parse(normalizeText(item?.at)) }))
+    .sort((left, right) => {
+      const leftTime = Number.isFinite(left.time) ? left.time : null;
+      const rightTime = Number.isFinite(right.time) ? right.time : null;
+      if (leftTime !== null && rightTime !== null && leftTime !== rightTime) return leftTime - rightTime;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.item);
 }
 
 function compactWorkTraceItems(items) {
@@ -76,11 +90,10 @@ function compactWorkTraceItems(items) {
     const source = normalizeText(item?.source);
     const duplicateIndex = compacted.findIndex((existing) => (
       existing.type === type
-      && existing.source === source
       && existing.text === text
     ));
     if (duplicateIndex !== -1) continue;
-    const relatedIndex = ["summary", "commentary", "reasoning"].includes(type)
+    const relatedIndex = canMergeStreamingWorkTraceType(type)
       ? compacted.findLastIndex((existing) => (
         existing.type === type
         && existing.source === source
@@ -96,6 +109,10 @@ function compactWorkTraceItems(items) {
     compacted.push({ ...item, type, text, source });
   }
   return compacted;
+}
+
+function canMergeStreamingWorkTraceType(type) {
+  return ["summary", "commentary", "reasoning"].includes(normalizeText(type));
 }
 
 function workTraceTextsOverlap(first, second) {
@@ -1044,39 +1061,85 @@ function isTerminalChatProgressStatus(status) {
 function renderChatProgress() {
   const progress = normalizeChatProgress(currentChatProgress());
   if (!progress) return "";
-  const terminalVisible = ["cancelled", "failed"].includes(progress.status);
-  if (!isChatSessionPending() && !terminalVisible) return "";
-  const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: !terminalVisible });
-  const visibleSteps = progress.workTrace?.items?.length
-    ? progress.workTrace.items.map((item) => ({ detail: item.text }))
-    : progress.visibleEvents.length
-      ? progress.visibleEvents
-      : [{ stage: progress.stage, detail: progress.detail }];
+  if (!isChatSessionPending()) return "";
+  const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: true });
   const pendingApproval = pendingApprovalFromProgress(progress);
-  const canCancel = ["queued", "running", "waiting"].includes(progress.status) && Boolean(progress.requestId || currentChatProgressRequestId());
-  const showSpinner = !["cancelled", "failed", "stopped"].includes(progress.status);
+  const rowsHtml = progressInlineRows(progress).map(renderProgressInlineRow).join("");
+  const approvalHtml = pendingApproval ? renderProgressApprovalMessage(pendingApproval) : "";
+  return `${compactionMarkerHtml}${rowsHtml}${approvalHtml}`;
+}
+
+function progressInlineRows(progress) {
+  const rows = [];
+  if (progress.workTrace?.items?.length) {
+    rows.push(...progress.workTrace.items.map((item) => ({
+      type: normalizeText(item.type) || "status",
+      detail: item.text,
+      at: item.at
+    })));
+  } else if (progress.visibleEvents.length) {
+    rows.push(...progress.visibleEvents.map((event) => ({
+      type: normalizeText(event.stage) || progress.stage || "status",
+      detail: event.detail,
+      at: event.at
+    })));
+  }
+  if (!rows.length) {
+    rows.push({
+      type: progress.status === "running" ? progress.stage : progress.status,
+      detail: progress.detail
+    });
+  }
+  const seen = new Set();
+  return sortTraceItemsChronologically(rows).map((row) => {
+    const detail = sanitizeChatProgressDetail(row.detail);
+    if (!detail) return null;
+    const type = progressInlineType(row.type);
+    if (isHiddenRunTraceMessage(type, detail)) return null;
+    const key = `${type}\n${detail}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return { type, detail };
+  }).filter(Boolean);
+}
+
+function progressInlineType(type) {
+  const normalized = normalizeText(type);
+  if (isStatusProgressType(normalized)) return "status";
+  if (["tool", "skill", "status", "commentary", "reasoning", "summary"].includes(normalized)) return normalized;
+  if (normalized.includes("tool")) return "tool";
+  if (normalized.includes("skill")) return "skill";
+  if (normalized.includes("status")) return "status";
+  return normalized || "status";
+}
+
+function isStatusProgressType(type) {
+  return [
+    "approval",
+    "cancelled",
+    "cancelling",
+    "completed",
+    "failed",
+    "halted",
+    "pending",
+    "planning",
+    "queued",
+    "running",
+    "starting",
+    "stopped",
+    "thinking",
+    "waiting",
+    "working",
+  ].includes(normalizeText(type));
+}
+
+function renderProgressInlineRow(row) {
   return `
-    ${compactionMarkerHtml}
-    <div class="ask-message ask-message-assistant ask-message-progress">
+    <div class="ask-message ask-message-assistant ask-message-progress-inline" role="status" aria-live="polite">
       <div class="ask-message-stack">
-        <div class="ask-progress-card" role="status" aria-live="polite">
-          <div class="ask-progress-header">
-            <span class="ask-progress-copy">
-              ${showSpinner ? `<span class="ask-progress-spinner" aria-hidden="true"></span>` : ""}
-              <strong>${escapeHtml(progress.detail)}</strong>
-            </span>
-            ${canCancel ? `<button class="ask-progress-cancel" type="button" data-chat-cancel>Cancel</button>` : ""}
-          </div>
-          ${pendingApproval ? renderProgressApproval(pendingApproval) : ""}
-          ${visibleSteps.length > 1 ? `
-            <ol class="ask-progress-steps">
-              ${visibleSteps.slice(-3).map((event, index, events) => `
-                <li class="${index === events.length - 1 ? "is-current" : "is-done"}">
-                  <span>${escapeHtml(event.detail)}</span>
-                </li>
-              `).join("")}
-            </ol>
-          ` : ""}
+        <div class="ask-progress-inline">
+          <span class="ask-progress-inline-type">${escapeHtml(workTraceItemLabel(row.type))}</span>
+          <span class="ask-progress-inline-text">${escapeHtml(row.detail)}</span>
         </div>
       </div>
     </div>
@@ -1134,7 +1197,7 @@ function renderRunTraceSummary(trace, workTrace = null, classPrefix = "ask") {
   const normalized = normalizeRunTrace(trace);
   if (!normalized) return "";
   const duration = normalized.durationMs ? formatRunTraceDuration(normalized.durationMs) : "a moment";
-  const workItems = normalizeWorkTrace(workTrace)?.items || [];
+  const workItems = runSummaryWorkItems(normalized, workTrace);
   return `
     <div class="${classPrefix}-run-summary">
       <div class="${classPrefix}-run-summary-row">
@@ -1160,12 +1223,116 @@ function renderRunTraceSummary(trace, workTrace = null, classPrefix = "ask") {
   `;
 }
 
+function runSummaryWorkItems(trace, workTrace = null) {
+  const workTraceItems = (normalizeWorkTrace(workTrace)?.items || [])
+    .filter((item) => !isHiddenRunTraceMessage(item.type, item.text));
+  const items = [
+    ...workTraceItems,
+    ...runTraceVisibleWorkItems(trace, { includeToolEvents: !workTraceItems.length }),
+  ];
+  const compacted = sortTraceItemsChronologically(compactWorkTraceItems(items));
+  return compacted.length ? compacted : fallbackRunStatusItems(trace);
+}
+
+function runTraceVisibleWorkItems(trace, { includeToolEvents = true } = {}) {
+  const normalized = normalizeRunTrace(trace);
+  if (!normalized?.events?.length) return [];
+  return normalized.events.map((event) => runTraceEventWorkItem(event, { includeToolEvents })).filter(Boolean);
+}
+
+function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
+  const eventType = normalizeText(event?.type);
+  const message = sanitizeChatProgressDetail(event?.message);
+  const data = event?.data && typeof event.data === "object" ? event.data : {};
+  const text = sanitizeChatProgressDetail(data.text || data.delta || message);
+  if (!text || isHiddenRunTraceMessage(eventType, text)) return null;
+  if (eventType === "work_trace_item" || eventType === "work_trace_delta") {
+    return {
+      type: normalizeText(data.trace_type || data.traceType) || "summary",
+      text,
+      at: event.at,
+      source: normalizeText(data.source) || "provider",
+    };
+  }
+  if (eventType === "tool_call" || eventType === "tool_result") {
+    if (!includeToolEvents) return null;
+    const name = normalizeText(data.name || data.toolName || data.tool_name);
+    return {
+      type: name && (name === "skills_list" || name === "skill_view") ? "skill" : "tool",
+      text,
+      at: event.at,
+      source: "runtime",
+    };
+  }
+  if (eventType === "tool_error" || eventType === "tool_blocked" || eventType === "tool_warning") {
+    return { type: "status", text, at: event.at, source: "runtime" };
+  }
+  if (isStatusProgressType(eventType) || isStatusProgressType(event.stage)) {
+    return { type: "status", text, at: event.at, source: "runtime" };
+  }
+  if (eventType === "commentary") {
+    return { type: "commentary", text, at: event.at, source: "runtime" };
+  }
+  if (eventType === "reasoning" || eventType === "summary") {
+    return { type: eventType, text, at: event.at, source: "provider" };
+  }
+  return null;
+}
+
+function fallbackRunStatusItems(trace) {
+  const normalized = normalizeRunTrace(trace);
+  if (!normalized) return [];
+  const items = [];
+  if (normalized.startedAt) {
+    items.push({
+      type: "status",
+      text: "Starting agent run.",
+      at: normalized.startedAt,
+      source: "runtime",
+    });
+  }
+  const terminalText = terminalRunStatusText(normalized.status, normalized.error);
+  if (terminalText) {
+    items.push({
+      type: "status",
+      text: terminalText,
+      at: normalized.finishedAt,
+      source: "runtime",
+    });
+  }
+  return sortTraceItemsChronologically(compactWorkTraceItems(items));
+}
+
+function terminalRunStatusText(status, error = "") {
+  const normalized = normalizeText(status);
+  if (normalized === "completed") return "Agent run completed.";
+  if (normalized === "cancelled") return "Agent run cancelled.";
+  if (normalized === "failed") return sanitizeChatProgressDetail(error) || "Agent run failed.";
+  if (normalized === "stopped") return "Agent run stopped.";
+  return "";
+}
+
+function isHiddenRunTraceMessage(type, text) {
+  const normalizedType = normalizeText(type);
+  const normalizedText = sanitizeChatProgressDetail(text);
+  if (["model_request", "model_response", "model_delta", "completed", "tool_approval_resolved"].includes(normalizedType)) {
+    return true;
+  }
+  return [
+    "Agent run completed.",
+    "Calling model provider.",
+    "Model response received.",
+    "Model provider returned a response.",
+    "Receiving model response.",
+  ].includes(normalizedText);
+}
+
 function workTraceItemLabel(type) {
   const normalized = normalizeText(type);
   if (normalized === "skill") return "Skill";
   if (normalized === "tool") return "Tool";
-  if (normalized === "status") return "Status";
-  if (normalized === "commentary") return "Update";
+  if (normalized === "status" || isStatusProgressType(normalized)) return "Status";
+  if (normalized === "commentary") return "Progress";
   return "Think";
 }
 
@@ -1205,23 +1372,69 @@ function runTraceFromProgress(progress) {
   });
 }
 
-function attachRunTraceFallback(messages, payload, startedAtMs) {
+function attachRunTraceFallback(messages, payload, startedAtMs, progress = null) {
   const trace = runTraceFromPayload(payload, startedAtMs);
-  if (!trace) return messages;
+  const progressTrace = workTraceFromProgressPayload(progress || payload?.progress || payload?.chatProgress);
+  if (!trace && !progressTrace) return messages;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "assistant") {
-      if (!messages[index].runTrace) messages[index].runTrace = trace;
+      if (trace && !messages[index].runTrace) messages[index].runTrace = trace;
+      if (progressTrace) {
+        messages[index].workTrace = mergeWorkTraces(messages[index].workTrace, progressTrace);
+      }
       return messages;
     }
   }
   return messages;
 }
 
+function workTraceFromProgressPayload(progress) {
+  const normalized = normalizeChatProgress(progress);
+  if (!normalized) return null;
+  const rows = [];
+  if (normalized.workTrace?.items?.length) {
+    rows.push(...normalized.workTrace.items.map((item) => ({
+      type: normalizeText(item.type) || "status",
+      text: item.text,
+      at: item.at,
+      source: item.source || "runtime",
+    })));
+  }
+  if (normalized.visibleEvents.length) {
+    rows.push(...normalized.visibleEvents.map((event) => ({
+      type: progressInlineType(event.stage),
+      text: event.detail,
+      at: event.at,
+      source: "runtime",
+    })));
+  }
+  if (!rows.length) {
+    rows.push({
+      type: progressInlineType(normalized.status === "running" ? normalized.stage : normalized.status),
+      text: normalized.detail,
+      source: "runtime",
+    });
+  }
+  const visibleRows = rows.filter((row) => {
+    const type = progressInlineType(row.type);
+    const text = sanitizeChatProgressDetail(row.text);
+    return Boolean(text) && !isHiddenRunTraceMessage(type, text);
+  });
+  return normalizeWorkTrace({ status: normalized.status, items: visibleRows });
+}
+
+function mergeWorkTraces(first, second) {
+  const firstItems = normalizeWorkTrace(first)?.items || [];
+  const secondItems = normalizeWorkTrace(second)?.items || [];
+  const status = normalizeText(second?.status || first?.status) || "completed";
+  return normalizeWorkTrace({ status, items: [...firstItems, ...secondItems] });
+}
+
 function renderProgressApproval(approval) {
   const actioning = readerState.toolApprovalActionId === approval.approvalId;
   const summary = approval.argumentSummary || approval.risk || "Local note write";
   return `
-    <div class="ask-progress-approval">
+    <div class="ask-inline-approval">
       <div class="ask-progress-approval-copy">
         <strong>${escapeHtml(toolDisplayName(approval.toolName))}</strong>
         <span>${escapeHtml(summary)}</span>
@@ -1230,6 +1443,16 @@ function renderProgressApproval(approval) {
         <button type="button" data-progress-approval-action="allow_once" data-progress-approval-id="${escapeHtml(approval.approvalId)}" ${actioning ? "disabled" : ""}>Allow</button>
         <button type="button" data-progress-approval-action="allow_always" data-progress-approval-id="${escapeHtml(approval.approvalId)}" ${actioning ? "disabled" : ""}>Always</button>
         <button type="button" data-progress-approval-action="deny" data-progress-approval-id="${escapeHtml(approval.approvalId)}" ${actioning ? "disabled" : ""}>Deny</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderProgressApprovalMessage(approval) {
+  return `
+    <div class="ask-message ask-message-assistant ask-message-progress-inline ask-message-progress-approval" role="status" aria-live="polite">
+      <div class="ask-message-stack">
+        ${renderProgressApproval(approval)}
       </div>
     </div>
   `;
@@ -1289,10 +1512,21 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   }
 
   const latestUserIndex = latestReaderUserMessageIndex();
+  const chatProgressHtml = renderChatProgress();
+  const streamingAssistantIndex = isChatSessionPending()
+    ? readerState.chatMessages.findIndex((message, index) => (
+      index > latestUserIndex
+      && message?.role === "assistant"
+      && message.streaming
+    ))
+    : -1;
+  let insertedProgress = false;
   const messagesHtml = readerState.chatMessages.map((rawMessage, index) => {
     const message = normalizeChatMessage(rawMessage);
+    const progressBeforeMessage = !insertedProgress && index === streamingAssistantIndex ? chatProgressHtml : "";
+    if (progressBeforeMessage) insertedProgress = true;
     if (message.role === "divider") {
-      return renderChatDivider(message);
+      return `${progressBeforeMessage}${renderChatDivider(message)}`;
     }
     const nextCompactionMarkerHtml = message.role === "user"
       ? messageContextCompactionMarker(readerState.chatMessages[index + 1])
@@ -1317,7 +1551,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
       : message.text
         ? `<div class="ask-bubble">${rawMessage.streaming ? renderStreamingChatText(message.text) : renderChatMarkdown(message.text)}</div>`
         : "";
-    return `${nextCompactionMarkerHtml}${compactionMarkerHtml}
+    return `${progressBeforeMessage}${nextCompactionMarkerHtml}${compactionMarkerHtml}
     <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}">
       <div class="ask-message-stack">
         ${traceHtml}
@@ -1332,7 +1566,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     </div>
   `;
   }).join("");
-  elements.readerChatMessages.innerHTML = `${messagesHtml}${renderChatProgress()}`;
+  elements.readerChatMessages.innerHTML = `${messagesHtml}${insertedProgress ? "" : chatProgressHtml}`;
   if (forceScrollToBottom || (scrollToBottom && wasNearBottom)) {
     elements.readerChatMessages.scrollTop = elements.readerChatMessages.scrollHeight;
   } else if (preserveScrollTop || scrollToBottom) {

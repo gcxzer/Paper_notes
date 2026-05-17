@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import json
 import threading
 import time
 
@@ -992,6 +993,61 @@ def test_handle_chat_stream_request_emits_work_trace_events_and_final_work_trace
     assert "model_request" not in [item["type"] for item in final_payload["message"]["workTrace"]["items"]]
 
 
+def test_work_trace_from_run_trace_keeps_status_events():
+    work_trace = agent_api._work_trace_from_run_trace({
+        "status": "completed",
+        "events": [
+            {"type": "starting", "message": "Starting agent run.", "data": {}},
+            {"type": "running", "message": "Starting agent run with local context.", "data": {}},
+            {"type": "completed", "message": "Agent run completed.", "data": {}},
+        ],
+    })
+
+    assert work_trace is not None
+    assert [item["type"] for item in work_trace["items"]] == ["status", "status"]
+    assert [item["text"] for item in work_trace["items"]] == [
+        "Starting agent run.",
+        "Starting agent run with local context.",
+    ]
+
+
+def test_work_trace_from_run_trace_labels_read_paper_details():
+    work_trace = agent_api._work_trace_from_run_trace({
+        "status": "completed",
+        "events": [
+            {
+                "type": "tool_call",
+                "data": {
+                    "name": "read_paper",
+                    "arguments": json.dumps({
+                        "action": "read_pages",
+                        "note_id": "note-1",
+                        "page_start": 2,
+                        "page_end": 2,
+                    }),
+                },
+            },
+            {
+                "type": "tool_call",
+                "data": {
+                    "name": "read_paper",
+                    "arguments": json.dumps({
+                        "action": "search_text",
+                        "note_id": "note-1",
+                        "query": "Textual Frequency Law",
+                    }),
+                },
+            },
+        ],
+    })
+
+    assert work_trace is not None
+    assert [item["text"] for item in work_trace["items"]] == [
+        "Reading paper page 2...",
+        "Searching paper text: Textual Frequency Law...",
+    ]
+
+
 def test_chat_stream_disconnect_does_not_stop_background_run(tmp_path):
     class SlowProvider(FakeProvider):
         def generate(self, request: ModelRequest) -> ModelResponse:
@@ -1327,7 +1383,7 @@ def test_get_chat_context_status_serializes_context_budget(tmp_path):
     assert payload["context"]["contextLength"] > 0
     assert payload["context"]["actualUsageAvailable"] is True
     assert payload["context"]["actualInputTokens"] == 432
-    assert payload["context"]["tokensUsed"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["tokensUsed"] == 432
     assert payload["context"]["requestTokens"] == payload["context"]["estimatedRequestTokens"]
     assert payload["context"]["messageTokens"] > 0
 
@@ -1387,9 +1443,9 @@ def test_get_chat_context_status_reports_zero_used_tokens_for_empty_session(tmp_
     assert payload["context"]["actualUsageAvailable"] is False
     assert payload["context"]["requestTokens"] == payload["context"]["estimatedRequestTokens"]
     assert payload["context"]["estimatedRequestTokens"] > 0
-    assert payload["context"]["tokensUsed"] == payload["context"]["estimatedRequestTokens"]
+    assert payload["context"]["tokensUsed"] == 0
     assert payload["context"]["messageTokens"] == 0
-    assert payload["context"]["percentFull"] >= 0
+    assert payload["context"]["percentFull"] == 0
     assert payload["context"]["instructionTokens"] > 0
     assert payload["context"]["toolSchemaTokens"] >= 0
 

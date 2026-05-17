@@ -10,6 +10,7 @@ from http import HTTPStatus
 from typing import Any, Callable
 
 from agent_runtime import AgentEvent
+from agent_runtime.tool_trace import read_paper_progress_detail
 from agent_runtime.service import AgentCompactResult, AgentContextStatus, AgentService, AgentServiceRequest, AgentServiceResult
 from agent_sessions import AgentSession, AgentSessionMetadata, SessionNotFoundError
 from tool_safety import ToolApprovalNotFoundError, ToolSnapshotConflictError, ToolSnapshotError
@@ -1250,7 +1251,23 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
             text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
             item_type = "status"
             item_source = "runtime"
-        elif event_type in {"cancelled", "halted", "tool_halted", "tool_approval_requested"}:
+        elif event_type in {
+            "approval",
+            "cancelled",
+            "cancelling",
+            "failed",
+            "halted",
+            "pending",
+            "queued",
+            "running",
+            "starting",
+            "stopped",
+            "tool_approval_requested",
+            "tool_calls_pending",
+            "tool_halted",
+            "waiting",
+            "working",
+        }:
             text = str(event.get("message") or "").strip()
             item_type = "status"
             item_source = "runtime"
@@ -1284,7 +1301,9 @@ def _merge_run_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]
         if str(existing.get("source") or "").strip() != item_source:
             continue
         existing_text = str(existing.get("text") or "").strip()
-        if existing_text == item_text or item_text.startswith(existing_text) or existing_text.startswith(item_text):
+        if item_type in {"summary", "commentary", "reasoning"} and (
+            existing_text == item_text or item_text.startswith(existing_text) or existing_text.startswith(item_text)
+        ):
             items[index] = {
                 "type": item_type,
                 "text": item_text if len(item_text) >= len(existing_text) else existing_text,
@@ -1311,7 +1330,7 @@ def _work_trace_tool_start_detail(name: str, data: dict[str, Any]) -> str:
     if name == "create_image_artifact":
         return "Generating image..."
     if name == "read_paper":
-        return "Reading paper source..."
+        return read_paper_progress_detail(args)
     if name == "review_note":
         return "Reviewing note..."
     if name in {"write_note", "manage_annotations", "write_note_media", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:

@@ -326,9 +326,27 @@
 }
 
 .note-card h3 {
-  margin: 8px 0 6px;
+  margin: 5px 0 2px;
   font-size: 1rem;
   line-height: 1.26;
+}
+
+.note-card-tags {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-card-tag-separator {
+  color: color-mix(in srgb, var(--muted) 58%, transparent);
+  padding: 0 5px;
 }
 
 .note-card-actions-inline {

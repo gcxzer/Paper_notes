@@ -35,7 +35,9 @@
   justify-content: space-between;
   gap: 12px;
   grid-row: 1;
-  margin-bottom: 0;
+  margin: -14px -16px 0;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .debug-header h3 {

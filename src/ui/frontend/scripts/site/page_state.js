@@ -168,7 +168,6 @@ const elements = {
   closeModelCapabilitiesDialog: document.querySelector("#closeModelCapabilitiesDialog"),
   modelCapabilitiesTableWrap: document.querySelector("#modelCapabilitiesTableWrap"),
   cancelAiSettings: document.querySelector("#cancelAiSettings"),
-  aiSettingsStatus: document.querySelector("#aiSettingsStatus"),
   aiProviderInput: document.querySelector("#aiProviderInput"),
   openAiSettingsPanel: document.querySelector("#openAiSettingsPanel"),
   codexSettingsPanel: document.querySelector("#codexSettingsPanel"),

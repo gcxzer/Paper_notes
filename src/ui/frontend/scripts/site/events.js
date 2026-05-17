@@ -440,11 +440,6 @@ elements.mcpServerEditor?.addEventListener("click", (event) => {
   }
   const connectButton = event.target.closest("[data-mcp-connect]");
   if (connectButton) {
-    const server = (state.mcpSettings || normalizeMcpSettings({})).servers.find((entry) => entry.id === connectButton.dataset.mcpConnect);
-    if (server?.enabled === false) {
-      clearMcpTransientFeedback();
-      updateMcpServer(server.id, (current) => ({ ...current, enabled: true }), false);
-    }
     void connectMcpServer(connectButton.dataset.mcpConnect);
     return;
   }

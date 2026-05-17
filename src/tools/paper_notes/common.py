@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 import re
+from difflib import SequenceMatcher
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -85,15 +86,64 @@ def relative_project_path(path: Path) -> str:
     return str(resolved)
 
 
-def resolve_note(args: dict[str, Any], *, library_path: Path | None = None) -> dict[str, Any]:
+def resolve_note(
+    args: dict[str, Any],
+    *,
+    library_path: Path | None = None,
+    allow_similar_id: bool = False,
+) -> dict[str, Any]:
     note_id = normalize_text(args.get("note_id") or args.get("id"))
     if not note_id:
         return tool_error("note_id_required", "note_id is required")
     library = read_library(library_path) if library_path is not None else read_library()
     note = find_note(library, note_id)
     if note is None:
+        if allow_similar_id:
+            similar_note = _similar_note_for_id(library, note_id)
+            if similar_note is not None:
+                return {
+                    "note": similar_note,
+                    "requested_note_id": note_id,
+                    "note_id_corrected": True,
+                }
         return tool_error("note_not_found", f"Note not found: {note_id}", note_id=note_id)
     return {"note": note}
+
+
+def _similar_note_for_id(library: dict[str, Any], note_id: str) -> dict[str, Any] | None:
+    normalized_id = normalize_text(note_id)
+    if len(normalized_id) < 12:
+        return None
+    notes = [note for note in library.get("notes", []) if isinstance(note, dict)]
+    prefix_matches: list[dict[str, Any]] = []
+    for note in notes:
+        candidate_id = normalize_text(note.get("id"))
+        if not candidate_id:
+            continue
+        if abs(len(candidate_id) - len(normalized_id)) <= 4 and (
+            candidate_id.startswith(normalized_id) or normalized_id.startswith(candidate_id)
+        ):
+            prefix_matches.append(note)
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for note in notes:
+        candidate_id = normalize_text(note.get("id"))
+        if not candidate_id:
+            continue
+        max_len = max(len(candidate_id), len(normalized_id))
+        if abs(len(candidate_id) - len(normalized_id)) > max(4, int(max_len * 0.04)):
+            continue
+        ratio = SequenceMatcher(a=normalized_id, b=candidate_id).ratio()
+        if ratio >= 0.97:
+            scored.append((ratio, note))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    if not scored:
+        return None
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.01:
+        return None
+    return scored[0][1]
 
 
 def sanitize_html_fragment(raw_html: str) -> str:

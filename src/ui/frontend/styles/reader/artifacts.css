@@ -141,69 +141,41 @@
   font-weight: 650;
 }
 
-.ask-message-progress .ask-message-stack {
+.ask-message-progress .ask-message-stack,
+.ask-message-progress-inline .ask-message-stack {
   width: auto;
   max-width: 96%;
 }
 
-.ask-progress-card {
-  display: grid;
+.ask-progress-inline {
+  display: flex;
+  align-items: baseline;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
-  color: var(--text);
+  max-width: min(900px, 100%);
+  color: var(--muted-strong);
+  line-height: 1.45;
 }
 
-.ask-progress-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  min-width: 0;
-  color: var(--text);
-  font-size: 0.9rem;
+.ask-progress-inline-type {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
 }
 
-.ask-progress-copy {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-}
-
-.ask-progress-copy strong {
+.ask-progress-inline-text {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.ask-progress-spinner {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 999px;
-  animation: ask-progress-spin 0.9s linear infinite;
-}
-
-.ask-progress-cancel {
-  flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--danger, #ef6666) 42%, var(--line));
-  border-radius: 8px;
-  padding: 5px 9px;
-  background: color-mix(in srgb, var(--panel) 80%, var(--danger, #ef6666) 20%);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-.ask-progress-cancel:hover {
-  border-color: color-mix(in srgb, var(--danger, #ef6666) 72%, var(--line));
-}
-
+.ask-inline-approval,
 .ask-progress-approval {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -266,47 +238,6 @@
 .ask-progress-approval-actions button:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-.ask-progress-steps {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.ask-progress-steps li {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.ask-progress-steps li::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  margin-top: 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted) 48%, transparent);
-}
-
-.ask-progress-steps li.is-current {
-  color: var(--text);
-}
-
-.ask-progress-steps li.is-current::before {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-@keyframes ask-progress-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .ask-sources {
@@ -861,18 +792,51 @@
 }
 
 .ask-send {
-  min-width: 52px;
-  padding: 0 10px;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
   border: 1px solid var(--line-strong);
   background: var(--panel-soft);
   color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 600;
+}
+
+.ask-send-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ask-send svg {
+  display: block;
 }
 
 .ask-send:hover,
 .ask-send:focus-visible {
   background: var(--panel-hover);
+}
+
+.ask-send:focus {
+  outline: none;
+}
+
+.ask-send:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ask-send.is-cancel {
+  border-color: color-mix(in srgb, var(--danger, #ef6666) 30%, var(--line-strong));
+  background: var(--panel-soft);
+  color: color-mix(in srgb, var(--danger, #ef6666) 74%, var(--text));
+}
+
+.ask-send.is-cancel:hover,
+.ask-send.is-cancel:focus-visible {
+  border-color: color-mix(in srgb, var(--danger, #ef6666) 46%, var(--line-strong));
+  background: color-mix(in srgb, var(--panel-hover) 92%, var(--danger, #ef6666) 8%);
+}
+
+.ask-send.is-cancel:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #ef6666) 14%, transparent);
 }
 
 .ask-send:disabled {

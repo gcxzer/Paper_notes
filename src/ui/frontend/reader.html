@@ -8,7 +8,7 @@
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
   <link rel="stylesheet" href="/node_modules/katex/dist/katex.min.css">
-  <link rel="stylesheet" href="styles/reader/index.css?v=debug-unified-v1">
+  <link rel="stylesheet" href="styles/reader/index.css?v=inline-progress-v5">
 </head>
 <body>
   <div class="reader-shell">
@@ -252,7 +252,14 @@
             <div class="ask-input-row">
               <button class="ask-composer-tool-button" type="button" id="readerToolMenuButton" aria-label="Open Ask tools" aria-haspopup="dialog" aria-expanded="false">+</button>
               <textarea id="readerChatInput" rows="1" placeholder="Ask anything"></textarea>
-              <button class="ask-send" type="submit" id="sendReaderChat">Send</button>
+              <button class="ask-send" type="submit" id="sendReaderChat" aria-label="Send" title="Send">
+                <span class="ask-send-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4.5 12 20 4.5l-5.2 15-3-6.3L4.5 12Z"/>
+                    <path d="m11.8 13.2 8.2-8.7"/>
+                  </svg>
+                </span>
+              </button>
             </div>
           </div>
         </form>
@@ -483,6 +490,6 @@
   </dialog>
 
   <script src="/node_modules/katex/dist/katex.min.js"></script>
-  <script type="module" src="scripts/reader/loader.js?v=debug-unified-v1"></script>
+  <script type="module" src="scripts/reader/loader.js?v=inline-progress-v5"></script>
 </body>
 </html>

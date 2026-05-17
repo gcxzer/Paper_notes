@@ -923,7 +923,7 @@ function normalizeReaderAiSettings(payload) {
 function normalizeContextStatus(payload) {
   const raw = payload?.context || payload || {};
   const contextLength = Math.max(0, Math.round(Number(raw.contextLength || raw.context_length) || 0));
-  const tokensUsedRaw = raw.tokensUsed ?? raw.tokens_used ?? raw.estimatedRequestTokens ?? raw.estimated_request_tokens ?? raw.requestTokens ?? raw.request_tokens ?? raw.messageTokens ?? raw.message_tokens ?? 0;
+  const tokensUsedRaw = raw.tokensUsed ?? raw.tokens_used ?? raw.messageTokens ?? raw.message_tokens ?? raw.actualInputTokens ?? raw.actual_input_tokens ?? 0;
   const estimatedRequestTokensRaw = raw.estimatedRequestTokens ?? raw.estimated_request_tokens ?? 0;
   const actualInputTokensRaw = raw.actualInputTokens ?? raw.actual_input_tokens ?? 0;
   const thresholdTokensRaw = raw.thresholdTokens ?? raw.threshold_tokens ?? 0;

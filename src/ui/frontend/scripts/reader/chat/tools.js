@@ -200,6 +200,8 @@ function renderFileGenerationFormatMenuContent() {
 
 const ASK_TOOL_ICON_PATHS = {
   attach: `<path d="M6 12.5v3.25A3.25 3.25 0 0 0 9.25 19h5.5A3.25 3.25 0 0 0 18 15.75v-7.5A3.25 3.25 0 0 0 14.75 5h-5.5A3.25 3.25 0 0 0 6 8.25v.25"/><path d="M9 12.25 12 15l4-5"/><path d="M4 8.5h6"/>`,
+  send: `<path d="M4.5 12 20 4.5l-5.2 15-3-6.3L4.5 12Z"/><path d="m11.8 13.2 8.2-8.7"/>`,
+  stop: `<rect x="8" y="8" width="8" height="8" rx="1.8" fill="currentColor" stroke="none"/>`,
   bookmark: `<path d="M7 4.75A2.75 2.75 0 0 1 9.75 2h4.5A2.75 2.75 0 0 1 17 4.75v16l-5-3.25-5 3.25v-16Z"/>`,
   image: `<rect x="4" y="6" width="14" height="12" rx="2.5"/><path d="m6.5 15 2.8-2.8a1.2 1.2 0 0 1 1.7 0l1.1 1.1 1.8-2a1.2 1.2 0 0 1 1.8.1L18 14"/><path d="M8 4.5 18.5 2.6a2 2 0 0 1 2.3 1.6l1.4 8.1"/>`,
   screenshot: `<rect x="4" y="5" width="16" height="13" rx="2.5"/><path d="M8 21h8"/><path d="M12 18v3"/><path d="M8 9h2.5l1-1.5h1l1 1.5H16a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2Z"/><circle cx="12" cy="12.5" r="2"/>`,

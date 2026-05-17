@@ -11,11 +11,13 @@ def test_progress_keeps_raw_events_but_hides_model_events_from_visible_status():
 
     store.start("req-1")
     store.append("req-1", AgentEvent("model_request", "Calling model provider."))
+    store.append("req-1", AgentEvent("model_delta", "Receiving model response."))
     store.append("req-1", AgentEvent("model_response", "Model provider returned a response."))
     snapshot = store.get("req-1")
 
-    assert [event["type"] for event in snapshot["events"]] == ["model_request", "model_response"]
+    assert [event["type"] for event in snapshot["events"]] == ["model_request", "model_delta", "model_response"]
     assert snapshot["visibleEvents"] == []
+    assert snapshot["workTrace"]["items"] == []
     assert snapshot["visibleDetail"] == "Starting agent run."
 
 
@@ -38,6 +40,35 @@ def test_progress_maps_skill_tools_to_user_visible_status():
         "Loading skill: test-paper-skill...",
     ]
     assert [item["type"] for item in skill_view["workTrace"]["items"]] == ["skill", "skill"]
+
+
+def test_progress_labels_read_paper_actions_with_details():
+    store = AgentProgressStore()
+
+    pages = store.append("req-paper", AgentEvent(
+        "tool_call",
+        data={"name": "read_paper", "arguments": json.dumps({
+            "action": "read_pages",
+            "note_id": "note-1",
+            "page_start": 1,
+            "page_end": 6,
+        })},
+    ))
+    search = store.append("req-paper", AgentEvent(
+        "tool_call",
+        data={"name": "read_paper", "arguments": json.dumps({
+            "action": "search_text",
+            "note_id": "note-1",
+            "query": "TFPD",
+        })},
+    ))
+
+    assert pages["visibleDetail"] == "Reading paper pages 1-6..."
+    assert search["visibleDetail"] == "Searching paper text: TFPD..."
+    assert [item["text"] for item in search["workTrace"]["items"]] == [
+        "Reading paper pages 1-6...",
+        "Searching paper text: TFPD...",
+    ]
 
 
 def test_progress_unknown_tool_has_visible_fallback_and_tool_result_stays_raw():

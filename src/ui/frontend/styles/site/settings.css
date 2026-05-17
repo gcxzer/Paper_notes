@@ -55,56 +55,6 @@
   border-radius: 10px;
 }
 
-.ai-settings-status {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 44px;
-  padding: 8px 22px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--modal-bg) 88%, var(--panel-alt));
-}
-
-.ai-settings-status strong {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-alt);
-  color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.ai-settings-status span {
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 550;
-}
-
-.ai-settings-status.is-ready {
-  border-color: transparent;
-  background: transparent;
-}
-
-.ai-settings-status.is-ready strong {
-  border-color: color-mix(in srgb, var(--green) 36%, var(--line));
-  background: color-mix(in srgb, rgba(56, 161, 105, 0.11) 50%, var(--panel-alt));
-}
-
-.ai-settings-status.is-missing {
-  border-color: transparent;
-}
-
-.ai-settings-status.is-missing strong {
-  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
-}
-
 .ai-provider-list {
   display: grid;
   align-content: start;
@@ -651,7 +601,9 @@
 }
 
 .tool-settings-header {
-  margin-bottom: 0;
+  margin: -12px -20px 0;
+  padding: 12px 20px 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .tool-settings-card .icon-button {

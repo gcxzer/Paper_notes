@@ -140,6 +140,7 @@ function renderNotes() {
             <span>${detailLabel}</span>
           </div>
           <h3>${note.title}</h3>
+          ${renderNoteCardTags(note)}
         </div>
         <span class="note-card-actions-inline">
           <button class="note-open" type="button" data-rename-note-id="${note.id}">Rename</button>
@@ -149,6 +150,16 @@ function renderNotes() {
       </article>
     `;
   }).join("");
+}
+
+function renderNoteCardTags(note) {
+  const tags = Array.isArray(note?.tags) ? note.tags.filter(Boolean) : [];
+  if (!tags.length) return "";
+  return `
+    <p class="note-card-tags" aria-label="Tags">
+      ${tags.map((tag, index) => `${index ? `<span class="note-card-tag-separator" aria-hidden="true">·</span>` : ""}<span>${escapeHtml(tag)}</span>`).join("")}
+    </p>
+  `;
 }
 
 function renderDetails() {

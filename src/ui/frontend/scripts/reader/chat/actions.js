@@ -238,7 +238,7 @@ async function submitReaderChatStream(body, {
           setReaderChatProgress(data.progress, sessionRunKey);
         }
         if (event === "work_trace_item" || event === "work_trace_delta") {
-          appendReaderChatProgressWorkTrace(data, sessionRunKey);
+          appendReaderChatProgressWorkTrace(data, sessionRunKey, event);
         }
         if (event === "model_delta") {
           if (isCurrentChatSessionRunKey(sessionRunKey)) appendReaderStreamingDelta(data?.delta);
@@ -427,17 +427,22 @@ async function sendReaderChatMessage(options = {}) {
     }
     updatedVisibleSession = true;
     flushReaderStreamingRender();
+    const shouldMergeFinalProgress = Boolean(payload.cancelled || payload.error || !payload.completed);
+    const finalProgress = shouldMergeFinalProgress
+      ? normalizeChatProgress(readerState.chatProgressBySession[sessionRunKey])
+      : null;
     setCurrentChatSessionId(payload.sessionId || session?.id || activeSessionId || requestSessionId);
     readerState.chatMessages = attachRunTraceFallback(
       normalizeApiChatMessages(payload.messages),
       payload,
-      runStartedAtMs
+      runStartedAtMs,
+      finalProgress
     );
     if (!readerState.chatMessages.length && payload.message) {
       readerState.chatMessages = attachRunTraceFallback([
         { role: "user", text },
         normalizeApiChatMessage(payload.message)
-      ].filter(Boolean), payload, runStartedAtMs);
+      ].filter(Boolean), payload, runStartedAtMs, finalProgress);
     }
     setReaderChatError(payload.error && !payload.completed ? payload.error : "");
     await loadReaderToolSnapshots({ silent: true });
@@ -506,6 +511,10 @@ function initializeReaderChat() {
   scheduleReaderContextStatusRefresh(300);
   elements.readerChatForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (isChatSessionPending()) {
+      cancelReaderChatRequest();
+      return;
+    }
     sendReaderChatMessage();
   });
   elements.readerChatMessages?.addEventListener("click", handleChatSourceClick);

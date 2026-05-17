@@ -24,6 +24,7 @@ from context_compression import (
 from agent_memory import MemoryManager, create_local_memory_manager
 from agent_prompts import AgentPromptContext, build_agent_instructions
 from agent_runtime import AgentEvent, AgentEventSink, AgentRunControl, AgentRunRequest, AgentRunResult, AgentRunner
+from agent_runtime.tool_trace import read_paper_progress_detail
 from agent_sessions import AgentSession, AgentSessionMetadata, AgentSessionStore, SessionNotFoundError
 from tool_safety import PaperNotesSnapshotManager, ToolApprovalManager, ToolApprovalNotFoundError, ToolSnapshotError
 from app_config.secrets import default_env_paths, default_secrets_path, parse_env_file
@@ -360,7 +361,9 @@ class AgentService:
         tool_schema_tokens = estimate_request_tokens_rough([], tools=tools)
         estimated_message_tokens = estimate_messages_tokens_rough(messages)
         request_tokens = estimated_request_tokens
-        display_tokens = estimated_request_tokens
+        display_tokens = actual_input_tokens if actual_usage["available"] else (
+            0 if not messages else estimated_request_tokens
+        )
         compression_config = self.context_compressor.config if self.context_compressor is not None else ContextCompressionConfig()
         return AgentContextStatus(
             provider=provider_name,
@@ -1829,7 +1832,7 @@ def _work_trace_tool_detail(name: str, data: dict[str, Any]) -> str:
     if name == "create_image_artifact":
         return "Generating image..."
     if name == "read_paper":
-        return "Reading paper source..."
+        return read_paper_progress_detail(args)
     if name in {"write_note", "manage_annotations", "write_note_media", "write_note_section", "append_note_section", "replace_note_section", "update_note_metadata"}:
         return "Updating note..."
     if name == "read_note_html":

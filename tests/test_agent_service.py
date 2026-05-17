@@ -596,7 +596,7 @@ def test_service_reports_zero_used_tokens_for_empty_context(tmp_path):
 
     assert status.message_count == 0
     assert status.actual_usage_available is False
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 0
     assert status.request_tokens == status.estimated_request_tokens
     assert status.estimated_request_tokens > 0
     assert status.message_tokens == 0
@@ -626,7 +626,7 @@ def test_service_context_status_uses_last_actual_request_usage(tmp_path):
 
     assert status.actual_usage_available is True
     assert status.actual_input_tokens == 321
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 321
     assert status.request_tokens == status.estimated_request_tokens
     assert status.message_tokens > 0
     assert status.instruction_tokens > 0
@@ -657,7 +657,7 @@ def test_service_context_status_falls_back_when_actual_usage_transcript_changes(
 
     assert status.actual_usage_available is True
     assert status.actual_input_tokens == 111
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 111
     assert status.request_tokens == status.estimated_request_tokens
 
 
@@ -744,7 +744,7 @@ def test_service_context_status_falls_back_to_persisted_run_trace_usage(tmp_path
     assert status.message_count == 2
     assert status.actual_usage_available is True
     assert status.actual_input_tokens == 123
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 123
     assert status.request_tokens == status.estimated_request_tokens
     assert status.usage_request_id == "req_123"
 
@@ -783,7 +783,7 @@ def test_service_context_status_persists_latest_input_usage_from_tool_loop(tmp_p
 
     assert status.actual_usage_available is True
     assert status.actual_input_tokens == 140
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 140
     assert status.request_tokens == status.estimated_request_tokens
     assert stored_usage["inputTokens"] == 140
     assert stored_usage["totalTokens"] == 170
@@ -858,7 +858,7 @@ def test_service_preserves_prior_run_traces_across_non_compressed_turns(tmp_path
     assert persisted[1]["runTrace"]["requestId"] == "req_first"
     assert persisted[-1]["runTrace"]["events"][1]["data"]["total_tokens"] == 30
     assert status.actual_input_tokens == 20
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 20
 
 
 def test_service_preserves_prior_run_traces_across_compressed_turns(tmp_path):
@@ -908,7 +908,7 @@ def test_service_preserves_prior_run_traces_across_compressed_turns(tmp_path):
     assert persisted[1]["runTrace"]["requestId"] == "req_first"
     assert isinstance(persisted[-1].get("runTrace"), dict)
     assert status.actual_input_tokens == 40
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 40
 
 
 def test_service_context_status_uses_last_model_response_input_tokens_per_turn(tmp_path):
@@ -940,7 +940,7 @@ def test_service_context_status_uses_last_model_response_input_tokens_per_turn(t
     status = service.context_status_fuc(session_id=session.metadata.session_id)
 
     assert status.actual_input_tokens == 140
-    assert status.display_tokens == status.estimated_request_tokens
+    assert status.display_tokens == 140
 
 
 def test_service_reuses_existing_session_history(tmp_path):

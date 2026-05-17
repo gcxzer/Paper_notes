@@ -460,7 +460,16 @@ async function installPdfTextFixture(page) {
 
 async function installAgentMocks(page, options = {}) {
   const requests = [];
+  const cancelRequests = [];
   const extraArtifacts = Array.isArray(options.artifacts) ? options.artifacts : [];
+  const streamGate = options.streamGate;
+  const progressWorkItems = Array.isArray(options.workTraceItems) && options.workTraceItems.length
+    ? options.workTraceItems
+    : [{ type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:00.000Z" }];
+  const progressVisibleEvents = Array.isArray(options.progressVisibleEvents) && options.progressVisibleEvents.length
+    ? options.progressVisibleEvents
+    : [{ stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:00.000Z" }];
+  let streamFinished = false;
   const debugRun = {
     requestId: DEBUG_REQUEST_ID,
     status: "completed",
@@ -480,23 +489,37 @@ async function installAgentMocks(page, options = {}) {
       { type: "model_response", message: "Model provider returned a response.", data: { turn: 1 } },
     ],
   };
+  if (Array.isArray(options.runTraceEvents)) {
+    debugRun.events = options.runTraceEvents;
+  }
 
   await page.route("**/api/chat/progress**", async (route) => {
+    const running = Boolean(streamGate && !streamFinished);
+    const cancelled = Boolean(options.cancelReturnsCancelling && cancelRequests.length);
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         requestId: DEBUG_REQUEST_ID,
-        status: "completed",
-        stage: "completed",
-        detail: "Agent run completed.",
+        status: cancelled ? "cancelled" : running ? "running" : "completed",
+        stage: cancelled ? "cancelled" : running ? "tool" : "completed",
+        detail: cancelled ? "Agent run cancelled." : running ? "Reading note context..." : "Agent run completed.",
         visibleDetail: "Reading note context...",
         events: debugRun.events,
-        visibleEvents: [{ stage: "tool", detail: "Reading note context...", at: debugRun.startedAt }],
+        visibleEvents: progressVisibleEvents,
         workTrace: {
-          status: "completed",
-          items: [{ type: "tool", text: "Reading note context...", at: debugRun.startedAt }],
+          status: cancelled ? "cancelled" : running ? "running" : "completed",
+          items: progressWorkItems,
         },
       }),
+    });
+  });
+
+  await page.route("**/api/chat/cancel", async (route) => {
+    cancelRequests.push(route.request().postDataJSON());
+    streamFinished = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ cancelled: !options.cancelReturnsCancelling, status: options.cancelReturnsCancelling ? "cancelling" : "cancelled" }),
     });
   });
 
@@ -562,7 +585,7 @@ async function installAgentMocks(page, options = {}) {
     const now = new Date().toISOString();
     const workTrace = {
       status: "completed",
-      items: [{ type: "tool", text: "Reading note context...", at: now }],
+      items: progressWorkItems.map((item) => ({ ...item, at: item.at || now })),
     };
     const runTrace = {
       requestId: DEBUG_REQUEST_ID,
@@ -625,7 +648,7 @@ async function installAgentMocks(page, options = {}) {
             ? "已创建 Markdown 文件：[`reader-e2e.md`](/api/media/file_e2e/download)"
             : "这篇论文当前的 tags 是：\n\n- `tool-test`\n- `deepseek`\n\n论文：**DeepSeek V4**",
           runTrace,
-          workTrace,
+          ...(options.omitFinalWorkTrace ? {} : { workTrace }),
           artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
         },
       ],
@@ -647,16 +670,22 @@ async function installAgentMocks(page, options = {}) {
       }),
       sseFrame("final", finalPayload),
     ].join("");
-    await route.fulfill({
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-      body,
-    });
+    if (streamGate) await streamGate;
+    streamFinished = true;
+    try {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+        body,
+      });
+    } catch (error) {
+      if (!String(error?.message || error).includes("aborted")) throw error;
+    }
   });
-  return { requests };
+  return { requests, cancelRequests };
 }
 
 async function ignoreMissingFavicon(page) {
@@ -1312,6 +1341,10 @@ test("MCP settings renders each operation error under its button", async ({ page
   await page.locator('[data-mcp-connect]').click();
   await expect(page.locator('[data-mcp-action-error="connect"]')).toContainText("Connect failed");
   await expect(page.locator('[data-mcp-action-error="connect"]')).toContainText("Connect denied");
+  await expect(page.locator(".mcp-status-grid")).toContainText("Error");
+  await expect(page.locator(".mcp-status-note.is-error")).toHaveCount(0);
+  await expect(page.locator(".mcp-server-row.is-active")).toContainText("Error");
+  await expect(page.locator(".mcp-server-row.is-active")).toContainText("Connect denied");
   await expect(page.locator(".mcp-test-result.is-error")).toHaveCount(0);
   await page.locator('[data-mcp-view-log]').click();
   await expect(page.locator('[data-mcp-action-error="log"]')).toContainText("Log unavailable");
@@ -1387,7 +1420,7 @@ test("MCP settings cancel restores preview runtime registration", async ({ page 
     if (url.pathname.endsWith("/api/settings/mcp/connect")) {
       const payload = route.request().postDataJSON();
       connectPayloads.push(payload);
-      if (payload.servers?.[0]?.enabled !== false && connectPayloads.length === 1) {
+      if (payload.servers?.[0]?.enabled !== false && !firstConnectStarted) {
         firstConnectStarted = true;
         await new Promise((resolve) => {
           releaseFirstConnect = resolve;
@@ -1430,6 +1463,13 @@ test("MCP settings cancel restores preview runtime registration", async ({ page 
   await page.goto("/index.html?settings=mcp");
   await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
   await expect(page.locator(".mcp-status-grid")).toContainText("Off");
+  await page.locator('[data-mcp-connect]').click();
+  await expect.poll(() => connectPayloads.length).toBe(1);
+  expect(connectPayloads[0]).toMatchObject({
+    persist: false,
+    servers: [{ id: "mcp_cancel_fixture", enabled: false }],
+  });
+  await expect(page.locator(".mcp-status-grid")).toContainText("Off");
   const enablePromise = page.locator('[data-mcp-field="enabled"]').check();
   await expect.poll(() => firstConnectStarted).toBe(true);
   await expect(page.locator(".mcp-status-grid")).toContainText("Connecting");
@@ -1439,12 +1479,12 @@ test("MCP settings cancel restores preview runtime registration", async ({ page 
   await expect(page.locator(".mcp-status-grid")).toContainText("1");
   await page.locator("#cancelMcpSettings").click();
   await expect(page.locator("#mcpSettingsDialog")).not.toBeVisible();
-  await expect.poll(() => connectPayloads.length).toBe(2);
-  expect(connectPayloads[0]).toMatchObject({
+  await expect.poll(() => connectPayloads.length).toBe(3);
+  expect(connectPayloads[1]).toMatchObject({
     persist: false,
     servers: [{ id: "mcp_cancel_fixture", enabled: true }],
   });
-  expect(connectPayloads[1]).toMatchObject({
+  expect(connectPayloads[2]).toMatchObject({
     persist: false,
     servers: [{ id: "mcp_cancel_fixture", enabled: false }],
   });
@@ -1666,6 +1706,190 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   await expect(page.locator("#debugDialog")).toContainText("model_request");
 
   expect(consoleIssues).toEqual([]);
+});
+
+test("reader ask shows running progress as inline messages", async ({ page }) => {
+  await openFixtureReader(page);
+  let releaseStream;
+  const streamGate = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  await installAgentMocks(page, {
+    streamGate,
+    workTraceItems: [
+      { type: "reasoning", text: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
+      { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
+      { type: "status", text: "Preparing answer...", at: "2026-05-13T10:00:02.000Z" },
+    ],
+    progressVisibleEvents: [
+      { stage: "thinking", detail: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
+      { stage: "thinking", detail: "Thinking through the paper context and reading", at: "2026-05-13T10:00:00.500Z" },
+      { stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
+      { stage: "status", detail: "Preparing answer...", at: "2026-05-13T10:00:02.000Z" },
+    ],
+  });
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await askInput.fill("查一下这篇论文的 tags");
+  const sendButton = page.locator("#sendReaderChat");
+  await sendButton.click();
+
+  const askPane = page.locator("#askPane");
+  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(sendButton).toHaveText("");
+  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect.poll(async () => page.evaluate(() => ({
+    startingType: progressInlineType("starting"),
+    startingLabel: workTraceItemLabel("starting"),
+    pendingType: progressInlineType("pending"),
+    haltedLabel: workTraceItemLabel("halted"),
+    thinkingType: progressInlineType("thinking"),
+    thinkingLabel: workTraceItemLabel("thinking"),
+  }))).toEqual({
+    startingType: "status",
+    startingLabel: "Status",
+    pendingType: "status",
+    haltedLabel: "Status",
+    thinkingType: "status",
+    thinkingLabel: "Status",
+  });
+  await expect(askPane.locator(".ask-progress-card")).toHaveCount(0);
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Think" }).filter({ hasText: "Thinking through the paper context..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Tool" }).filter({ hasText: "Reading note context..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Status" }).filter({ hasText: "Preparing answer..." })).toBeVisible();
+  await expect.poll(async () => askPane.locator(".ask-message-progress-inline .ask-progress-inline-text").evaluateAll((nodes) => (
+    nodes.map((node) => node.textContent?.trim()).filter(Boolean)
+  ))).toEqual([
+    "Thinking through the paper context...",
+    "Reading note context...",
+    "Preparing answer...",
+  ]);
+  await page.evaluate(() => {
+    const runKey = chatSessionRunKey();
+    appendReaderChatProgressWorkTrace({
+      traceType: "status",
+      source: "runtime",
+      text: "Preparing answer with citations...",
+    }, runKey, "work_trace_item");
+    appendReaderChatProgressWorkTrace({
+      traceType: "tool",
+      source: "runtime",
+      text: "Reading note context with HTML...",
+    }, runKey, "work_trace_item");
+    appendReaderChatProgressWorkTrace({
+      traceType: "skill",
+      source: "runtime",
+      text: "Loading skill instructions...",
+    }, runKey, "work_trace_item");
+    appendReaderChatProgressWorkTrace({
+      traceType: "skill",
+      source: "runtime",
+      text: "Loading skill instructions from disk...",
+    }, runKey, "work_trace_item");
+    renderReaderChatMessages({ scrollToBottom: true });
+  });
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Status" }).filter({ hasText: "Preparing answer..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Status" }).filter({ hasText: "Preparing answer with citations..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Tool" }).filter({ hasText: "Reading note context..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Tool" }).filter({ hasText: "Reading note context with HTML..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Skill" }).filter({ hasText: "Loading skill instructions..." })).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Skill" }).filter({ hasText: "Loading skill instructions from disk..." })).toBeVisible();
+  await page.evaluate(() => {
+    appendReaderStreamingDelta("Streaming answer after tools.");
+    renderReaderChatMessages({ scrollToBottom: true });
+  });
+  await expect.poll(async () => askPane.locator(".ask-message, .ask-message-progress-inline").evaluateAll((nodes) => (
+    nodes
+      .map((node) => node.textContent?.replace(/\s+/g, " ").trim())
+      .filter((text) => text && (
+        text.includes("Preparing answer...")
+        || text.includes("Streaming answer after tools.")
+      ))
+  ))).toEqual([
+    "Status Preparing answer...",
+    "Streaming answer after tools.",
+  ]);
+
+  releaseStream();
+  await expect(sendButton).toHaveAttribute("aria-label", "Send");
+  await expect(sendButton).toHaveText("");
+  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
+  await expect(askPane.getByText("Worked for")).toBeVisible();
+  await askPane.getByText("Worked for").click();
+  await expect(askPane.getByText("Reading note context...")).toBeVisible();
+});
+
+test("reader ask send button cancels a pending request", async ({ page }) => {
+  await openFixtureReader(page);
+  let releaseStream;
+  const streamGate = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  const agentMocks = await installAgentMocks(page, {
+    streamGate,
+    cancelReturnsCancelling: true,
+    workTraceItems: [
+      { type: "reasoning", text: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
+      { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
+    ],
+  });
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await askInput.fill("cancel this run");
+  const sendButton = page.locator("#sendReaderChat");
+  await sendButton.click();
+  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(sendButton).toHaveText("");
+  await expect(sendButton.locator("svg")).toHaveCount(1);
+
+  await sendButton.click();
+  await expect.poll(() => agentMocks.cancelRequests.length).toBe(1);
+  releaseStream();
+  await expect(sendButton).toHaveAttribute("aria-label", "Send");
+  await expect(sendButton).toHaveText("");
+  await expect(sendButton.locator("svg")).toHaveCount(1);
+  const askPane = page.locator("#askPane");
+  await expect(askPane.locator(".ask-progress-card")).toHaveCount(0);
+  await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
+  await expect(askPane.getByText("Agent run cancelled.")).toBeVisible();
+  await expect(askPane.getByText("Worked for")).toBeVisible();
+  await askPane.getByText("Worked for").click();
+  await expect(askPane.getByText("Thinking through the paper context...")).toBeVisible();
+  await expect(askPane.locator(".ask-run-summary-events").getByText("Reading note context...").first()).toBeVisible();
+  await expect(askPane.getByText("Agent run cancelled.")).toBeVisible();
+});
+
+test("reader ask worked summary shows status-only run trace events", async ({ page }) => {
+  await openFixtureReader(page);
+  await installAgentMocks(page, {
+    omitFinalWorkTrace: true,
+    runTraceEvents: [
+      { type: "starting", stage: "starting", message: "Starting agent run.", at: "2026-05-13T10:00:00.000Z", data: {} },
+      { type: "running", stage: "running", message: "Reading local context.", at: "2026-05-13T10:00:01.000Z", data: {} },
+      { type: "completed", stage: "completed", message: "Agent run completed.", at: "2026-05-13T10:00:06.000Z", data: {} },
+    ],
+  });
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  await askInput.fill("status only run");
+  await page.locator("#sendReaderChat").click();
+
+  const askPane = page.locator("#askPane");
+  await expect(askPane.getByText("Worked for")).toBeVisible();
+  await askPane.getByText("Worked for").click();
+  await expect(askPane.getByText("No visible work steps recorded.")).toHaveCount(0);
+  await expect(askPane.locator(".ask-run-summary-events").getByText("Starting agent run.")).toBeVisible();
+  await expect(askPane.locator(".ask-run-summary-events").getByText("Reading local context.")).toBeVisible();
 });
 
 test("reader ask flow renders MCP artifact cards", async ({ page }) => {

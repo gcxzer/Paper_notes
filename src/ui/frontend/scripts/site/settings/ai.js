@@ -420,26 +420,8 @@ function renderAiSettings() {
   const anthropicKeyConfigured = anthropicProviderConfigured(settings);
   const geminiKeyConfigured = geminiProviderConfigured(settings);
   const deepSeekKeyConfigured = deepSeekProviderConfigured(settings);
-  const modelConfigured = hasModelConnection(settings);
-  const connectedCount = [openAiKeyConfigured, codexConfigured, anthropicKeyConfigured, geminiKeyConfigured, deepSeekKeyConfigured].filter(Boolean).length;
-  const defaultLabel = providerDisplayName(provider);
   const keyEditingProvider = normalizeAiProvider(state.aiKeyEditingProvider);
   const keyDialogOpen = Boolean(state.aiKeyEditingProvider);
-
-  if (state.aiSettingsLoading) {
-    elements.aiSettingsStatus.innerHTML = `
-      <strong>Loading</strong>
-      <span>Checking local provider settings...</span>
-    `;
-  } else {
-    elements.aiSettingsStatus.classList.toggle("is-ready", modelConfigured);
-    elements.aiSettingsStatus.classList.toggle("is-missing", !modelConfigured);
-    elements.aiSettingsStatus.innerHTML = `
-      <strong>${modelConfigured ? "Ready" : "Setup needed"}</strong>
-      <span>Default: ${escapeHtml(defaultLabel)}</span>
-      <span>${connectedCount} connected</span>
-    `;
-  }
 
   renderDefaultProviderOptions(provider, settings);
   const openAiDefault = provider === "openai";
