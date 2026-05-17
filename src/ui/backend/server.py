@@ -47,7 +47,14 @@ from library.annotations import read_annotations, write_annotations
 from app_infra.formatting import normalize_text
 from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
 from ui.backend.memory_api import list_memory, update_memory
-from ui.backend.mcp_api import get_mcp_settings, test_mcp_server, update_mcp_settings
+from ui.backend.mcp_api import (
+    get_mcp_settings,
+    get_mcp_stderr_log,
+    reconnect_mcp_server,
+    reset_mcp_server_circuit,
+    test_mcp_server,
+    update_mcp_settings,
+)
 from ui.backend.model_providers_api import get_model_providers
 from app_infra.paths import (
     HOST,
@@ -195,6 +202,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/settings/mcp":
             self._run_api_handler(self.handle_get_mcp_settings)
             return
+        if parsed.path == "/api/settings/mcp/stderr-log":
+            self._run_api_handler(lambda: self.handle_get_mcp_stderr_log(parsed.query))
+            return
         if parsed.path == "/api/skills":
             self._run_api_handler(lambda: self.handle_list_skills(parsed.query))
             return
@@ -239,6 +249,8 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/settings/tools": self.handle_update_tool_settings,
             "/api/settings/mcp": self.handle_update_mcp_settings,
             "/api/settings/mcp/test": self.handle_test_mcp_server,
+            "/api/settings/mcp/reconnect": self.handle_reconnect_mcp_server,
+            "/api/settings/mcp/reset-circuit": self.handle_reset_mcp_server_circuit,
             "/api/skills/update": self.handle_update_skill,
             "/api/skills/settings": self.handle_update_skill_settings,
             "/api/auth/codex/start": self.handle_start_codex_auth,
@@ -542,6 +554,20 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_test_mcp_server(self) -> None:
         self.send_json(HTTPStatus.OK, test_mcp_server(self.read_json_body()))
+
+    def handle_reconnect_mcp_server(self) -> None:
+        self.send_json(HTTPStatus.OK, reconnect_mcp_server(self.read_json_body()))
+
+    def handle_reset_mcp_server_circuit(self) -> None:
+        self.send_json(HTTPStatus.OK, reset_mcp_server_circuit(self.read_json_body()))
+
+    def handle_get_mcp_stderr_log(self, query: str) -> None:
+        params = parse_qs(query)
+        try:
+            max_chars = int((params.get("maxChars") or params.get("max_chars") or ["60000"])[0])
+        except (TypeError, ValueError):
+            max_chars = 60000
+        self.send_json(HTTPStatus.OK, get_mcp_stderr_log(max_chars=max_chars))
 
     def handle_delete_ai_api_key(self) -> None:
         query = parse_qs(urlparse(self.path).query)

@@ -13,6 +13,13 @@ PNG_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
+PDF_BYTES = (
+    b"%PDF-1.4\n"
+    b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    b"2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n"
+    b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+)
+PDF_B64 = base64.b64encode(PDF_BYTES).decode("ascii")
 
 
 def test_media_store_uploads_and_serves_registered_image(tmp_path):
@@ -119,6 +126,33 @@ def test_media_store_mcp_file_allows_empty_content_and_storage_name_collisions(t
     assert second.metadata["storageFileName"].startswith("same-mcp_")
 
 
+def test_media_store_creates_mcp_pdf_artifact(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    artifact = store.create_mcp_pdf(
+        PDF_B64,
+        mime_type="application/pdf",
+        server_id="filesystem",
+        tool_name="read_resource",
+        resource_uri="file:///paper.pdf",
+        file_name="paper.pdf",
+    )
+
+    assert artifact.id.startswith("mcp_")
+    assert artifact.source == "mcp"
+    assert artifact.kind == "pdf"
+    assert artifact.mime_type == "application/pdf"
+    assert artifact.file_name == "paper.pdf"
+    assert "/mcp/filesystem/" in artifact.path
+    assert artifact.metadata["serverId"] == "filesystem"
+    assert artifact.metadata["toolName"] == "read_resource"
+    assert artifact.metadata["resourceUri"] == "file:///paper.pdf"
+    assert artifact.metadata["storageFileName"] == "paper.pdf"
+    assert artifact.metadata["extractionStatus"] in {"complete", "failed"}
+    assert "extractedTextChars" in artifact.metadata
+    assert store.path_for(artifact.id).read_bytes().startswith(b"%PDF-")
+
+
 def test_media_store_rejects_invalid_mcp_files(tmp_path):
     store = MediaStore(tmp_path / ".paper-notes" / "media")
 
@@ -128,6 +162,20 @@ def test_media_store_rejects_invalid_mcp_files(tmp_path):
         store.create_mcp_file(b"\xff\xfe\x00", mime_type="text/plain", server_id="filesystem")
     with pytest.raises(MediaStoreError, match="too large"):
         store.create_mcp_file("x" * (30 * 1024 * 1024 + 1), mime_type="text/plain", server_id="filesystem")
+
+
+def test_media_store_rejects_invalid_mcp_pdfs(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+    oversized = base64.b64encode(b"%PDF-" + b"x" * (30 * 1024 * 1024 + 1)).decode("ascii")
+
+    with pytest.raises(MediaStoreError, match="Unsupported MCP PDF MIME type"):
+        store.create_mcp_pdf(PDF_B64, mime_type="application/octet-stream", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="valid base64"):
+        store.create_mcp_pdf("not base64", mime_type="application/pdf", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="not a valid PDF"):
+        store.create_mcp_pdf(base64.b64encode(b"not pdf").decode("ascii"), mime_type="application/pdf", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="too large"):
+        store.create_mcp_pdf(oversized, mime_type="application/pdf", server_id="filesystem")
 
 
 def test_media_store_rejects_invalid_image(tmp_path):

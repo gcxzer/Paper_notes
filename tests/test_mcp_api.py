@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import stat
 
-from tools.mcp.settings import public_mcp_settings, read_mcp_settings
+from app_config.secrets import parse_env_file
+from tools.mcp.settings import mcp_secrets_path, public_mcp_settings, read_mcp_settings
 from ui.backend import mcp_api
 
 
@@ -30,9 +32,17 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
 
     stored = read_mcp_settings(settings_path)
     server = stored["servers"][0]
+    raw_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    raw_server = raw_settings["servers"][0]
+    secrets = parse_env_file(mcp_secrets_path(settings_path))
+
     assert resets == [True]
     assert server["env"] == {"API_KEY": "super-secret"}
     assert server["headers"] == {"Authorization": "Bearer super-secret"}
+    assert raw_server["env"]["API_KEY"].startswith("paper-notes-secret:")
+    assert raw_server["headers"]["Authorization"].startswith("paper-notes-secret:")
+    assert "super-secret" not in settings_path.read_text(encoding="utf-8")
+    assert "super-secret" in "\n".join(secrets.values())
     assert server["includeTools"] == ["read_*", "list_resources", "search"]
     assert server["excludeTools"] == ["write_*", "delete_file"]
     assert stat.S_IMODE(settings_path.stat().st_mode) == 0o600
@@ -152,3 +162,34 @@ def test_public_mcp_settings_includes_status_and_never_plaintext():
     assert server["includeTools"] == ["read_*"]
     assert server["excludeTools"] == ["write_*"]
     assert "secret" not in str(payload)
+
+
+def test_mcp_ops_endpoints_delegate_to_manager(monkeypatch):
+    calls = []
+
+    class FakeManager:
+        def reconnect_server(self, server_id):
+            calls.append(("reconnect", server_id))
+            return {"success": True, "serverId": server_id}
+
+        def reset_server_circuit(self, server_id):
+            calls.append(("reset", server_id))
+            return {"success": True, "serverId": server_id, "status": {"circuitOpen": False}}
+
+    class FakeService:
+        mcp_manager = FakeManager()
+
+    monkeypatch.setattr(mcp_api, "read_mcp_stderr_log", lambda max_chars=60000: {
+        "success": True,
+        "log": "stderr tail",
+        "truncated": False,
+        "max": max_chars,
+    })
+
+    assert mcp_api.reconnect_mcp_server({"serverId": "filesystem"}, service=FakeService()) == {
+        "success": True,
+        "serverId": "filesystem",
+    }
+    assert mcp_api.reset_mcp_server_circuit({"id": "filesystem"}, service=FakeService())["status"]["circuitOpen"] is False
+    assert mcp_api.get_mcp_stderr_log(max_chars=1234)["log"] == "stderr tail"
+    assert calls == [("reconnect", "filesystem"), ("reset", "filesystem")]

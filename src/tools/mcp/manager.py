@@ -20,6 +20,14 @@ from urllib.parse import urlsplit
 
 from app_config.secrets import LOCAL_STATE_DIR
 from tools.mcp.manifest import TOOLSET
+from tools.mcp.security import (
+    collect_security_warnings as _collect_security_warnings,
+    extend_security_warnings as _extend_security_warnings,
+    mcp_security_warnings as _mcp_security_warnings,
+    sanitize_mcp_description as _sanitize_mcp_description,
+    sanitize_mcp_error,
+    sanitize_mcp_schema_descriptions as _sanitize_mcp_schema_descriptions,
+)
 from tools.mcp.settings import mcp_runtime_config, normalize_mcp_server_config, read_mcp_settings
 from tools.registry import ToolRegistry
 from tools.types import ToolDefinition
@@ -43,6 +51,7 @@ _SAFE_MCP_FILE_MIME_TYPES = frozenset({
     "text/csv",
     "text/html",
 })
+_SAFE_MCP_PDF_MIME_TYPE = "application/pdf"
 _SAFE_ENV_KEYS = frozenset({"PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "SHELL", "TMPDIR"})
 _CROSS_ORIGIN_STRIPPED_HEADER_NAMES = frozenset({
     "authorization",
@@ -56,28 +65,6 @@ _CROSS_ORIGIN_STRIPPED_HEADER_NAMES = frozenset({
     "x-access-token",
     "mcp-session-id",
 })
-_CREDENTIAL_PATTERNS = (
-    re.compile(r"data:[-\w.+/]+;base64,[A-Za-z0-9+/=\s]{32,}", re.IGNORECASE),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{1,255}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{6,255}\b"),
-    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{3,255}"),
-    re.compile(r"(?i)\b((?:authorization|proxy-authorization|x-api-key|api-key|api_key|openai-api-key|client-secret|client_secret)\s*[:=]\s*)(?:Bearer\s+)?[^\s,;\"']{1,255}"),
-    re.compile(r"(?i)\b(client[_-]?secret\s*[:=]\s*)[^\s,;\"']{1,255}"),
-    re.compile(r"(?i)\b(Authorization\s*[:=]\s*)(?:Bearer\s+)?[^\s,;\"']{3,255}"),
-    re.compile(r"(?i)\b[A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*\s*=\s*[^\s,;\"']{1,255}"),
-    re.compile(r"(?i)\b(?:token|key|secret|password)\s*=\s*[^\s,;\"']{1,255}"),
-    re.compile(r"(?i)([\"'](?:api[_-]?key|token|secret|password|authorization)[\"']\s*:\s*[\"'])([^\"']{1,255})([\"'])"),
-    re.compile(r"\b[A-Za-z0-9+/]{80,}={0,2}\b"),
-)
-_PROMPT_INJECTION_PATTERNS = (
-    re.compile(r"(?i)\bignore\s+(?:all\s+)?(?:previous|prior|above|system|developer)\s+instructions\b"),
-    re.compile(r"(?i)\bdisregard\s+(?:all\s+)?(?:previous|prior|above|system|developer)\s+instructions\b"),
-    re.compile(r"(?i)\boverride\s+(?:the\s+)?(?:system|developer|previous)\s+(?:prompt|instructions)\b"),
-    re.compile(r"(?i)\breveal\s+(?:the\s+)?(?:system prompt|developer message|hidden instructions|secrets?)\b"),
-    re.compile(r"(?i)\bexfiltrate\s+(?:data|secrets?|credentials?)\b"),
-    re.compile(r"(?i)\byou\s+are\s+now\s+(?:in|the)\s+(?:system|developer)\b"),
-)
 _SESSION_EXPIRED_MARKERS = (
     "invalid or expired session",
     "expired session",
@@ -105,18 +92,6 @@ def sanitize_mcp_name_component(value: str) -> str:
 
 def mcp_tool_name(server_name: str, tool_name: str) -> str:
     return f"mcp_{sanitize_mcp_name_component(server_name)}_{sanitize_mcp_name_component(tool_name)}"
-
-
-def sanitize_mcp_error(text: str) -> str:
-    redacted = str(text or "")
-    for pattern in _CREDENTIAL_PATTERNS:
-        if pattern.groups >= 3:
-            redacted = pattern.sub(r"\1[REDACTED]\3", redacted)
-        elif pattern.groups:
-            redacted = pattern.sub(r"\1[REDACTED]", redacted)
-        else:
-            redacted = pattern.sub("[REDACTED]", redacted)
-    return redacted
 
 
 def _default_http_port(scheme: str) -> int | None:
@@ -305,10 +280,7 @@ class MCPServerTask:
                             reconnect_failures,
                             self.error,
                         )
-                        try:
-                            await asyncio.wait_for(self._shutdown.wait(), timeout=_CIRCUIT_OPEN_COOLDOWN_SECONDS)
-                        except asyncio.TimeoutError:
-                            pass
+                        await self._wait_for_retry_delay(_CIRCUIT_OPEN_COOLDOWN_SECONDS)
                         if self._shutdown.is_set():
                             break
                         reconnect_failures = 0
@@ -326,10 +298,7 @@ class MCPServerTask:
                         backoff,
                         self.error,
                     )
-                try:
-                    await asyncio.wait_for(self._shutdown.wait(), timeout=backoff)
-                except asyncio.TimeoutError:
-                    pass
+                await self._wait_for_retry_delay(backoff)
                 backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
         self.session = None
         if self.state not in {"cancelled", "error"}:
@@ -498,6 +467,14 @@ class MCPServerTask:
                     except asyncio.CancelledError:
                         pass
 
+    async def _wait_for_retry_delay(self, delay_seconds: float) -> None:
+        try:
+            await asyncio.wait_for(self._wait_for_shutdown_or_reconnect(), timeout=max(0.0, delay_seconds))
+        except asyncio.TimeoutError:
+            return
+        if self._reconnect.is_set() and not self._shutdown.is_set():
+            self._reconnect.clear()
+
     def _client_session_kwargs(self, client_session_cls: Any) -> dict[str, Any]:
         if not _client_session_supports_message_handler(client_session_cls):
             return {}
@@ -629,6 +606,50 @@ class MCPManager:
                     status["error"] = server.error or "MCP server disconnected."
             return statuses
 
+    def reconnect_server(self, server_id: str) -> dict[str, Any]:
+        server_id = str(server_id or "").strip()
+        if not server_id:
+            raise ValueError("MCP server id is required.")
+
+        async def _request_reconnect() -> dict[str, Any]:
+            with self._lock:
+                server = self._servers.get(server_id)
+            if server is None:
+                return {"success": False, "serverId": server_id, "error": "MCP server is not running.", "code": "mcp_server_not_running"}
+            server.failure_count = 0
+            server.next_retry_at = 0.0
+            server.state = "reconnecting"
+            server._reconnect.set()
+            status = _server_status_details(server)
+            with self._lock:
+                current = self._statuses.setdefault(server.id, {})
+                current.update(status)
+            return {"success": True, "serverId": server.id, "status": status}
+
+        return _run_on_mcp_loop(_request_reconnect(), timeout=5)
+
+    def reset_server_circuit(self, server_id: str) -> dict[str, Any]:
+        server_id = str(server_id or "").strip()
+        if not server_id:
+            raise ValueError("MCP server id is required.")
+
+        async def _reset_circuit() -> dict[str, Any]:
+            with self._lock:
+                server = self._servers.get(server_id)
+            if server is None:
+                return {"success": False, "serverId": server_id, "error": "MCP server is not running.", "code": "mcp_server_not_running"}
+            server.failure_count = 0
+            server.next_retry_at = 0.0
+            server.state = "reconnecting"
+            server._reconnect.set()
+            status = _server_status_details(server)
+            with self._lock:
+                current = self._statuses.setdefault(server.id, {})
+                current.update(status)
+            return {"success": True, "serverId": server.id, "status": status}
+
+        return _run_on_mcp_loop(_reset_circuit(), timeout=5)
+
     def shutdown(self) -> None:
         with self._lock:
             servers = list(self._servers.values())
@@ -736,7 +757,10 @@ class MCPManager:
             warnings=warnings,
             surface="tool_schema",
         )
+        annotations = _mcp_tool_annotations(mcp_tool)
+        output_schema = _mcp_tool_output_schema(mcp_tool, warnings=warnings)
         read_only = _mcp_tool_read_only(mcp_tool)
+        risk = _mcp_tool_risk(annotations, read_only=read_only)
         return ToolDefinition(
             name=tool_name,
             description=description,
@@ -745,15 +769,19 @@ class MCPManager:
             toolset=TOOLSET,
             read_only=read_only,
             mutating=not read_only,
-            risk="read" if read_only else "write",
+            risk=risk,
             kind="external",
             result_max_chars=100_000,
             availability_check=self._make_availability_check(server.id),
+            output_schema=output_schema,
             metadata={
                 "mcp": True,
                 "serverId": server.id,
                 "serverName": server.name,
                 "originalToolName": original_name,
+                "mcpAnnotations": annotations,
+                "mcpTitle": annotations.get("title", ""),
+                "mcpHasOutputSchema": output_schema is not None,
                 "securityWarnings": warnings,
             },
         )
@@ -1149,14 +1177,54 @@ def _normalize_mcp_input_schema(schema: dict[str, Any] | None) -> dict[str, Any]
 
 
 def _mcp_tool_read_only(tool: Any) -> bool:
-    annotations = getattr(tool, "annotations", None)
-    if annotations is None and isinstance(tool, dict):
-        annotations = tool.get("annotations")
-    if isinstance(annotations, dict):
-        return annotations.get("readOnlyHint") is True or annotations.get("read_only_hint") is True
-    return (
-        getattr(annotations, "readOnlyHint", None) is True
-        or getattr(annotations, "read_only_hint", None) is True
+    annotations = _mcp_tool_annotations(tool)
+    return annotations.get("readOnlyHint") is True
+
+
+def _mcp_tool_annotations(tool: Any) -> dict[str, Any]:
+    raw_annotations = _first_field(tool, "annotations")
+    payload: dict[str, Any] = {}
+    title = _first_field(tool, "title") or _annotation_value(raw_annotations, "title")
+    if title is not None and str(title).strip():
+        payload["title"] = str(title).strip()
+    for output_key, names in (
+        ("readOnlyHint", ("readOnlyHint", "read_only_hint")),
+        ("destructiveHint", ("destructiveHint", "destructive_hint")),
+        ("idempotentHint", ("idempotentHint", "idempotent_hint")),
+        ("openWorldHint", ("openWorldHint", "open_world_hint")),
+    ):
+        value = _annotation_value(raw_annotations, *names)
+        if value is not None:
+            payload[output_key] = bool(value)
+    return payload
+
+
+def _annotation_value(annotations: Any, *names: str) -> Any:
+    if annotations is None:
+        return None
+    for name in names:
+        value = _get_field(annotations, name)
+        if value is not None:
+            return value
+    return None
+
+
+def _mcp_tool_risk(annotations: dict[str, Any], *, read_only: bool) -> str:
+    if read_only:
+        return "read"
+    if annotations.get("destructiveHint") is True:
+        return "destructive"
+    return "write"
+
+
+def _mcp_tool_output_schema(tool: Any, *, warnings: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    schema = _first_field(tool, "outputSchema", "output_schema")
+    if not isinstance(schema, dict) or not schema:
+        return None
+    return _sanitize_mcp_schema_descriptions(
+        _json_safe_value(schema),
+        warnings=warnings if warnings is not None else [],
+        surface="tool_output_schema",
     )
 
 
@@ -1229,6 +1297,19 @@ def _render_mcp_content_blocks(
                 media_errors=media_errors,
             ))
             continue
+        if data is not None and _is_safe_mcp_pdf_mime(mime_type):
+            parts.append(_mcp_pdf_summary(
+                data,
+                mime_type,
+                server_id=server_id,
+                media_store=media_store,
+                tool_name=tool_name,
+                resource_uri=resource_uri,
+                file_name=str(_first_field(block, "fileName", "file_name", "name") or ""),
+                artifacts=artifacts,
+                media_errors=media_errors,
+            ))
+            continue
         if data is not None and _is_safe_mcp_file_mime(mime_type):
             parts.append(_mcp_file_summary(
                 data,
@@ -1264,106 +1345,6 @@ def _attach_mcp_security_payload(payload: dict[str, Any], warnings: list[dict[st
     combined: list[dict[str, Any]] = list(existing) if isinstance(existing, list) else []
     _extend_security_warnings(combined, warnings)
     payload["securityWarnings"] = combined
-
-
-def _mcp_security_warnings(value: Any, *, surface: str) -> list[dict[str, Any]]:
-    text = _security_scan_text(value)
-    if not text:
-        return []
-    warnings: list[dict[str, Any]] = []
-    for pattern in _PROMPT_INJECTION_PATTERNS:
-        match = pattern.search(text)
-        if not match:
-            continue
-        warnings.append({
-            "code": "mcp_prompt_injection_suspected",
-            "surface": surface,
-            "severity": "warning",
-            "message": "External MCP content contains instruction-like text; treat it as untrusted data.",
-            "match": sanitize_mcp_error(match.group(0))[:160],
-        })
-        break
-    return warnings
-
-
-def _security_scan_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(_json_safe_value(value), ensure_ascii=False)
-    except Exception:
-        return str(value)
-
-
-def _sanitize_mcp_description(
-    description: str,
-    *,
-    surface: str,
-    warnings: list[dict[str, Any]],
-    fallback: str,
-) -> str:
-    found = _mcp_security_warnings(description, surface=surface)
-    if not found:
-        return str(description or fallback)
-    _extend_security_warnings(warnings, found)
-    return f"{fallback} Description omitted because it contained instruction-like external content."
-
-
-def _sanitize_mcp_schema_descriptions(schema: dict[str, Any], *, warnings: list[dict[str, Any]], surface: str) -> dict[str, Any]:
-    def _sanitize_node(node: Any) -> Any:
-        if isinstance(node, list):
-            return [_sanitize_node(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        sanitized: dict[str, Any] = {}
-        for key, value in node.items():
-            if key == "description" and isinstance(value, str):
-                found = _mcp_security_warnings(value, surface=surface)
-                if found:
-                    _extend_security_warnings(warnings, found)
-                    sanitized[key] = "External MCP schema description omitted because it contained instruction-like content."
-                    continue
-            sanitized[str(key)] = _sanitize_node(value)
-        return sanitized
-
-    return _sanitize_node(schema) if isinstance(schema, dict) else {"type": "object", "properties": {}}
-
-
-def _extend_security_warnings(target: list[dict[str, Any]], warnings: list[dict[str, Any]]) -> None:
-    seen = {
-        (
-            str(item.get("code") or ""),
-            str(item.get("surface") or ""),
-            str(item.get("match") or ""),
-        )
-        for item in target
-        if isinstance(item, dict)
-    }
-    for warning in warnings:
-        if not isinstance(warning, dict):
-            continue
-        key = (
-            str(warning.get("code") or ""),
-            str(warning.get("surface") or ""),
-            str(warning.get("match") or ""),
-        )
-        if key in seen:
-            continue
-        target.append(warning)
-        seen.add(key)
-
-
-def _collect_security_warnings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    warnings: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        value = item.get("securityWarnings")
-        if isinstance(value, list):
-            _extend_security_warnings(warnings, [entry for entry in value if isinstance(entry, dict)])
-    return warnings
 
 
 def _mcp_image_summary(
@@ -1475,6 +1456,52 @@ def _mcp_file_summary(
     return "\n".join(part for part in (summary, preview) if part)
 
 
+def _mcp_pdf_summary(
+    data: Any,
+    mime_type: str,
+    *,
+    server_id: str = "",
+    media_store: Any = None,
+    tool_name: str = "",
+    resource_uri: str = "",
+    file_name: str = "",
+    artifacts: list[dict[str, Any]] | None = None,
+    media_errors: list[dict[str, Any]] | None = None,
+) -> str:
+    normalized_mime = str(mime_type or "").lower()
+    size = _decoded_media_size(data)
+    fallback = f"[MCP PDF content: {normalized_mime}, {size} bytes]"
+    if media_store is None:
+        return fallback
+    create_mcp_pdf = getattr(media_store, "create_mcp_pdf", None)
+    if not callable(create_mcp_pdf):
+        return fallback
+    try:
+        artifact = create_mcp_pdf(
+            data,
+            mime_type=normalized_mime,
+            server_id=server_id,
+            tool_name=tool_name,
+            resource_uri=resource_uri,
+            file_name=file_name,
+        )
+    except Exception as error:
+        if media_errors is not None:
+            media_errors.append({
+                "code": "mcp_media_artifact_failed",
+                "mimeType": normalized_mime,
+                "error": sanitize_mcp_error(_format_exception(error)),
+            })
+        return fallback
+    payload = artifact.to_dict() if hasattr(artifact, "to_dict") else dict(artifact)
+    if artifacts is not None:
+        artifacts.append(payload)
+    return (
+        f"[MCP PDF artifact: {payload.get('fileName') or 'document.pdf'}, "
+        f"{payload.get('mimeType') or normalized_mime}, {payload.get('size') or size} bytes]"
+    )
+
+
 def _decode_mcp_file_content(data: Any) -> str:
     if isinstance(data, bytes):
         raw = data
@@ -1501,6 +1528,10 @@ def _mcp_file_preview(text: str) -> str:
 
 def _is_safe_mcp_file_mime(mime_type: str) -> bool:
     return str(mime_type or "").lower() in _SAFE_MCP_FILE_MIME_TYPES
+
+
+def _is_safe_mcp_pdf_mime(mime_type: str) -> bool:
+    return str(mime_type or "").lower() == _SAFE_MCP_PDF_MIME_TYPE
 
 
 def _decoded_media_size(data: Any) -> int:
@@ -1601,10 +1632,28 @@ def _tool_summary_from_definition(definition: ToolDefinition) -> dict[str, Any]:
         "serverId": str(metadata.get("serverId") or ""),
         "serverName": str(metadata.get("serverName") or ""),
     }
+    _attach_mcp_tool_metadata_summary(payload, metadata.get("mcpAnnotations"), bool(metadata.get("mcpHasOutputSchema")))
     warnings = metadata.get("securityWarnings")
     if isinstance(warnings, list) and warnings:
         payload["securityWarnings"] = warnings
     return payload
+
+
+def _attach_mcp_tool_metadata_summary(
+    payload: dict[str, Any],
+    annotations: Any,
+    has_output_schema: bool = False,
+) -> None:
+    if isinstance(annotations, dict) and annotations:
+        payload["annotations"] = dict(annotations)
+        title = annotations.get("title")
+        if title:
+            payload["title"] = str(title)
+        for key in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
+            if key in annotations:
+                payload[key] = bool(annotations.get(key))
+    if has_output_schema:
+        payload["hasOutputSchema"] = True
 
 
 def _server_tool_summaries(server: MCPServerTask) -> list[dict[str, Any]]:
@@ -1708,6 +1757,23 @@ def _resource_content_summary(
                 media_errors=media_errors,
             )
             payload["blob"] = summary
+            artifact = artifacts[-1] if artifacts and len(artifacts) > previous_artifact_count else None
+            if artifact:
+                payload["artifact"] = artifact
+            return payload
+        if _is_safe_mcp_pdf_mime(str(mime_type or "")):
+            previous_artifact_count = len(artifacts or [])
+            payload["blob"] = _mcp_pdf_summary(
+                blob,
+                str(mime_type or ""),
+                server_id=server_id,
+                media_store=media_store,
+                tool_name=tool_name,
+                resource_uri=str(uri or resource_uri or ""),
+                file_name=_file_name_from_resource_uri(str(uri or resource_uri or "")),
+                artifacts=artifacts,
+                media_errors=media_errors,
+            )
             artifact = artifacts[-1] if artifacts and len(artifacts) > previous_artifact_count else None
             if artifact:
                 payload["artifact"] = artifact
@@ -1840,6 +1906,16 @@ def _prompt_content_summary(
                 artifacts=artifacts,
                 media_errors=media_errors,
             )
+        if _is_safe_mcp_pdf_mime(str(mime_type)):
+            return _mcp_pdf_summary(
+                data,
+                str(mime_type),
+                server_id=server_id,
+                media_store=media_store,
+                tool_name=tool_name,
+                artifacts=artifacts,
+                media_errors=media_errors,
+            )
         if _is_safe_mcp_file_mime(str(mime_type)):
             return _mcp_file_summary(
                 data,
@@ -1864,6 +1940,7 @@ def _is_session_expired_error(error: BaseException) -> bool:
 
 def _tool_summary(server: MCPServerTask, tool: Any, generated_name: str) -> dict[str, Any]:
     read_only = _mcp_tool_read_only(tool)
+    annotations = _mcp_tool_annotations(tool)
     warnings: list[dict[str, Any]] = []
     raw_description = str(getattr(tool, "description", "") or "")
     description = _sanitize_mcp_description(
@@ -1881,6 +1958,7 @@ def _tool_summary(server: MCPServerTask, tool: Any, generated_name: str) -> dict
         "serverId": server.id,
         "serverName": server.name,
     }
+    _attach_mcp_tool_metadata_summary(payload, annotations, _mcp_tool_output_schema(tool, warnings=warnings) is not None)
     if warnings:
         payload["securityWarnings"] = warnings
     return payload
@@ -2140,6 +2218,21 @@ def _mcp_stderr_log(server_name: str):
             file.close()
 
 
+def read_mcp_stderr_log(*, max_chars: int = 60000) -> dict[str, Any]:
+    log_path = LOCAL_STATE_DIR / "logs" / "mcp-stderr.log"
+    max_chars = max(1000, int(max_chars or 60000))
+    if not log_path.exists():
+        return {"success": True, "path": str(log_path), "log": "", "truncated": False}
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        return {"success": False, "path": str(log_path), "log": "", "truncated": False, "error": sanitize_mcp_error(str(error))}
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[-max_chars:]
+    return {"success": True, "path": str(log_path), "log": text, "truncated": truncated}
+
+
 def _latest_protocol_version() -> str:
     try:
         from mcp.types import LATEST_PROTOCOL_VERSION
@@ -2162,6 +2255,7 @@ __all__ = [
     "_normalize_mcp_input_schema",
     "mcp_tool_name",
     "probe_mcp_server",
+    "read_mcp_stderr_log",
     "sanitize_mcp_error",
     "sanitize_mcp_name_component",
 ]

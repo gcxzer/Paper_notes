@@ -200,7 +200,9 @@ MCP settings live in Settings > MCP. Paper Notes acts as an MCP client/host:
 enabled external MCP servers are connected at agent startup and their tools are
 registered under the `MCP` tool group. The local config is stored in
 `.paper-notes/mcp-servers.json`; Paper Notes writes it with `0600` file
-permissions and redacts env/header values in API responses and the UI.
+permissions. Env/header values are stored as secret references in that config,
+with the actual values kept in `.paper-notes/secrets.env`; API responses and the
+UI only show configured redacted entries.
 
 Minimal stdio example:
 
@@ -245,15 +247,17 @@ also apply to the utility names `list_resources`, `read_resource`,
 
 Paper Notes also refreshes exposed tools after `tools/list_changed`, keeps
 long-lived sessions alive with reconnect/circuit-breaker handling, exposes
-read-only resource and prompt utility tools when advertised by the server, and
-materializes MCP image or safe text-like results as local `source="mcp"` media
-artifacts. Settings > MCP shows runtime status, retry timing, and MCP security
-warning counts.
+read-only resource and prompt utility tools when advertised by the server, maps
+MCP annotations such as read-only/destructive/idempotent/open-world hints into
+tool metadata, and materializes MCP image, safe text-like, or PDF results as
+local `source="mcp"` media artifacts. Settings > MCP shows runtime status, retry
+timing, security warning counts, and read-only reconnect/reset/log actions.
 
-In v1.1, MCP support is still limited to external tools over stdio and
-Streamable HTTP. SSE transport, MCP OAuth, sampling/createMessage, running Paper
-Notes itself as an MCP server, and arbitrary binary artifactization are
-intentionally left for later.
+Current MCP support is intentionally limited to external tools over stdio and
+Streamable HTTP. SSE transport and MCP OAuth are out of scope for now;
+sampling/createMessage, running Paper Notes itself as an MCP server, Office
+artifactization, archives, and arbitrary binary artifactization are left for
+later safety review.
 
 Visible tool groups are ordered as:
 

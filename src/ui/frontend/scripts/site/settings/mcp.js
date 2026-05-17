@@ -47,6 +47,11 @@ function normalizeMcpToolSummary(tool) {
     description: normalizeText(tool?.description),
     readOnly,
     mutating: tool?.mutating === undefined ? !readOnly : Boolean(tool.mutating),
+    title: normalizeText(tool?.title || tool?.annotations?.title || ""),
+    destructiveHint: Boolean(tool?.destructiveHint ?? tool?.destructive_hint ?? tool?.annotations?.destructiveHint),
+    idempotentHint: Boolean(tool?.idempotentHint ?? tool?.idempotent_hint ?? tool?.annotations?.idempotentHint),
+    openWorldHint: Boolean(tool?.openWorldHint ?? tool?.open_world_hint ?? tool?.annotations?.openWorldHint),
+    hasOutputSchema: Boolean(tool?.hasOutputSchema || tool?.has_output_schema),
     securityWarnings: normalizeMcpSecurityWarnings(tool?.securityWarnings || tool?.security_warnings)
   };
 }
@@ -139,6 +144,7 @@ function setMcpSettingsError(message = "") {
 
 function clearMcpTransientFeedback() {
   state.mcpTestResult = null;
+  state.mcpLogResult = null;
   setMcpSettingsError("");
 }
 
@@ -252,10 +258,11 @@ function renderMcpEmptyEditor() {
 
 function renderMcpToolChip(tool) {
   const warningCount = tool.securityWarnings?.length || 0;
+  const label = warningCount ? "Warning" : (tool.readOnly ? "Read-only" : (tool.destructiveHint ? "Destructive" : "Requires approval"));
   return `
     <span class="mcp-tool-chip${warningCount ? " is-warning" : ""}">
       <strong>${escapeHtml(tool.generatedName || tool.name)}</strong>
-      <em>${warningCount ? "Warning" : (tool.readOnly ? "Read-only" : "Requires approval")}</em>
+      <em>${escapeHtml(label)}</em>
     </span>
   `;
 }
@@ -264,6 +271,9 @@ function renderMcpStatusSection(server) {
   const status = mcpStatusMeta(server);
   const retryLabel = formatMcpRetryTime(server.status.nextRetryAt);
   const warningCount = mcpWarningCount(server);
+  const reconnecting = state.mcpOperationId === `reconnect:${server.id}`;
+  const resetting = state.mcpOperationId === `reset:${server.id}`;
+  const loadingLog = state.mcpOperationId === `log:${server.id}`;
   const rows = [
     ["State", status.label],
     ["Tools", String(server.status.toolCount || server.tools.length || 0)],
@@ -287,7 +297,30 @@ function renderMcpStatusSection(server) {
       </div>
       ${server.status.error ? `<p class="mcp-status-note is-error">${escapeHtml(server.status.error)}</p>` : ""}
       ${warningCount ? `<p class="mcp-status-note is-warning">${escapeHtml(mcpWarningLabel(warningCount))} detected in MCP metadata.</p>` : ""}
+      <div class="mcp-status-actions">
+        <button class="toolbar-button" type="button" data-mcp-reconnect="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${reconnecting ? "Reconnecting..." : "Reconnect"}</button>
+        <button class="toolbar-button" type="button" data-mcp-reset-circuit="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${resetting ? "Resetting..." : "Reset circuit"}</button>
+        <button class="toolbar-button" type="button" data-mcp-view-log="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${loadingLog ? "Loading log..." : "View stderr log"}</button>
+      </div>
+      ${renderMcpLogPanel(server)}
     </section>
+  `;
+}
+
+function renderMcpLogPanel(server) {
+  const log = state.mcpLogResult;
+  if (!log || log.serverId !== server.id) return "";
+  const body = log.success === false
+    ? (log.error || "Could not read MCP stderr log.")
+    : (log.log || "No MCP stderr output has been captured yet.");
+  return `
+    <details class="mcp-log-panel" open>
+      <summary>
+        <span>MCP stderr log</span>
+        ${log.truncated ? "<em>Tail shown</em>" : ""}
+      </summary>
+      <pre>${escapeHtml(body)}</pre>
+    </details>
   `;
 }
 
@@ -666,6 +699,82 @@ async function testMcpServer(id) {
     state.mcpTestResult = { id, success: false, error: mcpRequestErrorMessage(error, "MCP test failed."), toolCount: 0, tools: [] };
   } finally {
     state.mcpTestingId = "";
+    renderMcpSettingsDialog();
+  }
+}
+
+async function reconnectMcpServer(id) {
+  if (!id || state.mcpOperationId) return;
+  state.mcpOperationId = `reconnect:${id}`;
+  state.mcpLogResult = null;
+  setMcpSettingsError("");
+  renderMcpSettingsDialog();
+  try {
+    const payload = await fetchJson("/api/settings/mcp/reconnect", {
+      method: "POST",
+      body: { serverId: id }
+    });
+    if (payload?.success === false) {
+      setMcpSettingsError(payload.error || "Could not reconnect MCP server.");
+      return;
+    }
+    await loadMcpSettings();
+  } catch (error) {
+    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not reconnect MCP server."));
+  } finally {
+    state.mcpOperationId = "";
+    renderMcpSettingsDialog();
+  }
+}
+
+async function resetMcpCircuit(id) {
+  if (!id || state.mcpOperationId) return;
+  state.mcpOperationId = `reset:${id}`;
+  state.mcpLogResult = null;
+  setMcpSettingsError("");
+  renderMcpSettingsDialog();
+  try {
+    const payload = await fetchJson("/api/settings/mcp/reset-circuit", {
+      method: "POST",
+      body: { serverId: id }
+    });
+    if (payload?.success === false) {
+      setMcpSettingsError(payload.error || "Could not reset MCP circuit.");
+      return;
+    }
+    await loadMcpSettings();
+  } catch (error) {
+    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not reset MCP circuit."));
+  } finally {
+    state.mcpOperationId = "";
+    renderMcpSettingsDialog();
+  }
+}
+
+async function viewMcpStderrLog(id) {
+  if (!id || state.mcpOperationId) return;
+  state.mcpOperationId = `log:${id}`;
+  setMcpSettingsError("");
+  renderMcpSettingsDialog();
+  try {
+    const payload = await fetchJson("/api/settings/mcp/stderr-log?maxChars=60000");
+    state.mcpLogResult = {
+      serverId: id,
+      success: payload?.success !== false,
+      log: normalizeText(payload?.log || ""),
+      error: normalizeText(payload?.error || ""),
+      truncated: Boolean(payload?.truncated)
+    };
+  } catch (error) {
+    state.mcpLogResult = {
+      serverId: id,
+      success: false,
+      log: "",
+      error: mcpRequestErrorMessage(error, "Could not read MCP stderr log."),
+      truncated: false
+    };
+  } finally {
+    state.mcpOperationId = "";
     renderMcpSettingsDialog();
   }
 }

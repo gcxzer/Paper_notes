@@ -289,14 +289,25 @@
   z-index: 80;
   display: grid;
   place-items: center;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
   padding: 18px;
+  border: 0;
   border-radius: 0;
   background: color-mix(in srgb, var(--modal-bg) 58%, transparent);
   backdrop-filter: blur(2px);
 }
 
+.model-capabilities-backdrop:not([open]),
 .model-capabilities-backdrop[hidden] {
   display: none;
+}
+
+.model-capabilities-backdrop::backdrop {
+  background: transparent;
 }
 
 .model-capabilities-panel {
@@ -336,15 +347,17 @@
 
 .model-capabilities-table-wrap {
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel-alt);
+  scrollbar-gutter: stable;
 }
 
 .model-capabilities-table {
   width: 100%;
+  min-width: 1120px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.72rem;
@@ -356,7 +369,8 @@
   border-bottom: 1px solid var(--line);
   text-align: center;
   vertical-align: top;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .model-capabilities-table th:first-child,
@@ -1481,6 +1495,53 @@
 
 .mcp-status-note.is-warning {
   color: color-mix(in srgb, #b7791f 58%, var(--text));
+}
+
+.mcp-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mcp-log-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-alt) 72%, transparent);
+  overflow: hidden;
+}
+
+.mcp-log-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.mcp-log-panel summary em {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.mcp-log-panel pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 10px 11px;
+  border-top: 1px solid var(--line);
+  overflow: auto;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--muted-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .mcp-transport-field {

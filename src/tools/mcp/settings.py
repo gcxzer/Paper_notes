@@ -4,11 +4,12 @@ import json
 import os
 import re
 import shlex
+import hashlib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from app_config.secrets import LOCAL_STATE_DIR
+from app_config.secrets import LOCAL_STATE_DIR, default_secrets_path, parse_env_file, write_env_values
 from app_infra.storage import atomic_write_json
 
 
@@ -18,10 +19,17 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 MCP_TRANSPORTS = frozenset({"stdio", "http"})
 _SERVER_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SECRET_REF_PREFIX = "paper-notes-secret:"
 
 
 def mcp_settings_path(settings_path: str | Path | None = None) -> Path:
     return Path(settings_path).expanduser() if settings_path is not None else DEFAULT_MCP_SETTINGS_PATH
+
+
+def mcp_secrets_path(settings_path: str | Path | None = None) -> Path:
+    if settings_path is None:
+        return default_secrets_path()
+    return mcp_settings_path(settings_path).with_name("secrets.env")
 
 
 def read_mcp_settings(settings_path: str | Path | None = None) -> dict[str, Any]:
@@ -34,12 +42,14 @@ def read_mcp_settings(settings_path: str | Path | None = None) -> dict[str, Any]
         return {"servers": []}
     if not isinstance(payload, dict):
         return {"servers": []}
-    return {"servers": normalize_mcp_servers(payload.get("servers"))}
+    servers = normalize_mcp_servers(payload.get("servers"))
+    return {"servers": _resolve_mcp_secret_refs(servers, settings_path=settings_path)}
 
 
 def write_mcp_settings(payload: dict[str, Any], settings_path: str | Path | None = None) -> None:
     path = mcp_settings_path(settings_path)
-    atomic_write_json(path, {"servers": normalize_mcp_servers(payload.get("servers"))})
+    servers = normalize_mcp_servers(payload.get("servers"))
+    atomic_write_json(path, {"servers": _externalize_mcp_secrets(servers, settings_path=settings_path)})
     _secure_settings_path(path)
 
 
@@ -292,6 +302,120 @@ def _redacted_mapping(value: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _resolve_mcp_secret_refs(
+    servers: list[dict[str, Any]],
+    *,
+    settings_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    secrets = parse_env_file(mcp_secrets_path(settings_path))
+    resolved: list[dict[str, Any]] = []
+    for server in servers:
+        item = dict(server)
+        item["env"] = _resolve_secret_mapping(item.get("env"), secrets)
+        item["headers"] = _resolve_secret_mapping(item.get("headers"), secrets)
+        resolved.append(item)
+    return resolved
+
+
+def _resolve_secret_mapping(value: Any, secrets: dict[str, str]) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, raw_value in value.items():
+        name = _secret_ref_name(raw_value)
+        if name:
+            secret = secrets.get(name)
+            if secret is not None:
+                result[str(key)] = secret
+            continue
+        if raw_value is not None and str(raw_value) != "":
+            result[str(key)] = str(raw_value)
+    return result
+
+
+def _externalize_mcp_secrets(
+    servers: list[dict[str, Any]],
+    *,
+    settings_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    path = mcp_settings_path(settings_path)
+    old_refs = _stored_mcp_secret_refs(path)
+    new_refs: set[str] = set()
+    updates: dict[str, str | None] = {}
+    stored_servers: list[dict[str, Any]] = []
+
+    for server in servers:
+        item = dict(server)
+        for field, kind in (("env", "ENV"), ("headers", "HEADER")):
+            mapping = server.get(field)
+            stored_mapping: dict[str, str] = {}
+            if isinstance(mapping, dict):
+                for key, value in mapping.items():
+                    text = str(value)
+                    if not str(key).strip() or text == "":
+                        continue
+                    ref_name = _secret_ref_name(text) or _mcp_secret_name(str(server.get("id") or ""), kind, str(key))
+                    stored_mapping[str(key)] = _secret_ref(ref_name)
+                    new_refs.add(ref_name)
+                    if not _secret_ref_name(text):
+                        updates[ref_name] = text
+            item[field] = stored_mapping
+        stored_servers.append(item)
+
+    for ref_name in sorted(old_refs - new_refs):
+        updates[ref_name] = None
+    if updates:
+        write_env_values(mcp_secrets_path(settings_path), updates)
+    return stored_servers
+
+
+def _stored_mcp_secret_refs(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    refs: set[str] = set()
+    for raw_server in payload.get("servers") or []:
+        if not isinstance(raw_server, dict):
+            continue
+        for field in ("env", "headers"):
+            mapping = raw_server.get(field)
+            if not isinstance(mapping, dict):
+                continue
+            for raw_value in mapping.values():
+                ref_name = _secret_ref_name(raw_value)
+                if ref_name:
+                    refs.add(ref_name)
+    return refs
+
+
+def _mcp_secret_name(server_id: str, kind: str, key: str) -> str:
+    seed = f"{server_id}:{kind}:{key}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8].upper()
+    return f"PAPER_NOTES_MCP_{_secret_name_part(server_id)}_{kind}_{_secret_name_part(key)}_{digest}"
+
+
+def _secret_name_part(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9]+", "_", str(value or "").upper()).strip("_")
+    return text or "VALUE"
+
+
+def _secret_ref(name: str) -> str:
+    return f"{_SECRET_REF_PREFIX}{name}"
+
+
+def _secret_ref_name(value: Any) -> str:
+    text = str(value or "")
+    if not text.startswith(_SECRET_REF_PREFIX):
+        return ""
+    name = text[len(_SECRET_REF_PREFIX):].strip()
+    return name if _ENV_NAME_RE.match(name) else ""
+
+
 def _int_or_default(value: Any, default: int) -> int:
     if isinstance(value, bool):
         return default
@@ -331,6 +455,7 @@ __all__ = [
     "DEFAULT_MCP_SETTINGS_PATH",
     "DEFAULT_TOOL_TIMEOUT_SECONDS",
     "mcp_runtime_config",
+    "mcp_secrets_path",
     "mcp_settings_path",
     "normalize_mcp_server_config",
     "normalize_mcp_servers",

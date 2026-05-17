@@ -410,6 +410,21 @@ elements.mcpServerEditor?.addEventListener("click", (event) => {
     void testMcpServer(testButton.dataset.mcpTest);
     return;
   }
+  const reconnectButton = event.target.closest("[data-mcp-reconnect]");
+  if (reconnectButton) {
+    void reconnectMcpServer(reconnectButton.dataset.mcpReconnect);
+    return;
+  }
+  const resetCircuitButton = event.target.closest("[data-mcp-reset-circuit]");
+  if (resetCircuitButton) {
+    void resetMcpCircuit(resetCircuitButton.dataset.mcpResetCircuit);
+    return;
+  }
+  const viewLogButton = event.target.closest("[data-mcp-view-log]");
+  if (viewLogButton) {
+    void viewMcpStderrLog(viewLogButton.dataset.mcpViewLog);
+    return;
+  }
   const deleteButton = event.target.closest("[data-mcp-delete]");
   if (deleteButton) {
     confirmDeleteMcpServer(deleteButton.dataset.mcpDelete);

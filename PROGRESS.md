@@ -29,9 +29,15 @@ Updated: 2026-05-17
   - P2D/status-smoke completed: Streamable HTTP cross-origin redirects strip
     configured/sensitive headers, Settings > MCP shows circuit/security status,
     and smoke coverage verifies MCP settings plus MCP artifact cards.
-  - Next: SSE transport and OAuth 2.1/PKCE.
-  - Later: MCP sampling/createMessage support, running Paper Notes as an MCP
-    server, and arbitrary binary/file artifactization.
+  - Post-1.2 hardening completed: MCP env/header secrets are externalized into
+    `.paper-notes/secrets.env`, Settings > MCP has reconnect/reset/log actions,
+    MCP security helpers were split out of `manager.py`, PDF results can become
+    local artifacts, and MCP annotations/output schemas are preserved in tool
+    metadata.
+  - SSE transport and OAuth 2.1/PKCE are intentionally not planned for now.
+  - Later candidates: MCP sampling/createMessage support, running Paper Notes as
+    an MCP server, richer log/status UX, Office artifactization, archives, and
+    arbitrary binary artifactization after safety review.
 
 ## Release 1.2.0
 
@@ -164,18 +170,18 @@ Important current behavior:
   only selected for explicit generation flows.
 - MCP currently connects enabled external servers at agent startup, registers
   discovered tools under the `mcp` toolset, supports stdio and Streamable HTTP,
-  redacts env/header secrets in settings responses, and maps MCP `readOnlyHint`
-  annotations into Paper Notes read/write tool safety.
+  stores env/header secrets in `.paper-notes/secrets.env` rather than
+  `.paper-notes/mcp-servers.json`, redacts settings responses, and maps MCP
+  read-only/destructive/idempotent/open-world annotations into tool metadata.
 - MCP refreshes the registry on `tools/list_changed`, recovers long-lived
   sessions with keepalive/reconnect, and exposes read-only resources/prompts
   utility tools when a server advertises those capabilities.
 - MCP server settings can include or exclude ordinary tools and MCP utility
   tools per server, using exact names or `*` wildcards.
-- MCP `image/*` content returned by tools, resource reads, or prompt content is
-  now stored as local `source="mcp"` media artifacts and attached to assistant
-  messages through the existing artifact card pipeline.
-- MCP safe text-like content returned by tools, resource reads, or prompt
-  content is now stored as local `source="mcp"` file artifacts for download.
+- MCP `image/*`, safe text-like, and PDF content returned by tools, resource
+  reads, or prompt content is now stored as local `source="mcp"` media/file
+  artifacts and attached to assistant messages through the existing artifact
+  card pipeline.
 - MCP preserves artifact, media error, and security warning fields when large
   tool results are trimmed or persisted as compact references.
 - MCP treats external tool descriptions, schema descriptions, resources,
@@ -187,14 +193,15 @@ Important current behavior:
   and circuit-open tool calls return `mcp_circuit_open`.
 - Settings > MCP displays circuit-open/reconnecting/connecting status, retry
   timing, failure counts, and MCP security warning counts from the public status
-  payload.
+  payload; it also exposes reconnect, reset circuit, and stderr-log actions for
+  already configured servers.
 - MCP Streamable HTTP keeps normal same-origin redirects but strips configured
   and standard sensitive headers on cross-origin redirects.
 - MCP stdio servers are tracked during transport startup and cleaned up
   best-effort on shutdown, cancellation, or startup timeout.
 - Current MCP limits, compared with `hermes-agent`, are intentional gaps for now:
-  no SSE transport, OAuth, sampling, Paper Notes MCP-server mode, or arbitrary
-  binary MCP file artifactization.
+  no SSE transport, OAuth, sampling, Paper Notes MCP-server mode,
+  Office/archive artifactization, or arbitrary binary MCP file artifactization.
 - Large tool outputs are stored under `.paper-notes/logs/tool-results/` and
   replaced with compact references when needed.
 
@@ -316,6 +323,24 @@ Recent focused verification:
     passed.
   - `uv run pytest tests/test_mcp_tool.py tests/test_media_store.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_service.py -q`
     passed with 116 tests.
+- 2026-05-17 MCP post-1.2 hardening verification:
+  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/mcp/security.py src/tools/mcp/settings.py src/media/store.py src/ui/backend/mcp_api.py src/ui/backend/server.py src/agent_runtime/service.py src/tools/registry.py src/tools/result_storage.py src/agent_prompts/builder.py`
+    passed.
+  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/settings/ai.js && node --check src/ui/frontend/scripts/site/events.js && node --check src/ui/frontend/scripts/site/page_state.js && node --check tests/e2e/paper-notes-smoke.spec.js`
+    passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_media_store.py tests/test_tool_registry.py tests/test_agent_prompts.py tests/test_agent_service.py tests/test_tool_catalog.py tests/test_ai_settings_api.py -q`
+    passed with 204 tests and 5 PyMuPDF deprecation warnings, including
+    circuit reset interrupting circuit-open cooldown.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP|artifact|home settings"`
+    passed with 3 Playwright smoke tests.
+  - `uv run pytest -q` passed with 534 tests and 5 PyMuPDF deprecation
+    warnings.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js` passed with
+    48 Playwright smoke tests.
+  - Manual rendered smoke on `http://localhost:4174` passed for desktop/mobile
+    Model capabilities modal bounds and Settings > MCP empty-state rendering;
+    console warnings/errors were clean.
+  - `git diff --check` passed.
 
 Useful full checks:
 

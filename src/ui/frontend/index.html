@@ -576,19 +576,6 @@
         </section>
       </div>
 
-      <div class="model-capabilities-backdrop" id="modelCapabilitiesDialog" hidden>
-        <section class="model-capabilities-panel" role="dialog" aria-modal="true" aria-labelledby="modelCapabilitiesTitle">
-          <div class="model-capabilities-header">
-            <div>
-              <strong id="modelCapabilitiesTitle">Model capabilities</strong>
-              <span>Capabilities are read from the current model registry.</span>
-            </div>
-            <button class="icon-button" type="button" id="closeModelCapabilitiesDialog" aria-label="Close model capabilities">x</button>
-          </div>
-          <div class="model-capabilities-table-wrap" id="modelCapabilitiesTableWrap"></div>
-        </section>
-      </div>
-
       <label class="field default-provider-field" hidden>
         <span>Default provider</span>
         <select id="aiProviderInput" autocomplete="off">
@@ -610,6 +597,19 @@
         <button class="toolbar-button toolbar-button-primary" type="submit" id="saveAiSettings">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="model-capabilities-backdrop" id="modelCapabilitiesDialog" aria-labelledby="modelCapabilitiesTitle">
+    <section class="model-capabilities-panel" role="document">
+      <div class="model-capabilities-header">
+        <div>
+          <strong id="modelCapabilitiesTitle">Model capabilities</strong>
+          <span>Capabilities are read from the current model registry.</span>
+        </div>
+        <button class="icon-button" type="button" id="closeModelCapabilitiesDialog" aria-label="Close model capabilities">x</button>
+      </div>
+      <div class="model-capabilities-table-wrap" id="modelCapabilitiesTableWrap"></div>
+    </section>
   </dialog>
 
   <dialog class="modal debug-modal" id="debugDialog">

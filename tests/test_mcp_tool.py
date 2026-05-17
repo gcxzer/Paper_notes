@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import socket
 import subprocess
@@ -28,6 +29,13 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 TEXT_B64 = "SGVsbG8gZnJvbSBNQ1A="
 JSON_B64 = "eyJvayI6IHRydWV9"
+PDF_BYTES = (
+    b"%PDF-1.4\n"
+    b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    b"2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n"
+    b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+)
+PDF_B64 = base64.b64encode(PDF_BYTES).decode("ascii")
 
 
 def _stdio_config(*, args: list[str] | None = None, timeout: int = 2, connect_timeout: int = 5) -> dict:
@@ -292,6 +300,41 @@ def test_mcp_registration_marks_unknown_tools_mutating_and_readonly_tools_read_o
     assert set(enabled.tool_names) == {"mcp_filesystem_read_file", "mcp_filesystem_write_file"}
     assert readonly.tool_names == ("mcp_filesystem_read_file",)
     assert readonly.hidden_tools == ("mcp_filesystem_write_file",)
+
+
+def test_mcp_registration_preserves_annotations_and_output_schema_metadata():
+    registry = ToolRegistry(availability_ttl_seconds=0)
+    manager = MCPManager(registry)
+    server = FakeMCPServer()
+    server.tools[1].annotations = {
+        "title": "Write File",
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    }
+    server.tools[1].outputSchema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean", "description": "Whether the write succeeded."}},
+    }
+    manager._servers[server.id] = server
+
+    manager._register_server_tools(server)
+
+    definition = registry.get("mcp_filesystem_write_file")
+    assert definition is not None
+    assert definition.risk == "destructive"
+    assert definition.output_schema["properties"]["ok"]["type"] == "boolean"
+    assert definition.metadata["mcpAnnotations"]["title"] == "Write File"
+    assert definition.metadata["mcpAnnotations"]["destructiveHint"] is True
+    status_tool = next(
+        item for item in manager.statuses()["filesystem"]["tools"]
+        if item["generatedName"] == "mcp_filesystem_write_file"
+    )
+    assert status_tool["title"] == "Write File"
+    assert status_tool["destructiveHint"] is True
+    assert status_tool["idempotentHint"] is False
+    assert status_tool["openWorldHint"] is True
+    assert status_tool["hasOutputSchema"] is True
 
 
 def test_mcp_capability_utility_tools_are_registered_only_when_advertised():
@@ -619,6 +662,35 @@ def test_mcp_tool_result_safe_text_data_creates_file_artifact(tmp_path):
     assert TEXT_B64 not in dispatch.content
 
 
+def test_mcp_tool_result_pdf_data_creates_artifact(tmp_path):
+    registry = ToolRegistry(availability_ttl_seconds=0)
+    media_store = MediaStore(tmp_path / ".paper-notes" / "media")
+    manager = MCPManager(registry, media_store=media_store)
+    server = FakeMCPServer(result=SimpleNamespace(
+        isError=False,
+        content=[SimpleNamespace(data=PDF_B64, mimeType="application/pdf", name="paper.pdf")],
+        structuredContent=None,
+    ))
+    manager._servers[server.id] = server
+    manager._statuses[server.id] = {"connected": True, "error": "", "tools": [], "toolCount": 0}
+    manager._register_server_tools(server)
+
+    dispatch = registry.dispatch("mcp_filesystem_read_file", {"path": "paper.pdf"})
+    payload = json.loads(dispatch.content)
+
+    assert payload["success"] is True
+    assert payload["artifact"] == payload["artifacts"][0]
+    artifact = payload["artifacts"][0]
+    assert artifact["source"] == "mcp"
+    assert artifact["kind"] == "pdf"
+    assert artifact["mimeType"] == "application/pdf"
+    assert artifact["fileName"] == "paper.pdf"
+    assert artifact["metadata"]["toolName"] == "read.file"
+    assert media_store.path_for(artifact["id"]).read_bytes().startswith(b"%PDF-")
+    assert "[MCP PDF artifact:" in payload["result"]
+    assert PDF_B64 not in dispatch.content
+
+
 def test_mcp_safe_text_data_without_media_store_returns_preview_only():
     registry = ToolRegistry(availability_ttl_seconds=0)
     manager = MCPManager(registry)
@@ -740,13 +812,13 @@ def test_mcp_safe_file_invalid_base64_is_non_fatal_and_redacted(tmp_path):
     assert bad_blob not in dispatch.content
 
 
-def test_mcp_unsupported_non_image_file_mimes_remain_summaries(tmp_path):
+def test_mcp_pdf_resource_blob_creates_artifact_and_unsupported_binary_remains_summary(tmp_path):
     registry = ToolRegistry(availability_ttl_seconds=0)
     media_store = MediaStore(tmp_path / ".paper-notes" / "media")
     manager = MCPManager(registry, media_store=media_store)
     server = FakeMCPServer(resources=True)
     server.resource_contents["file:///paper.pdf"] = SimpleNamespace(contents=[
-        SimpleNamespace(uri="file:///paper.pdf", mimeType="application/pdf", blob=TEXT_B64),
+        SimpleNamespace(uri="file:///paper.pdf", mimeType="application/pdf", blob=PDF_B64),
         SimpleNamespace(uri="file:///data.bin", mimeType="application/octet-stream", blob=TEXT_B64),
     ])
     manager._servers[server.id] = server
@@ -756,8 +828,15 @@ def test_mcp_unsupported_non_image_file_mimes_remain_summaries(tmp_path):
     payload = json.loads(registry.dispatch("mcp_filesystem_read_resource", {"uri": "file:///paper.pdf"}).content)
 
     assert payload["success"] is True
-    assert "artifacts" not in payload
-    assert all(content["blob"].startswith("[binary content:") for content in payload["contents"])
+    assert len(payload["artifacts"]) == 1
+    artifact = payload["artifacts"][0]
+    assert artifact["kind"] == "pdf"
+    assert artifact["mimeType"] == "application/pdf"
+    assert artifact["fileName"] == "paper.pdf"
+    assert payload["contents"][0]["artifact"]["id"] == artifact["id"]
+    assert payload["contents"][0]["blob"].startswith("[MCP PDF artifact:")
+    assert payload["contents"][1]["blob"].startswith("[binary content:")
+    assert PDF_B64 not in json.dumps(payload)
 
 
 def test_mcp_dynamic_refresh_upserts_removes_stale_tools_and_updates_status():
@@ -1109,6 +1188,45 @@ def test_mcp_reconnect_failures_open_circuit(monkeypatch):
     assert state == "circuit_open"
     assert details["circuitOpen"] is True
     assert details["failureCount"] == 1
+
+
+def test_mcp_circuit_reset_interrupts_cooldown(monkeypatch):
+    monkeypatch.setattr(mcp_manager, "_MAX_RECONNECT_RETRIES", 1)
+    monkeypatch.setattr(mcp_manager, "_CIRCUIT_OPEN_COOLDOWN_SECONDS", 30)
+
+    async def exercise():
+        task = MCPServerTask({"id": "filesystem", "name": "Local Files", "transport": "stdio"})
+        task._ready.set()
+        attempts = 0
+
+        async def run_stdio(config):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("reconnect failed")
+            await task._shutdown.wait()
+            return "shutdown"
+
+        task._run_stdio = run_stdio
+        runner = asyncio.create_task(task.run())
+        deadline = time.time() + 1
+        while time.time() < deadline and task.state != "circuit_open":
+            await asyncio.sleep(0.01)
+        assert task.state == "circuit_open"
+
+        task._reconnect.set()
+        deadline = time.time() + 1
+        while time.time() < deadline and attempts < 2:
+            await asyncio.sleep(0.01)
+        state_after_reset = task.state
+        await task.shutdown()
+        await runner
+        return attempts, state_after_reset
+
+    attempts, state_after_reset = asyncio.run(exercise())
+
+    assert attempts == 2
+    assert state_after_reset == "reconnecting"
 
 
 def test_mcp_stdio_process_cleanup_on_shutdown():

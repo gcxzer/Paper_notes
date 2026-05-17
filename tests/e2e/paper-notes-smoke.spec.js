@@ -789,6 +789,40 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#openSkillsSettings")).toBeVisible();
   await expect(page.locator("#openDebugSettings")).toBeVisible();
 
+  await page.locator("#openAiSettings").click();
+  await expect(page.locator("#aiSettingsDialog")).toBeVisible();
+  await page.locator("#compareModelsButton").click();
+  await expect(page.locator("#modelCapabilitiesDialog")).toBeVisible();
+  await expect(page.locator("#modelCapabilitiesDialog")).toContainText("Model capabilities");
+  await expect(page.locator(".model-capabilities-table")).toContainText("GPT-5.5");
+  const capabilitiesBounds = await page.evaluate(() => {
+    const panel = document.querySelector(".model-capabilities-panel");
+    const tableWrap = document.querySelector("#modelCapabilitiesTableWrap");
+    const panelRect = panel.getBoundingClientRect();
+    const wrapRect = tableWrap.getBoundingClientRect();
+    return {
+      dialogOpen: document.querySelector("#modelCapabilitiesDialog")?.open === true,
+      panelLeft: panelRect.left,
+      panelRight: panelRect.right,
+      panelBottom: panelRect.bottom,
+      tableWrapRight: wrapRect.right,
+      tableOverflowX: getComputedStyle(tableWrap).overflowX,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(capabilitiesBounds.dialogOpen).toBe(true);
+  expect(capabilitiesBounds.panelLeft).toBeGreaterThanOrEqual(0);
+  expect(capabilitiesBounds.panelRight).toBeLessThanOrEqual(capabilitiesBounds.viewportWidth);
+  expect(capabilitiesBounds.panelBottom).toBeLessThanOrEqual(capabilitiesBounds.viewportHeight);
+  expect(capabilitiesBounds.tableWrapRight).toBeLessThanOrEqual(capabilitiesBounds.panelRight);
+  expect(capabilitiesBounds.tableOverflowX).toBe("auto");
+  await page.locator("#closeModelCapabilitiesDialog").click();
+  await expect(page.locator("#modelCapabilitiesDialog")).not.toBeVisible();
+  await page.locator("#cancelAiSettings").click();
+  await expect(page.locator("#aiSettingsDialog")).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openSkillsSettings").click();
   await expect(page.locator("#skillsSettingsDialog")).toBeVisible();
   await expect(page.locator("#skillsSettingsDialog")).toContainText("External directories");
@@ -826,6 +860,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   let currentServers = [];
   const savedPayloads = [];
   const testPayloads = [];
+  const opsPayloads = [];
   const publicSettings = () => ({
     success: true,
     settingsPath: ".paper-notes/mcp-servers.json",
@@ -857,6 +892,13 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   });
   await page.route("**/api/settings/mcp**", async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/api/settings/mcp/stderr-log")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, log: "fixture stderr tail", truncated: false }),
+      });
+      return;
+    }
     if (url.pathname.endsWith("/api/settings/mcp/test")) {
       testPayloads.push(route.request().postDataJSON());
       await route.fulfill({
@@ -877,6 +919,14 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
           }],
           error: "",
         }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/api/settings/mcp/reconnect") || url.pathname.endsWith("/api/settings/mcp/reset-circuit")) {
+      opsPayloads.push({ path: url.pathname, body: route.request().postDataJSON() });
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, serverId: route.request().postDataJSON().serverId }),
       });
       return;
     }
@@ -941,6 +991,17 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await expect(page.locator("#mcpServerEditor")).toContainText("Next retry");
   await expect(page.locator("#mcpServerEditor")).toContainText("2 security warnings");
   await expect(page.locator("#mcpServerEditor")).toContainText("Reconnect attempts paused");
+  await expect(page.locator('[data-mcp-reconnect]')).toBeVisible();
+  await expect(page.locator('[data-mcp-reset-circuit]')).toBeVisible();
+  await expect(page.locator('[data-mcp-view-log]')).toBeVisible();
+  await page.locator('[data-mcp-view-log]').click();
+  await expect(page.locator(".mcp-log-panel")).toContainText("fixture stderr tail");
+  await page.locator('[data-mcp-reset-circuit]').click();
+  await expect.poll(() => opsPayloads.length).toBeGreaterThan(0);
+  expect(opsPayloads.at(-1)).toMatchObject({
+    path: "/api/settings/mcp/reset-circuit",
+    body: { serverId: expect.any(String) },
+  });
   await expect(page.locator('[data-mcp-field="includeTools"]')).toHaveValue("search\nlist_resources");
   await expect(page.locator('[data-mcp-field="excludeTools"]')).toHaveValue("write_*");
   await page.locator('[data-mcp-delete]').click();

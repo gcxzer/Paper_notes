@@ -250,6 +250,70 @@ class MediaStore:
         self._write_extracted_text(artifact.id, text)
         return artifact
 
+    def create_mcp_pdf(
+        self,
+        content: Any,
+        *,
+        mime_type: str = "application/pdf",
+        server_id: str = "",
+        tool_name: str = "",
+        resource_uri: str = "",
+        file_name: str = "",
+    ) -> ImageArtifact:
+        normalized_mime = normalize_text(mime_type).lower()
+        if normalized_mime != "application/pdf":
+            raise MediaStoreError(f"Unsupported MCP PDF MIME type: {mime_type}")
+        if isinstance(content, bytes):
+            data = content
+            declared_mime = ""
+            if len(data) > DEFAULT_MAX_ATTACHMENT_BYTES:
+                raise MediaStoreError("MCP PDF payload is too large.")
+        else:
+            data, declared_mime = _parse_base64_payload(str(content or ""))
+        if declared_mime and declared_mime != normalized_mime:
+            raise MediaStoreError("MCP PDF MIME type does not match its content.")
+        if not data.startswith(b"%PDF-"):
+            raise MediaStoreError("MCP PDF content is not a valid PDF.")
+        extraction_status = "complete"
+        extraction_error = ""
+        try:
+            extracted_text = extract_attachment_text(data, mime_type=normalized_mime, file_name=file_name)
+        except Exception as error:
+            extracted_text = ""
+            extraction_status = "failed"
+            extraction_error = normalize_text(str(error))
+        artifact_id = self._new_id("mcp")
+        extension = attachment_extension_for_mime(normalized_mime)
+        safe_server = _safe_segment(server_id or "unknown")
+        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
+        target = self.root / "mcp" / safe_server / safe_name
+        if target.exists():
+            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        metadata = {
+            "serverId": server_id,
+            "toolName": tool_name,
+            "resourceUri": resource_uri,
+            "storageFileName": target.name,
+            "extractionStatus": extraction_status,
+            "extractedTextChars": len(extracted_text),
+        }
+        if extraction_error:
+            metadata["extractionError"] = extraction_error
+        artifact = self._register(
+            artifact_id=artifact_id,
+            source="mcp",
+            path=target,
+            mime_type=normalized_mime,
+            file_name=safe_name,
+            kind=attachment_kind(normalized_mime),
+            size=len(data),
+            metadata=metadata,
+        )
+        self._write_extracted_text(artifact.id, extracted_text)
+        return artifact
+
     def create_generated_file(
         self,
         content: str,

@@ -278,6 +278,13 @@ function imageInputLabel(entry) {
   return `${capabilityText(entry.imageInput)}${entry.imageInputMode ? ` (${entry.imageInputMode})` : ""}`;
 }
 
+function isModelCapabilitiesDialogOpen() {
+  const dialog = elements.modelCapabilitiesDialog;
+  if (!dialog) return false;
+  if (typeof HTMLDialogElement !== "undefined" && dialog instanceof HTMLDialogElement) return dialog.open;
+  return !dialog.hidden;
+}
+
 function renderModelCapabilitiesTable() {
   if (!elements.modelCapabilitiesTableWrap) return;
   const rows = modelCapabilityRows();
@@ -333,11 +340,20 @@ async function openModelCapabilitiesDialog() {
     await loadAiSettings();
   }
   renderModelCapabilitiesTable();
+  if (typeof elements.modelCapabilitiesDialog.showModal === "function") {
+    elements.modelCapabilitiesDialog.hidden = false;
+    if (!elements.modelCapabilitiesDialog.open) elements.modelCapabilitiesDialog.showModal();
+    return;
+  }
   elements.modelCapabilitiesDialog.hidden = false;
 }
 
 function closeModelCapabilitiesDialog() {
   if (!elements.modelCapabilitiesDialog) return;
+  if (typeof elements.modelCapabilitiesDialog.close === "function" && elements.modelCapabilitiesDialog.open) {
+    elements.modelCapabilitiesDialog.close();
+    return;
+  }
   elements.modelCapabilitiesDialog.hidden = true;
 }
 
@@ -750,7 +766,7 @@ function selectDefaultAiProvider(provider) {
 }
 
 function handleAiSettingsKeydown(event) {
-  if (event.key === "Escape" && !elements.modelCapabilitiesDialog?.hidden) {
+  if (event.key === "Escape" && isModelCapabilitiesDialogOpen()) {
     event.preventDefault();
     closeModelCapabilitiesDialog();
     return;
@@ -775,6 +791,10 @@ elements.compareModelsButton?.addEventListener("click", () => {
   void openModelCapabilitiesDialog();
 });
 elements.closeModelCapabilitiesDialog?.addEventListener("click", closeModelCapabilitiesDialog);
+elements.modelCapabilitiesDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeModelCapabilitiesDialog();
+});
 elements.modelCapabilitiesDialog?.addEventListener("click", (event) => {
   if (event.target === elements.modelCapabilitiesDialog) closeModelCapabilitiesDialog();
 });
