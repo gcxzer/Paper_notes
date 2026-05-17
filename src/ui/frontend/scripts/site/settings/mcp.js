@@ -21,6 +21,13 @@ function normalizeMcpServer(server) {
     env: normalizeMcpSecretEntries(server?.env),
     url: normalizeText(server?.url || ""),
     headers: normalizeMcpSecretEntries(server?.headers),
+    bearerTokenEnvVar: normalizeText(server?.bearerTokenEnvVar || server?.bearer_token_env_var || ""),
+    headerEnvVars: normalizeMcpEnvRefEntries(
+      server?.headerEnvVars
+      ?? server?.header_env_vars
+      ?? server?.headersFromEnv
+      ?? server?.headers_from_env
+    ),
     includeTools: normalizeMcpFilterList(server?.includeTools ?? server?.include_tools),
     excludeTools: normalizeMcpFilterList(server?.excludeTools ?? server?.exclude_tools),
     timeoutSeconds: Number(server?.timeoutSeconds || server?.timeout_seconds) || 120,
@@ -88,6 +95,22 @@ function normalizeMcpSecretEntries(raw) {
   return [];
 }
 
+function normalizeMcpEnvRefEntries(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((entry) => ({
+      name: normalizeText(entry?.name || entry?.key || entry?.header),
+      value: normalizeText(entry?.value || entry?.envVar || entry?.env_var || entry?.variable || entry?.env)
+    })).filter((entry) => entry.name || entry.value);
+  }
+  if (raw && typeof raw === "object") {
+    return Object.entries(raw).map(([name, value]) => ({
+      name: normalizeText(name),
+      value: normalizeText(value)
+    })).filter((entry) => entry.name || entry.value);
+  }
+  return [];
+}
+
 function normalizeMcpFilterList(raw) {
   const pieces = [];
   if (Array.isArray(raw)) {
@@ -117,6 +140,9 @@ function newMcpServer() {
     command: "",
     args: [],
     env: [],
+    headers: [],
+    bearerTokenEnvVar: "",
+    headerEnvVars: [],
     includeTools: [],
     excludeTools: [],
     timeoutSeconds: 120,
@@ -136,15 +162,62 @@ function displayMcpSettingsPath(path) {
   return markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
 }
 
-function setMcpSettingsError(message = "") {
-  if (!elements.mcpSettingsError) return;
-  elements.mcpSettingsError.textContent = message;
-  elements.mcpSettingsError.hidden = !message;
+function mcpActionKey(action, serverId = "") {
+  return `${action}:${serverId || "global"}`;
+}
+
+function mcpActionError(action, serverId = "") {
+  return state.mcpActionErrors?.[mcpActionKey(action, serverId)] || null;
+}
+
+function setMcpActionError(action, serverId = "", message = "", title = "") {
+  const key = mcpActionKey(action, serverId);
+  const next = { ...(state.mcpActionErrors || {}) };
+  if (message) {
+    next[key] = { title: title || "MCP error", message };
+  } else {
+    delete next[key];
+  }
+  state.mcpActionErrors = next;
+}
+
+function clearMcpActionError(action, serverId = "") {
+  setMcpActionError(action, serverId, "");
+}
+
+function renderMcpActionErrorCard(action, serverId = "") {
+  const error = mcpActionError(action, serverId);
+  if (!error) return "";
+  return `
+    <div class="mcp-button-error" data-mcp-action-error="${escapeHtml(action)}" role="alert">
+      <strong>${escapeHtml(error.title)}</strong>
+      <span>${escapeHtml(error.message)}</span>
+    </div>
+  `;
+}
+
+function renderMcpActionErrorRegion(actions, serverId = "") {
+  const cards = actions.map((action) => renderMcpActionErrorCard(action, serverId)).filter(Boolean);
+  if (!cards.length) return "";
+  return `<div class="mcp-action-error-region">${cards.join("")}</div>`;
+}
+
+function renderMcpSaveError() {
+  if (!elements.mcpSaveError) return;
+  const error = mcpActionError("save");
+  elements.mcpSaveError.innerHTML = error ? `<strong>${escapeHtml(error.title)}</strong><span>${escapeHtml(error.message)}</span>` : "";
+  elements.mcpSaveError.hidden = !error;
+}
+
+function setMcpSettingsError(message = "", title = "") {
+  setMcpActionError("save", "", message, title);
+  renderMcpSaveError();
 }
 
 function clearMcpTransientFeedback() {
   state.mcpTestResult = null;
   state.mcpLogResult = null;
+  state.mcpActionErrors = {};
   setMcpSettingsError("");
 }
 
@@ -178,6 +251,7 @@ function renderMcpSettingsDialog() {
     ? servers.map(renderMcpServerListItem).join("")
     : "";
   elements.mcpServerEditor.innerHTML = active ? renderMcpServerEditor(active) : renderMcpEmptyEditor();
+  renderMcpSaveError();
 }
 
 function mcpStatusMeta(server) {
@@ -298,10 +372,17 @@ function renderMcpStatusSection(server) {
       ${server.status.error ? `<p class="mcp-status-note is-error">${escapeHtml(server.status.error)}</p>` : ""}
       ${warningCount ? `<p class="mcp-status-note is-warning">${escapeHtml(mcpWarningLabel(warningCount))} detected in MCP metadata.</p>` : ""}
       <div class="mcp-status-actions">
-        <button class="toolbar-button" type="button" data-mcp-reconnect="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${reconnecting ? "Reconnecting..." : "Reconnect"}</button>
-        <button class="toolbar-button" type="button" data-mcp-reset-circuit="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${resetting ? "Resetting..." : "Reset circuit"}</button>
-        <button class="toolbar-button" type="button" data-mcp-view-log="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${loadingLog ? "Loading log..." : "View stderr log"}</button>
+        <div class="mcp-action-slot">
+          <button class="toolbar-button" type="button" data-mcp-reconnect="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${reconnecting ? "Reconnecting..." : "Reconnect"}</button>
+        </div>
+        <div class="mcp-action-slot">
+          <button class="toolbar-button" type="button" data-mcp-reset-circuit="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${resetting ? "Resetting..." : "Reset circuit"}</button>
+        </div>
+        <div class="mcp-action-slot">
+          <button class="toolbar-button" type="button" data-mcp-view-log="${escapeHtml(server.id)}"${state.mcpOperationId ? " disabled" : ""}>${loadingLog ? "Loading log..." : "View stderr log"}</button>
+        </div>
       </div>
+      ${renderMcpActionErrorRegion(["reconnect", "reset", "log"], server.id)}
       ${renderMcpLogPanel(server)}
     </section>
   `;
@@ -309,10 +390,8 @@ function renderMcpStatusSection(server) {
 
 function renderMcpLogPanel(server) {
   const log = state.mcpLogResult;
-  if (!log || log.serverId !== server.id) return "";
-  const body = log.success === false
-    ? (log.error || "Could not read MCP stderr log.")
-    : (log.log || "No MCP stderr output has been captured yet.");
+  if (!log || log.serverId !== server.id || log.success === false) return "";
+  const body = log.log || "No MCP stderr output has been captured yet.";
   return `
     <details class="mcp-log-panel" open>
       <summary>
@@ -327,7 +406,7 @@ function renderMcpLogPanel(server) {
 function renderMcpServerEditor(server) {
   const test = state.mcpTestResult?.id === server.id ? state.mcpTestResult : null;
   const testWarningCount = mcpTestWarningCount(test);
-  const testHtml = test ? `
+  const testHtml = test && test.success !== false ? `
     <section class="mcp-test-result ${test.success ? "is-success" : "is-error"}">
       <div class="mcp-test-summary">
         <strong>${test.success ? `Discovered ${test.toolCount || 0} tools` : "Connection failed"}</strong>
@@ -396,8 +475,11 @@ function renderMcpServerEditor(server) {
     ${renderMcpFilterFields(server)}
     ${testHtml}
     <div class="mcp-editor-actions">
-      <button class="toolbar-button" type="button" data-mcp-test="${escapeHtml(server.id)}"${state.mcpTestingId ? " disabled" : ""}>${state.mcpTestingId === server.id ? "Testing..." : "Test"}</button>
+      <div class="mcp-action-slot">
+        <button class="toolbar-button" type="button" data-mcp-test="${escapeHtml(server.id)}"${state.mcpTestingId ? " disabled" : ""}>${state.mcpTestingId === server.id ? "Testing..." : "Test"}</button>
+      </div>
     </div>
+    ${renderMcpActionErrorRegion(["test"], server.id)}
   `;
 }
 
@@ -451,19 +533,32 @@ function renderMcpHttpFields(server) {
         <span>URL</span>
         <input type="url" value="${escapeHtml(server.url)}" data-mcp-field="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:8000/mcp">
       </label>
+      <label class="field">
+        <span>Bearer token env var</span>
+        <input type="text" value="${escapeHtml(server.bearerTokenEnvVar || "")}" data-mcp-field="bearerTokenEnvVar" autocomplete="off" spellcheck="false" placeholder="MCP_BEARER_TOKEN">
+        <small class="mcp-field-hint">Reads this variable from the process environment or local env files.</small>
+      </label>
     </section>
     ${renderMcpSecretEditor("Headers", "headers", server.headers)}
+    ${renderMcpSecretEditor("Headers from environment variables", "headerEnvVars", server.headerEnvVars, {
+      addLabel: "Add variable",
+      namePlaceholder: "Authorization",
+      valuePlaceholder: "MCP_AUTH_HEADER",
+      valueType: "text",
+      hint: "Only the declared variables are read from the process environment or local env files."
+    })}
   `;
 }
 
-function renderMcpSecretEditor(title, kind, entries) {
-  const rows = (entries || []).map((entry, index) => renderMcpSecretRow(kind, entry, index)).join("");
+function renderMcpSecretEditor(title, kind, entries, options = {}) {
+  const rows = (entries || []).map((entry, index) => renderMcpSecretRow(kind, entry, index, options)).join("");
   return `
     <section class="mcp-section mcp-secret-section">
       <div class="mcp-section-title mcp-secret-header">
         <strong>${escapeHtml(title)}</strong>
-        <button class="toolbar-button" type="button" data-mcp-secret-add="${escapeHtml(kind)}">Add</button>
+        <button class="toolbar-button" type="button" data-mcp-secret-add="${escapeHtml(kind)}">${escapeHtml(options.addLabel || "Add")}</button>
       </div>
+      ${options.hint ? `<p class="mcp-inline-hint">${escapeHtml(options.hint)}</p>` : ""}
       <div class="mcp-secret-list">
         ${rows || `<p class="mcp-inline-empty">None configured.</p>`}
       </div>
@@ -471,11 +566,14 @@ function renderMcpSecretEditor(title, kind, entries) {
   `;
 }
 
-function renderMcpSecretRow(kind, entry, index) {
+function renderMcpSecretRow(kind, entry, index, options = {}) {
+  const valueType = options.valueType || "password";
+  const valuePlaceholder = options.valuePlaceholder
+    || (entry.configured ? "Leave blank to keep current value" : "Value");
   return `
     <div class="mcp-secret-row">
-      <input type="text" value="${escapeHtml(entry.name)}" data-mcp-secret-name="${escapeHtml(kind)}" data-mcp-secret-index="${index}" placeholder="${kind === "env" ? "API_KEY" : "Authorization"}" spellcheck="false">
-      <input type="password" value="${escapeHtml(entry.value || "")}" data-mcp-secret-value="${escapeHtml(kind)}" data-mcp-secret-index="${index}" placeholder="${entry.configured ? "Leave blank to keep current value" : "Value"}" spellcheck="false">
+      <input type="text" value="${escapeHtml(entry.name)}" data-mcp-secret-name="${escapeHtml(kind)}" data-mcp-secret-index="${index}" placeholder="${escapeHtml(options.namePlaceholder || (kind === "env" ? "API_KEY" : "Authorization"))}" spellcheck="false">
+      <input type="${escapeHtml(valueType)}" value="${escapeHtml(entry.value || "")}" data-mcp-secret-value="${escapeHtml(kind)}" data-mcp-secret-index="${index}" placeholder="${escapeHtml(valuePlaceholder)}" spellcheck="false">
       <button class="icon-button" type="button" data-mcp-secret-remove="${escapeHtml(kind)}" data-mcp-secret-index="${index}" aria-label="Remove">x</button>
     </div>
   `;
@@ -494,7 +592,7 @@ async function loadMcpSettings() {
   } catch (error) {
     state.mcpSettings = normalizeMcpSettings({});
     state.mcpEditingId = "";
-    setMcpSettingsError(error?.status === 404 ? "" : mcpRequestErrorMessage(error, "Could not load MCP settings."));
+    setMcpSettingsError(error?.status === 404 ? "" : mcpRequestErrorMessage(error, "Could not load MCP settings."), "Load failed");
     console.error(error);
   } finally {
     state.mcpSettingsLoading = false;
@@ -595,6 +693,12 @@ function mcpServerForSave(server) {
       value: entry.value || "",
       configured: Boolean(entry.configured)
     }));
+  const envRefForSave = (entries) => (entries || [])
+    .filter((entry) => normalizeText(entry.name) && normalizeText(entry.value))
+    .map((entry) => ({
+      name: normalizeText(entry.name),
+      value: normalizeText(entry.value)
+    }));
   return {
     id: server.id,
     name: server.name,
@@ -605,6 +709,8 @@ function mcpServerForSave(server) {
     env: secretForSave(server.env),
     url: server.url,
     headers: secretForSave(server.headers),
+    bearerTokenEnvVar: normalizeText(server.bearerTokenEnvVar || ""),
+    headerEnvVars: envRefForSave(server.headerEnvVars),
     includeTools: normalizeMcpFilterList(server.includeTools || []),
     excludeTools: normalizeMcpFilterList(server.excludeTools || []),
     timeoutSeconds: server.timeoutSeconds,
@@ -616,6 +722,7 @@ function validateMcpServer(server) {
   const name = normalizeText(server?.name || server?.id || "MCP server");
   const timeoutSeconds = Number(server?.timeoutSeconds);
   const connectTimeoutSeconds = Number(server?.connectTimeoutSeconds);
+  const envNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
   if (server?.transport === "http") {
     if (!normalizeText(server?.url)) return `${name}: HTTP URL is required.`;
     try {
@@ -623,6 +730,14 @@ function validateMcpServer(server) {
       if (!["http:", "https:"].includes(parsed.protocol)) return `${name}: HTTP URL must start with http:// or https://.`;
     } catch (error) {
       return `${name}: HTTP URL is invalid.`;
+    }
+    const bearerTokenEnvVar = normalizeText(server?.bearerTokenEnvVar || "");
+    if (bearerTokenEnvVar && !envNamePattern.test(bearerTokenEnvVar)) {
+      return `${name}: bearer token env var is invalid.`;
+    }
+    for (const entry of server?.headerEnvVars || []) {
+      const envName = normalizeText(entry.value);
+      if (envName && !envNamePattern.test(envName)) return `${name}: header env var ${envName} is invalid.`;
     }
   } else if (!normalizeText(server?.command)) {
     return `${name}: stdio command is required.`;
@@ -647,7 +762,7 @@ async function saveMcpSettings() {
   if (validationError) {
     state.mcpTestResult = null;
     renderMcpSettingsDialog();
-    setMcpSettingsError(validationError);
+    setMcpSettingsError(validationError, "Settings validation failed");
     return;
   }
   elements.saveMcpSettings.disabled = true;
@@ -661,7 +776,7 @@ async function saveMcpSettings() {
     closeMcpSettingsDialog();
     void loadToolSettings();
   } catch (error) {
-    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not save MCP settings."));
+    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not save MCP settings."), "Save failed");
     console.error(error);
   } finally {
     elements.saveMcpSettings.disabled = false;
@@ -674,12 +789,14 @@ async function testMcpServer(id) {
   const validationError = validateMcpServer(server);
   if (validationError) {
     state.mcpTestResult = { id, success: false, error: validationError, toolCount: 0, tools: [] };
+    setMcpActionError("test", id, validationError, "Connection failed");
     setMcpSettingsError("");
     renderMcpSettingsDialog();
     return;
   }
   state.mcpTestingId = id;
   state.mcpTestResult = null;
+  clearMcpActionError("test", id);
   setMcpSettingsError("");
   renderMcpSettingsDialog();
   try {
@@ -695,8 +812,15 @@ async function testMcpServer(id) {
       tools: Array.isArray(payload?.tools) ? payload.tools.map(normalizeMcpToolSummary) : [],
       securityWarnings: normalizeMcpSecurityWarnings(payload?.securityWarnings || payload?.security_warnings)
     };
+    if (state.mcpTestResult.success === false) {
+      setMcpActionError("test", id, state.mcpTestResult.error || "MCP test failed.", "Connection failed");
+    } else {
+      clearMcpActionError("test", id);
+    }
   } catch (error) {
-    state.mcpTestResult = { id, success: false, error: mcpRequestErrorMessage(error, "MCP test failed."), toolCount: 0, tools: [] };
+    const message = mcpRequestErrorMessage(error, "MCP test failed.");
+    state.mcpTestResult = { id, success: false, error: message, toolCount: 0, tools: [] };
+    setMcpActionError("test", id, message, "Connection failed");
   } finally {
     state.mcpTestingId = "";
     renderMcpSettingsDialog();
@@ -707,6 +831,7 @@ async function reconnectMcpServer(id) {
   if (!id || state.mcpOperationId) return;
   state.mcpOperationId = `reconnect:${id}`;
   state.mcpLogResult = null;
+  clearMcpActionError("reconnect", id);
   setMcpSettingsError("");
   renderMcpSettingsDialog();
   try {
@@ -715,12 +840,13 @@ async function reconnectMcpServer(id) {
       body: { serverId: id }
     });
     if (payload?.success === false) {
-      setMcpSettingsError(payload.error || "Could not reconnect MCP server.");
+      setMcpActionError("reconnect", id, payload.error || "Could not reconnect MCP server.", "Reconnect failed");
       return;
     }
+    clearMcpActionError("reconnect", id);
     await loadMcpSettings();
   } catch (error) {
-    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not reconnect MCP server."));
+    setMcpActionError("reconnect", id, mcpRequestErrorMessage(error, "Could not reconnect MCP server."), "Reconnect failed");
   } finally {
     state.mcpOperationId = "";
     renderMcpSettingsDialog();
@@ -731,6 +857,7 @@ async function resetMcpCircuit(id) {
   if (!id || state.mcpOperationId) return;
   state.mcpOperationId = `reset:${id}`;
   state.mcpLogResult = null;
+  clearMcpActionError("reset", id);
   setMcpSettingsError("");
   renderMcpSettingsDialog();
   try {
@@ -739,12 +866,13 @@ async function resetMcpCircuit(id) {
       body: { serverId: id }
     });
     if (payload?.success === false) {
-      setMcpSettingsError(payload.error || "Could not reset MCP circuit.");
+      setMcpActionError("reset", id, payload.error || "Could not reset MCP circuit.", "Reset failed");
       return;
     }
+    clearMcpActionError("reset", id);
     await loadMcpSettings();
   } catch (error) {
-    setMcpSettingsError(mcpRequestErrorMessage(error, "Could not reset MCP circuit."));
+    setMcpActionError("reset", id, mcpRequestErrorMessage(error, "Could not reset MCP circuit."), "Reset failed");
   } finally {
     state.mcpOperationId = "";
     renderMcpSettingsDialog();
@@ -754,6 +882,7 @@ async function resetMcpCircuit(id) {
 async function viewMcpStderrLog(id) {
   if (!id || state.mcpOperationId) return;
   state.mcpOperationId = `log:${id}`;
+  clearMcpActionError("log", id);
   setMcpSettingsError("");
   renderMcpSettingsDialog();
   try {
@@ -765,14 +894,21 @@ async function viewMcpStderrLog(id) {
       error: normalizeText(payload?.error || ""),
       truncated: Boolean(payload?.truncated)
     };
+    if (state.mcpLogResult.success === false) {
+      setMcpActionError("log", id, state.mcpLogResult.error || "Could not read MCP stderr log.", "Log unavailable");
+    } else {
+      clearMcpActionError("log", id);
+    }
   } catch (error) {
+    const message = mcpRequestErrorMessage(error, "Could not read MCP stderr log.");
     state.mcpLogResult = {
       serverId: id,
       success: false,
       log: "",
-      error: mcpRequestErrorMessage(error, "Could not read MCP stderr log."),
+      error: message,
       truncated: false
     };
+    setMcpActionError("log", id, message, "Log unavailable");
   } finally {
     state.mcpOperationId = "";
     renderMcpSettingsDialog();

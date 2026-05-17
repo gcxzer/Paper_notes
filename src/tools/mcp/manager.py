@@ -12,7 +12,7 @@ import shutil
 import sys
 import threading
 import time
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from copy import deepcopy
 from fnmatch import fnmatchcase
 from typing import Any
@@ -330,34 +330,77 @@ class MCPServerTask:
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is not connected")
         async with self._rpc_lock:
-            return await asyncio.wait_for(
-                self.session.call_tool(tool_name, arguments=arguments or {}),
+            return await self._request_with_cancellation(
+                lambda: self.session.call_tool(tool_name, arguments=arguments or {}),
                 timeout=timeout,
+                description=f"tools/call {tool_name}",
             )
 
-    async def list_resources(self) -> Any:
+    async def list_resources(self, *, timeout: float) -> Any:
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is not connected")
         async with self._rpc_lock:
-            return await self.session.list_resources()
+            return await self._request_with_cancellation(
+                lambda: self.session.list_resources(),
+                timeout=timeout,
+                description="resources/list",
+            )
 
-    async def read_resource(self, uri: str) -> Any:
+    async def read_resource(self, uri: str, *, timeout: float) -> Any:
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is not connected")
         async with self._rpc_lock:
-            return await self.session.read_resource(uri)
+            return await self._request_with_cancellation(
+                lambda: self.session.read_resource(uri),
+                timeout=timeout,
+                description=f"resources/read {uri}",
+            )
 
-    async def list_prompts(self) -> Any:
+    async def list_prompts(self, *, timeout: float) -> Any:
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is not connected")
         async with self._rpc_lock:
-            return await self.session.list_prompts()
+            return await self._request_with_cancellation(
+                lambda: self.session.list_prompts(),
+                timeout=timeout,
+                description="prompts/list",
+            )
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def get_prompt(self, name: str, arguments: dict[str, Any], *, timeout: float) -> Any:
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is not connected")
         async with self._rpc_lock:
-            return await self.session.get_prompt(name, arguments=arguments or {})
+            return await self._request_with_cancellation(
+                lambda: self.session.get_prompt(name, arguments=arguments or {}),
+                timeout=timeout,
+                description=f"prompts/get {name}",
+            )
+
+    async def _request_with_cancellation(self, call_factory: Any, *, timeout: float, description: str) -> Any:
+        request_id = getattr(self.session, "_request_id", None)
+        task = asyncio.create_task(call_factory())
+        done, _pending = await asyncio.wait({task}, timeout=max(0.0, timeout))
+        if done:
+            return task.result()
+        reason = f"MCP {description} timed out after {timeout:g}s"
+        await self._send_cancelled_notification(request_id, reason)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        raise TimeoutError(reason)
+
+    async def _send_cancelled_notification(self, request_id: Any, reason: str) -> None:
+        if self.session is None:
+            return
+        try:
+            from mcp.types import CancelledNotification, CancelledNotificationParams
+
+            notification = CancelledNotification(
+                params=CancelledNotificationParams(requestId=request_id, reason=reason)
+            )
+            await self.session.send_notification(notification, related_request_id=request_id)
+        except Exception as error:
+            logger.debug("Failed to send MCP cancellation notification for '%s': %s", self.name, error)
 
     async def reconnect_and_wait(self, *, timeout: float = 15) -> bool:
         previous_session = self.session
@@ -901,7 +944,7 @@ class MCPManager:
                 server_id,
                 timeout,
                 "resources/list",
-                lambda server: server.list_resources(),
+                lambda server: server.list_resources(timeout=timeout),
             )
             if not ok:
                 return result
@@ -921,7 +964,7 @@ class MCPManager:
                 server_id,
                 timeout,
                 "resources/read",
-                lambda server: server.read_resource(uri),
+                lambda server: server.read_resource(uri, timeout=timeout),
             )
             if not ok:
                 return result
@@ -953,7 +996,7 @@ class MCPManager:
                 server_id,
                 timeout,
                 "prompts/list",
-                lambda server: server.list_prompts(),
+                lambda server: server.list_prompts(timeout=timeout),
             )
             if not ok:
                 return result
@@ -976,7 +1019,7 @@ class MCPManager:
                 server_id,
                 timeout,
                 "prompts/get",
-                lambda server: server.get_prompt(name, prompt_arguments),
+                lambda server: server.get_prompt(name, prompt_arguments, timeout=timeout),
             )
             if not ok:
                 return result

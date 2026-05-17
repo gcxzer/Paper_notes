@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from app_config.secrets import LOCAL_STATE_DIR, default_secrets_path, parse_env_file, write_env_values
+from app_config.secrets import LOCAL_STATE_DIR, default_env_paths, default_secrets_path, parse_env_file, write_env_values
 from app_infra.storage import atomic_write_json
 
 
@@ -91,6 +91,13 @@ def normalize_mcp_server_config(
     existing = existing or {}
     env = _secret_mapping(body.get("env"), existing.get("env"))
     headers = _secret_mapping(body.get("headers"), existing.get("headers"), validate_env_names=False)
+    bearer_token_env_var = _env_var_name(body.get("bearerTokenEnvVar", body.get("bearer_token_env_var")))
+    header_env_vars = _env_ref_mapping(
+        body.get(
+            "headerEnvVars",
+            body.get("header_env_vars", body.get("headersFromEnv", body.get("headers_from_env"))),
+        )
+    )
     command = _optional_text(body.get("command"))
     args = _string_list(body.get("args"))
     url = _optional_text(body.get("url"))
@@ -112,6 +119,8 @@ def normalize_mcp_server_config(
         "env": env,
         "url": url,
         "headers": headers,
+        "bearerTokenEnvVar": bearer_token_env_var,
+        "headerEnvVars": header_env_vars,
         "includeTools": include_tools,
         "excludeTools": exclude_tools,
         "timeoutSeconds": _int_or_default(body.get("timeoutSeconds", body.get("timeout_seconds")), DEFAULT_TOOL_TIMEOUT_SECONDS),
@@ -156,7 +165,7 @@ def mcp_runtime_config(server: dict[str, Any]) -> dict[str, Any]:
     }
     if server.get("transport") == "http":
         runtime["url"] = str(server.get("url") or "")
-        runtime["headers"] = dict(server.get("headers") or {})
+        runtime["headers"] = _resolve_http_headers(server)
     else:
         runtime["command"] = str(server.get("command") or "")
         runtime["args"] = list(server.get("args") or [])
@@ -178,6 +187,8 @@ def public_mcp_settings(
             **server,
             "env": _redacted_mapping(server.get("env")),
             "headers": _redacted_mapping(server.get("headers")),
+            "bearerTokenEnvVar": str(server.get("bearerTokenEnvVar") or ""),
+            "headerEnvVars": _plain_mapping_entries(server.get("headerEnvVars")),
             "status": {
                 "connected": bool(status.get("connected")),
                 "error": str(status.get("error") or ""),
@@ -251,6 +262,79 @@ def _filter_list(value: Any) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _env_var_name(value: Any) -> str:
+    name = _optional_text(value)
+    if not name:
+        return ""
+    if not _ENV_NAME_RE.match(name):
+        raise ValueError(f"Invalid environment variable name: {name}")
+    return name
+
+
+def _env_ref_mapping(value: Any) -> dict[str, str]:
+    items: list[tuple[str, Any]] = []
+    if isinstance(value, dict):
+        items = [(str(key), raw_value) for key, raw_value in value.items()]
+    elif isinstance(value, list):
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("name", entry.get("key", entry.get("header", ""))))
+            env_value = entry.get(
+                "value",
+                entry.get("envVar", entry.get("env_var", entry.get("variable", entry.get("env", "")))),
+            )
+            items.append((key, env_value))
+    else:
+        return {}
+
+    result: dict[str, str] = {}
+    for raw_key, raw_value in items:
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        env_name = _env_var_name(raw_value)
+        if env_name:
+            result[key] = env_name
+    return result
+
+
+def _plain_mapping_entries(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, dict):
+        return []
+    return [
+        {"name": str(key), "value": str(item)}
+        for key, item in value.items()
+        if str(key).strip() and str(item).strip()
+    ]
+
+
+def _resolve_http_headers(server: dict[str, Any]) -> dict[str, str]:
+    headers = {str(key): str(value) for key, value in dict(server.get("headers") or {}).items()}
+    for header_name, env_name in dict(server.get("headerEnvVars") or {}).items():
+        headers[str(header_name)] = _required_env_value(
+            env_name,
+            f"MCP header environment variable {env_name} for {header_name} is not set.",
+        )
+    bearer_env = str(server.get("bearerTokenEnvVar") or "").strip()
+    if bearer_env:
+        token = _required_env_value(bearer_env, f"MCP bearer token environment variable {bearer_env} is not set.")
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _required_env_value(name: Any, missing_message: str) -> str:
+    env_name = _env_var_name(name)
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        return value
+    for path in (default_secrets_path(), *default_env_paths()):
+        value = parse_env_file(path).get(env_name, "").strip()
+        if value:
+            return value
+    raise ValueError(missing_message)
 
 
 def _secret_mapping(

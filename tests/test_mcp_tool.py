@@ -199,26 +199,26 @@ class FakeMCPServer:
             raise self.raise_error
         return self.result
 
-    async def list_resources(self):
-        self.calls.append({"name": "resources/list", "arguments": {}})
+    async def list_resources(self, *, timeout=None):
+        self.calls.append({"name": "resources/list", "arguments": {}, "timeout": timeout})
         if self.resource_error is not None:
             raise self.resource_error
         return SimpleNamespace(resources=self.resources)
 
-    async def read_resource(self, uri):
-        self.calls.append({"name": "resources/read", "arguments": {"uri": uri}})
+    async def read_resource(self, uri, *, timeout=None):
+        self.calls.append({"name": "resources/read", "arguments": {"uri": uri}, "timeout": timeout})
         if self.resource_error is not None:
             raise self.resource_error
         return self.resource_contents.get(uri, SimpleNamespace(contents=[]))
 
-    async def list_prompts(self):
-        self.calls.append({"name": "prompts/list", "arguments": {}})
+    async def list_prompts(self, *, timeout=None):
+        self.calls.append({"name": "prompts/list", "arguments": {}, "timeout": timeout})
         if self.prompt_error is not None:
             raise self.prompt_error
         return SimpleNamespace(prompts=self.prompts)
 
-    async def get_prompt(self, name, arguments):
-        self.calls.append({"name": "prompts/get", "arguments": {"name": name, "arguments": arguments}})
+    async def get_prompt(self, name, arguments, *, timeout=None):
+        self.calls.append({"name": "prompts/get", "arguments": {"name": name, "arguments": arguments}, "timeout": timeout})
         if self.prompt_error is not None:
             raise self.prompt_error
         return self.prompt_results.get(name, SimpleNamespace(messages=[]))
@@ -1006,6 +1006,49 @@ def test_mcp_tool_list_changed_notification_schedules_refresh():
     assert has_pending_tasks is False
 
 
+def test_mcp_timed_out_request_sends_cancelled_notification():
+    async def exercise():
+        class SlowSession:
+            def __init__(self) -> None:
+                self._request_id = 42
+                self.notifications = []
+                self.cancelled = False
+
+            async def call_tool(self, name, arguments=None):
+                self._request_id += 1
+                try:
+                    await asyncio.sleep(5)
+                except asyncio.CancelledError:
+                    self.cancelled = True
+                    raise
+
+            async def send_notification(self, notification, related_request_id=None):
+                self.notifications.append((notification, related_request_id))
+
+        session = SlowSession()
+        task = MCPServerTask({"id": "filesystem", "name": "Local Files", "transport": "stdio"})
+        task.session = session
+
+        try:
+            await task.call_tool("slow", {}, timeout=0.01)
+        except TimeoutError as error:
+            timeout_message = str(error)
+        else:
+            timeout_message = ""
+        return session.notifications, session.cancelled, timeout_message
+
+    notifications, cancelled, timeout_message = asyncio.run(exercise())
+
+    assert cancelled is True
+    assert "tools/call slow timed out" in timeout_message
+    assert len(notifications) == 1
+    notification, related_request_id = notifications[0]
+    assert notification.method == "notifications/cancelled"
+    assert notification.params.requestId == 42
+    assert notification.params.reason == timeout_message
+    assert related_request_id == 42
+
+
 def test_mcp_session_expired_reconnects_and_retries_once_without_duplicate_tools():
     registry = ToolRegistry(availability_ttl_seconds=0)
     manager = MCPManager(registry)
@@ -1374,17 +1417,20 @@ def test_streamable_http_same_origin_redirect_keeps_configured_headers():
     assert request.headers["mcp-protocol-version"] == "2025-03-26"
 
 
-def test_streamable_http_fixture_headers_timeout_and_disconnect(tmp_path):
+def test_streamable_http_fixture_headers_timeout_and_disconnect(tmp_path, monkeypatch):
     proc, port, header_file = _start_http_fixture(tmp_path)
     registry = ToolRegistry(availability_ttl_seconds=0)
     manager = MCPManager(registry)
+    monkeypatch.setenv("MCP_FIXTURE_TOKEN", "http-secret-token")
+    monkeypatch.setenv("MCP_FIXTURE_BEARER", "fixture-bearer-token")
     config = {
         "id": "http_fixture",
         "name": "HTTP fixture",
         "enabled": True,
         "transport": "http",
         "url": f"http://127.0.0.1:{port}/mcp",
-        "headers": {"X-Fixture-Token": "http-secret-token"},
+        "bearerTokenEnvVar": "MCP_FIXTURE_BEARER",
+        "headerEnvVars": {"X-Fixture-Token": "MCP_FIXTURE_TOKEN"},
         "timeoutSeconds": 1,
         "connectTimeoutSeconds": 3,
     }
@@ -1404,7 +1450,11 @@ def test_streamable_http_fixture_headers_timeout_and_disconnect(tmp_path):
         header = json.loads(registry.dispatch("mcp_http_fixture_header_seen", {"name": "x-fixture-token"}).content)
         assert header["success"] is True
         assert header["result"] == "present"
+        bearer = json.loads(registry.dispatch("mcp_http_fixture_header_seen", {"name": "authorization"}).content)
+        assert bearer["success"] is True
+        assert bearer["result"] == "present"
         assert "x-fixture-token" in header_file.read_text(encoding="utf-8").lower()
+        assert "fixture-bearer-token" in header_file.read_text(encoding="utf-8")
 
         timeout = json.loads(registry.dispatch("mcp_http_fixture_slow_echo", {"delay": 5}).content)
         assert timeout["success"] is False

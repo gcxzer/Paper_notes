@@ -341,6 +341,27 @@ Recent focused verification:
     Model capabilities modal bounds and Settings > MCP empty-state rendering;
     console warnings/errors were clean.
   - `git diff --check` passed.
+- 2026-05-17 MCP env-header settings follow-up:
+  - Added Streamable HTTP `bearerTokenEnvVar` and `headerEnvVars` support. Runtime
+    resolves declared env names from `os.environ`, `.paper-notes/secrets.env`,
+    `.env.local`, and `.env`, then sends only the requested headers.
+  - Settings > MCP now exposes `Bearer token env var` and `Headers from
+    environment variables` for HTTP servers; Test/Save payloads preserve the
+    fields without storing secret values.
+  - Added concise Settings hints for env-backed HTTP headers and standardized
+    MCP timeout cancellation by sending `notifications/cancelled` before
+    cancelling a pending request locally.
+  - `uv run python -m py_compile src/tools/mcp/settings.py src/tools/mcp/manager.py`
+    passed.
+  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/events.js && node --check tests/e2e/paper-notes-smoke.spec.js`
+    passed.
+  - `uv run pytest tests/test_mcp_api.py tests/test_mcp_tool.py -q`
+    passed with 49 tests and 5 PyMuPDF deprecation warnings.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
+    passed with 125 tests and 5 PyMuPDF deprecation warnings.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP settings"`
+    passed with 2 Playwright smoke tests.
+  - `git diff --check` passed.
 
 Useful full checks:
 

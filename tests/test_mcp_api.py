@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import stat
 
+import pytest
+
 from app_config.secrets import parse_env_file
-from tools.mcp.settings import mcp_secrets_path, public_mcp_settings, read_mcp_settings
+from tools.mcp.settings import mcp_runtime_config, mcp_secrets_path, public_mcp_settings, read_mcp_settings
 from ui.backend import mcp_api
 
 
@@ -23,6 +25,8 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
             "args": ["-y", "@modelcontextprotocol/server-filesystem"],
             "env": [{"name": "API_KEY", "value": "super-secret"}],
             "headers": [{"name": "Authorization", "value": "Bearer super-secret"}],
+            "bearer_token_env_var": "MCP_BEARER_TOKEN",
+            "header_env_vars": [{"name": "X-API-Key", "value": "MCP_API_KEY"}],
             "includeTools": "read_*\nlist_resources,search",
             "excludeTools": ["write_*", "delete_file", "write_*"],
             "timeoutSeconds": 5,
@@ -39,6 +43,8 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
     assert resets == [True]
     assert server["env"] == {"API_KEY": "super-secret"}
     assert server["headers"] == {"Authorization": "Bearer super-secret"}
+    assert server["bearerTokenEnvVar"] == "MCP_BEARER_TOKEN"
+    assert server["headerEnvVars"] == {"X-API-Key": "MCP_API_KEY"}
     assert raw_server["env"]["API_KEY"].startswith("paper-notes-secret:")
     assert raw_server["headers"]["Authorization"].startswith("paper-notes-secret:")
     assert "super-secret" not in settings_path.read_text(encoding="utf-8")
@@ -48,6 +54,8 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
     assert stat.S_IMODE(settings_path.stat().st_mode) == 0o600
     assert payload["servers"][0]["env"] == [{"name": "API_KEY", "configured": True}]
     assert payload["servers"][0]["headers"] == [{"name": "Authorization", "configured": True}]
+    assert payload["servers"][0]["bearerTokenEnvVar"] == "MCP_BEARER_TOKEN"
+    assert payload["servers"][0]["headerEnvVars"] == [{"name": "X-API-Key", "value": "MCP_API_KEY"}]
     assert payload["servers"][0]["includeTools"] == ["read_*", "list_resources", "search"]
     assert payload["servers"][0]["excludeTools"] == ["write_*", "delete_file"]
     assert "super-secret" not in str(payload)
@@ -100,6 +108,8 @@ def test_mcp_test_endpoint_probes_without_persisting(tmp_path, monkeypatch):
         "transport": "http",
         "url": "http://localhost:9999/mcp",
         "headers": [{"name": "Authorization", "value": "Bearer token"}],
+        "bearerTokenEnvVar": "MCP_BEARER_TOKEN",
+        "headerEnvVars": [{"name": "X-API-Key", "value": "MCP_API_KEY"}],
         "include_tools": ["search", "list_*"],
         "exclude_tools": "delete_*, write_file",
     })
@@ -107,6 +117,8 @@ def test_mcp_test_endpoint_probes_without_persisting(tmp_path, monkeypatch):
     assert result["success"] is True
     assert calls[0]["transport"] == "http"
     assert calls[0]["headers"] == {"Authorization": "Bearer token"}
+    assert calls[0]["bearerTokenEnvVar"] == "MCP_BEARER_TOKEN"
+    assert calls[0]["headerEnvVars"] == {"X-API-Key": "MCP_API_KEY"}
     assert calls[0]["includeTools"] == ["search", "list_*"]
     assert calls[0]["excludeTools"] == ["delete_*", "write_file"]
     assert not (tmp_path / "mcp-servers.json").exists()
@@ -123,6 +135,8 @@ def test_public_mcp_settings_includes_status_and_never_plaintext():
                 "command": "npx",
                 "env": {"API_KEY": "secret"},
                 "headers": {},
+                "bearerTokenEnvVar": "MCP_BEARER_TOKEN",
+                "headerEnvVars": {"X-API-Key": "MCP_API_KEY"},
                 "include_tools": ["read_*"],
                 "exclude_tools": ["write_*"],
             }]
@@ -159,9 +173,45 @@ def test_public_mcp_settings_includes_status_and_never_plaintext():
     assert server["status"]["securityWarnings"][0]["code"] == "mcp_prompt_injection_suspected"
     assert server["tools"][0]["securityWarnings"][0]["code"] == "mcp_prompt_injection_suspected"
     assert server["env"] == [{"name": "API_KEY", "configured": True}]
+    assert server["bearerTokenEnvVar"] == "MCP_BEARER_TOKEN"
+    assert server["headerEnvVars"] == [{"name": "X-API-Key", "value": "MCP_API_KEY"}]
     assert server["includeTools"] == ["read_*"]
     assert server["excludeTools"] == ["write_*"]
     assert "secret" not in str(payload)
+
+
+def test_mcp_runtime_config_resolves_http_headers_from_environment_files(tmp_path, monkeypatch):
+    secrets_path = tmp_path / "secrets.env"
+    secrets_path.write_text("MCP_BEARER_TOKEN=from-bearer\nMCP_API_KEY=from-header\n", encoding="utf-8")
+    monkeypatch.setenv("PAPER_NOTES_SECRETS_PATH", str(secrets_path))
+    monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+
+    runtime = mcp_runtime_config({
+        "transport": "http",
+        "url": "https://mcp.example/mcp",
+        "headers": {"X-Static": "static-value", "Authorization": "Bearer old"},
+        "bearerTokenEnvVar": "MCP_BEARER_TOKEN",
+        "headerEnvVars": {"X-API-Key": "MCP_API_KEY"},
+    })
+
+    assert runtime["headers"] == {
+        "X-Static": "static-value",
+        "X-API-Key": "from-header",
+        "Authorization": "Bearer from-bearer",
+    }
+
+
+def test_mcp_runtime_config_missing_header_env_var_is_clear_error(tmp_path, monkeypatch):
+    env_name = "PAPER_NOTES_TEST_MISSING_MCP_TOKEN"
+    monkeypatch.setenv("PAPER_NOTES_SECRETS_PATH", str(tmp_path / "missing-secrets.env"))
+    monkeypatch.delenv(env_name, raising=False)
+    with pytest.raises(ValueError, match=env_name):
+        mcp_runtime_config({
+            "transport": "http",
+            "url": "https://mcp.example/mcp",
+            "bearerTokenEnvVar": env_name,
+        })
 
 
 def test_mcp_ops_endpoints_delegate_to_manager(monkeypatch):

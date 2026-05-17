@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=ai-provider-ui-v1">
+  <link rel="stylesheet" href="styles/site/index.css?v=ai-provider-actions-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -388,12 +388,14 @@
       </div>
 
       <p class="settings-hint" id="mcpSettingsSource"></p>
-      <p class="field-error" id="mcpSettingsError" hidden></p>
 
       <div class="modal-actions mcp-settings-actions">
         <span class="ai-settings-action-spacer"></span>
         <button class="toolbar-button" type="button" id="cancelMcpSettings">Cancel</button>
-        <button class="toolbar-button toolbar-button-primary" type="submit" id="saveMcpSettings">Save</button>
+        <div class="mcp-action-slot mcp-save-slot">
+          <button class="toolbar-button toolbar-button-primary" type="submit" id="saveMcpSettings">Save</button>
+          <div class="mcp-button-error" id="mcpSaveError" hidden></div>
+        </div>
       </div>
     </form>
   </dialog>
@@ -642,12 +644,12 @@
     </div>
   </dialog>
 
-  <script src="scripts/site/page_state.js?v=skills-ui-v2"></script>
+  <script src="scripts/site/page_state.js?v=ai-provider-actions-v1"></script>
   <script src="scripts/site/library.js?v=paper-url-import-v1"></script>
   <script src="scripts/site/render.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/ai.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/tools.js?v=tools-ui-v14"></script>
-  <script src="scripts/site/settings/mcp.js?v=mcp-ui-v10"></script>
+  <script src="scripts/site/settings/mcp.js?v=mcp-env-headers-v1"></script>
   <script src="scripts/site/settings/skills.js?v=skills-ui-v2"></script>
   <script src="scripts/site/settings/memory.js?v=memory-ui-v1"></script>
   <script src="scripts/shared/debug-panel.js?v=shared-debug-v1"></script>

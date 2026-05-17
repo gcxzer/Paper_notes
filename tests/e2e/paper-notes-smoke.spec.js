@@ -954,6 +954,11 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await page.locator('[data-mcp-field="name"]').fill("Filesystem");
   await page.locator('[data-mcp-transport-option="http"]').click();
   await page.locator('[data-mcp-field="url"]').fill("http://127.0.0.1:7777/mcp");
+  await page.locator('[data-mcp-field="bearerTokenEnvVar"]').fill("MCP_BEARER_TOKEN");
+  const headerEnvSection = page.locator(".mcp-section").filter({ hasText: "Headers from environment variables" });
+  await headerEnvSection.getByRole("button", { name: "Add variable" }).click();
+  await headerEnvSection.locator('[data-mcp-secret-name="headerEnvVars"]').fill("X-API-Key");
+  await headerEnvSection.locator('[data-mcp-secret-value="headerEnvVars"]').fill("MCP_API_KEY");
   await page.locator('[data-mcp-field="includeTools"]').fill("search\nlist_resources");
   await page.locator('[data-mcp-field="excludeTools"]').fill("write_*");
   await page.locator('[data-mcp-test]').click();
@@ -968,6 +973,8 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
     transport: "http",
     enabled: true,
     url: "http://127.0.0.1:7777/mcp",
+    bearerTokenEnvVar: "MCP_BEARER_TOKEN",
+    headerEnvVars: [{ name: "X-API-Key", value: "MCP_API_KEY" }],
     includeTools: ["search", "list_resources"],
     excludeTools: ["write_*"],
   });
@@ -976,6 +983,8 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
     transport: "http",
     enabled: true,
     url: "http://127.0.0.1:7777/mcp",
+    bearerTokenEnvVar: "MCP_BEARER_TOKEN",
+    headerEnvVars: [{ name: "X-API-Key", value: "MCP_API_KEY" }],
     includeTools: ["search", "list_resources"],
     excludeTools: ["write_*"],
   });
@@ -990,7 +999,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await expect(page.locator("#mcpServerEditor")).toContainText("Status");
   await expect(page.locator("#mcpServerEditor")).toContainText("Next retry");
   await expect(page.locator("#mcpServerEditor")).toContainText("2 security warnings");
-  await expect(page.locator("#mcpServerEditor")).toContainText("Reconnect attempts paused");
+  await expect(page.locator(".mcp-status-note.is-error")).toContainText("Reconnect attempts paused");
   await expect(page.locator('[data-mcp-reconnect]')).toBeVisible();
   await expect(page.locator('[data-mcp-reset-circuit]')).toBeVisible();
   await expect(page.locator('[data-mcp-view-log]')).toBeVisible();
@@ -1004,12 +1013,133 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   });
   await expect(page.locator('[data-mcp-field="includeTools"]')).toHaveValue("search\nlist_resources");
   await expect(page.locator('[data-mcp-field="excludeTools"]')).toHaveValue("write_*");
+  await expect(page.locator('[data-mcp-field="bearerTokenEnvVar"]')).toHaveValue("MCP_BEARER_TOKEN");
+  const restoredHeaderEnvSection = page.locator(".mcp-section").filter({ hasText: "Headers from environment variables" });
+  await expect(restoredHeaderEnvSection.locator('[data-mcp-secret-name="headerEnvVars"]')).toHaveValue("X-API-Key");
+  await expect(restoredHeaderEnvSection.locator('[data-mcp-secret-value="headerEnvVars"]')).toHaveValue("MCP_API_KEY");
   await page.locator('[data-mcp-delete]').click();
   await expect(page.locator("#confirmDialog")).toContainText("Delete Filesystem?");
   await page.locator("#confirmDialogAction").click();
   await page.locator("#saveMcpSettings").click();
 
   expect(savedPayloads.at(-1)).toEqual({ servers: [] });
+});
+
+test("MCP settings renders each operation error under its button", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await page.route("**/notes.json**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
+    });
+  });
+  await page.route("**/api/settings/tools", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
+    });
+  });
+  await page.route("**/api/settings/mcp**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/api/settings/mcp/stderr-log")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "Method not allowed" }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/api/settings/mcp/test")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "Connection refused", toolCount: 0, tools: [] }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/api/settings/mcp/reconnect")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "Reconnect denied" }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/api/settings/mcp/reset-circuit")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, error: "Reset denied" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        settingsPath: ".paper-notes/mcp-servers.json",
+        servers: [{
+          id: "mcp_failure_fixture",
+          name: "Failure fixture",
+          enabled: true,
+          transport: "http",
+          url: "http://127.0.0.1:7777/mcp",
+          status: {
+            connected: false,
+            error: "Server status failure",
+            toolCount: 0,
+            state: "error",
+            failureCount: 1,
+          },
+          tools: [],
+        }],
+      }),
+    });
+  });
+
+  await page.goto("/index.html?settings=mcp");
+  await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
+  await expect(page.locator(".mcp-status-note.is-error")).toContainText("Server status failure");
+  await page.locator('[data-mcp-reconnect]').click();
+  await expect(page.locator('[data-mcp-action-error="reconnect"]')).toContainText("Reconnect failed");
+  await expect(page.locator('[data-mcp-action-error="reconnect"]')).toContainText("Reconnect denied");
+  await page.locator('[data-mcp-reset-circuit]').click();
+  await expect(page.locator('[data-mcp-action-error="reset"]')).toContainText("Reset failed");
+  await expect(page.locator('[data-mcp-action-error="reset"]')).toContainText("Reset denied");
+  await page.locator('[data-mcp-test]').click();
+  await expect(page.locator('[data-mcp-action-error="test"]')).toContainText("Connection failed");
+  await expect(page.locator('[data-mcp-action-error="test"]')).toContainText("Connection refused");
+  await expect(page.locator(".mcp-test-result.is-error")).toHaveCount(0);
+  await page.locator('[data-mcp-view-log]').click();
+  await expect(page.locator('[data-mcp-action-error="log"]')).toContainText("Log unavailable");
+  await expect(page.locator('[data-mcp-action-error="log"]')).toContainText("Method not allowed");
+  await expect(page.locator(".mcp-log-panel")).toHaveCount(0);
+  const layout = await page.evaluate(() => {
+    const rect = (element) => {
+      const box = element.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, width: box.width };
+    };
+    const statusActions = document.querySelector(".mcp-status-actions");
+    const editorActions = document.querySelector(".mcp-editor-actions");
+    const buttonFor = (selector) => rect(document.querySelector(selector));
+    const errorFor = (action) => rect(document.querySelector(`[data-mcp-action-error="${action}"]`));
+    return {
+      statusActions: rect(statusActions),
+      editorActions: rect(editorActions),
+      reconnectButton: buttonFor("[data-mcp-reconnect]"),
+      resetButton: buttonFor("[data-mcp-reset-circuit]"),
+      logButton: buttonFor("[data-mcp-view-log]"),
+      testButton: buttonFor("[data-mcp-test]"),
+      reconnectError: errorFor("reconnect"),
+      resetError: errorFor("reset"),
+      logError: errorFor("log"),
+      testError: errorFor("test"),
+    };
+  });
+  expect(layout.reconnectError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
+  expect(layout.resetError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
+  expect(layout.logError.top).toBeGreaterThanOrEqual(layout.statusActions.bottom);
+  expect(layout.testError.top).toBeGreaterThanOrEqual(layout.editorActions.bottom);
+  expect(layout.reconnectError.width).toBeGreaterThan(layout.reconnectButton.width * 2);
+  expect(layout.resetError.width).toBeGreaterThan(layout.resetButton.width * 2);
+  expect(layout.logError.width).toBeGreaterThan(layout.logButton.width * 2);
+  expect(layout.testError.width).toBeGreaterThan(layout.testButton.width * 2);
 });
 
 test("library tag add and remove flows persist through the details panel", async ({ page }) => {
