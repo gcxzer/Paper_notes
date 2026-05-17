@@ -141,6 +141,57 @@ def test_registry_availability_cache_and_dynamic_schema():
     assert schemas[0]["function"]["parameters"]["properties"]["query"]["type"] == ["string", "null"]
 
 
+def test_registry_json_trim_preserves_artifacts_and_security_warnings():
+    artifact = {"id": "artifact-1", "kind": "image", "fileName": "plot.png"}
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="large_json",
+        description="Large JSON.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda args: {
+            "success": True,
+            "server_id": "mcp_server",
+            "result": "x" * 500,
+            "structuredContent": {"large": "y" * 500},
+            "artifacts": [artifact],
+            "mediaErrors": [{"code": "mcp_media_artifact_failed", "error": "nope"}],
+            "securityWarnings": [{"code": "mcp_prompt_injection_suspected"}],
+            "extra": "z" * 500,
+        },
+        result_max_chars=180,
+    ))
+
+    payload = json.loads(registry.dispatch("large_json", {}).content)
+
+    assert payload["success"] is True
+    assert payload["server_id"] == "mcp_server"
+    assert payload["artifacts"] == [artifact]
+    assert payload["mediaErrors"][0]["code"] == "mcp_media_artifact_failed"
+    assert payload["securityWarnings"][0]["code"] == "mcp_prompt_injection_suspected"
+    assert payload["truncated"] is True
+    assert payload["result"].endswith("...[truncated]")
+    assert payload["structuredContent"]["truncated"] is True
+    assert "extra" in payload["omitted_keys"]
+
+
+def test_registry_non_json_trim_still_returns_preview_payload():
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="large_text",
+        description="Large text.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda args: "a" * 500,
+        result_max_chars=100,
+    ))
+
+    payload = json.loads(registry.dispatch("large_text", {}).content)
+
+    assert payload["success"] is True
+    assert payload["truncated"] is True
+    assert payload["preview"].endswith("...[truncated]")
+    assert payload["original_chars"] == 500
+
+
 def test_toolset_resolution_composes_builtin_toolsets_and_disables_groups():
     registry = ToolRegistry()
     for name, toolset in (
@@ -328,12 +379,18 @@ def test_tool_executor_adapter_coerces_object_and_nullable_arguments():
 
 
 def test_tool_executor_persists_large_result_and_preserves_full_output(tmp_path):
+    artifact = {"id": "artifact-1", "kind": "image", "fileName": "plot.png"}
     registry = ToolRegistry()
     registry.register(ToolDefinition(
         name="large_lookup",
         description="Large lookup.",
         parameters={"type": "object", "properties": {}},
-        handler=lambda args: {"content": "x" * 240},
+        handler=lambda args: {
+            "success": True,
+            "result": "x" * 240,
+            "artifacts": [artifact],
+            "securityWarnings": [{"code": "mcp_prompt_injection_suspected"}],
+        },
         result_max_chars=60,
     ))
     result_store = ToolResultStore(
@@ -355,6 +412,8 @@ def test_tool_executor_persists_large_result_and_preserves_full_output(tmp_path)
     assert payload["persisted_tool_result"] is True
     assert payload["original_chars"] > 200
     assert len(payload["preview"]) < payload["original_chars"]
+    assert payload["artifacts"] == [artifact]
+    assert payload["securityWarnings"][0]["code"] == "mcp_prompt_injection_suspected"
     assert stored["content"].count("x") == 240
     assert result.metadata["tool_result"]["persisted"] is True
 

@@ -268,6 +268,7 @@ elements.connectCodexButton?.addEventListener("click", handleCodexConnectAction)
 elements.logoutCodexButton?.addEventListener("click", logoutCodex);
 elements.openMemorySettings?.addEventListener("click", settingsLinkHandler(openMemoryDialog));
 elements.openToolSettings?.addEventListener("click", settingsLinkHandler(openToolSettingsDialog));
+elements.openMcpSettings?.addEventListener("click", settingsLinkHandler(openMcpSettingsDialog));
 elements.openSkillsSettings?.addEventListener("click", settingsLinkHandler(openSkillsSettingsDialog));
 elements.closeToolSettingsDialog?.addEventListener("click", closeToolSettingsDialog);
 elements.cancelToolSettings?.addEventListener("click", closeToolSettingsDialog);
@@ -312,6 +313,11 @@ elements.toolSettingsList?.addEventListener("toggle", (event) => {
   const details = event.target.closest(".tool-provider-details");
   if (details) {
     state.toolSettingsWebSearchOpen = details.open;
+    if (details.open) {
+      requestAnimationFrame(() => {
+        details.scrollIntoView({ block: "end" });
+      });
+    }
   }
 }, true);
 elements.toolSettingsList?.addEventListener("input", (event) => {
@@ -338,9 +344,111 @@ elements.toolSettingsList?.addEventListener("input", (event) => {
     }
   };
 });
+elements.closeMcpSettingsDialog?.addEventListener("click", closeMcpSettingsDialog);
+elements.cancelMcpSettings?.addEventListener("click", closeMcpSettingsDialog);
+elements.refreshMcpSettings?.addEventListener("click", () => {
+  void loadMcpSettings();
+});
+elements.addMcpServer?.addEventListener("click", addMcpServer);
+elements.mcpSettingsForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveMcpSettings();
+});
+elements.mcpServerList?.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-mcp-select]");
+  if (!row) return;
+  state.mcpEditingId = row.dataset.mcpSelect;
+  clearMcpTransientFeedback();
+  renderMcpSettingsDialog();
+});
+elements.mcpServerEditor?.addEventListener("input", (event) => {
+  const fieldInput = event.target.closest("[data-mcp-field]");
+  if (fieldInput) {
+    updateCurrentMcpServerField(fieldInput);
+    return;
+  }
+  const secretNameInput = event.target.closest("[data-mcp-secret-name]");
+  if (secretNameInput) {
+    updateMcpSecret(
+      secretNameInput.dataset.mcpSecretName,
+      Number(secretNameInput.dataset.mcpSecretIndex),
+      { name: normalizeText(secretNameInput.value) },
+      false
+    );
+    return;
+  }
+  const secretValueInput = event.target.closest("[data-mcp-secret-value]");
+  if (secretValueInput) {
+    const server = currentMcpServer();
+    const kind = secretValueInput.dataset.mcpSecretValue;
+    const index = Number(secretValueInput.dataset.mcpSecretIndex);
+    const entry = server?.[kind]?.[index] || {};
+    updateMcpSecret(kind, index, { value: secretValueInput.value, configured: Boolean(entry.configured) }, false);
+  }
+});
+elements.mcpServerEditor?.addEventListener("change", (event) => {
+  const fieldInput = event.target.closest("[data-mcp-field]");
+  if (fieldInput) updateCurrentMcpServerField(fieldInput);
+});
+elements.mcpServerEditor?.addEventListener("click", (event) => {
+  const emptyAddButton = event.target.closest("[data-mcp-empty-add]");
+  if (emptyAddButton) {
+    addMcpServer();
+    return;
+  }
+  const transportButton = event.target.closest("[data-mcp-transport-option]");
+  if (transportButton) {
+    const server = currentMcpServer();
+    if (!server) return;
+    const value = transportButton.dataset.mcpTransportOption === "http" ? "http" : "stdio";
+    clearMcpTransientFeedback();
+    updateMcpServer(server.id, (current) => ({ ...current, transport: value }), true);
+    return;
+  }
+  const testButton = event.target.closest("[data-mcp-test]");
+  if (testButton) {
+    void testMcpServer(testButton.dataset.mcpTest);
+    return;
+  }
+  const deleteButton = event.target.closest("[data-mcp-delete]");
+  if (deleteButton) {
+    confirmDeleteMcpServer(deleteButton.dataset.mcpDelete);
+    return;
+  }
+  const addSecretButton = event.target.closest("[data-mcp-secret-add]");
+  if (addSecretButton) {
+    addMcpSecret(addSecretButton.dataset.mcpSecretAdd);
+    return;
+  }
+  const removeSecretButton = event.target.closest("[data-mcp-secret-remove]");
+  if (removeSecretButton) {
+    removeMcpSecret(removeSecretButton.dataset.mcpSecretRemove, Number(removeSecretButton.dataset.mcpSecretIndex));
+  }
+});
+function updateCurrentMcpServerField(input) {
+  const server = currentMcpServer();
+  if (!server) return;
+  clearMcpTransientFeedback();
+  const field = input.dataset.mcpField;
+  let value = normalizeText(input.value);
+  if (field === "enabled") value = Boolean(input.checked);
+  else if (field === "args") value = input.value.split(/\r?\n/).map(normalizeText).filter(Boolean);
+  else if (field === "includeTools" || field === "excludeTools") value = normalizeMcpFilterList(input.value);
+  else if (field === "timeoutSeconds" || field === "connectTimeoutSeconds") {
+    value = Math.max(1, Number(input.value) || (field === "timeoutSeconds" ? 120 : 10));
+  } else if (field === "transport") {
+    value = value === "http" ? "http" : "stdio";
+  }
+  const shouldRender = field === "enabled" || field === "transport";
+  updateMcpServer(server.id, (current) => ({ ...current, [field]: value }), shouldRender);
+}
 elements.closeSkillsSettingsDialog?.addEventListener("click", closeSkillsSettingsDialog);
 elements.refreshSkillsSettings?.addEventListener("click", () => {
   void loadSkillsSettings();
+});
+elements.skillsSearchInput?.addEventListener("input", (event) => {
+  state.skillsSearchQuery = normalizeText(event.target.value);
+  renderSkillsSettingsDialog();
 });
 elements.addExternalSkillDirectory?.addEventListener("click", () => {
   void addExternalSkillDirectory();
@@ -349,6 +457,9 @@ elements.externalSkillDirectoryInput?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
   void addExternalSkillDirectory();
+});
+elements.externalSkillDirectoryInput?.addEventListener("input", () => {
+  setSkillsExternalError("");
 });
 elements.externalSkillDirectoryList?.addEventListener("click", (event) => {
   const removeButton = event.target.closest("[data-external-skill-directory-remove]");

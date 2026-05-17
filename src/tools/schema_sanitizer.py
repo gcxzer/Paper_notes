@@ -105,7 +105,7 @@ def _sanitize_schema_node(schema: Any) -> dict[str, Any]:
     node = {
         key: deepcopy(value)
         for key, value in schema.items()
-        if key not in {"$schema", "$id", "$defs", "definitions", "nullable"}
+        if key not in {"$schema", "$id", "definitions", "nullable"}
     }
 
     for combiner in ("anyOf", "oneOf", "allOf"):
@@ -129,6 +129,16 @@ def _sanitize_schema_node(schema: Any) -> dict[str, Any]:
             for name, prop_schema in properties.items()
             if isinstance(prop_schema, dict)
         }
+
+    defs = node.get("$defs")
+    if isinstance(defs, dict):
+        node["$defs"] = {
+            str(name): _sanitize_schema_node(definition)
+            for name, definition in defs.items()
+            if isinstance(definition, dict)
+        }
+    elif "$defs" in node:
+        node.pop("$defs", None)
 
     items = node.get("items")
     if isinstance(items, dict):

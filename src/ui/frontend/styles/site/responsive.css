@@ -44,6 +44,10 @@
 
   .tool-access-options,
   .tool-settings-item,
+  .tool-settings-custom-head,
+  .tool-provider-panel,
+  .web-search-provider-row,
+  .tool-provider-heading,
   .skills-settings-layout,
   .skills-external-row,
   .skills-external-add,
@@ -53,6 +57,16 @@
 
   .skills-settings-list {
     max-height: 220px;
+  }
+
+  .skills-settings-sidebar {
+    grid-template-rows: auto minmax(0, 220px) auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .skills-settings-detail {
+    min-height: 360px;
   }
 
   .tool-settings-controls {

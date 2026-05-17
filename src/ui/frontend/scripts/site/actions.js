@@ -506,6 +506,8 @@ async function openSettingsPanelFromUrl() {
     await openMemoryDialog();
   } else if (panel === "tools") {
     await openToolSettingsDialog();
+  } else if (panel === "mcp") {
+    await openMcpSettingsDialog();
   } else if (panel === "skills") {
     await openSkillsSettingsDialog();
   } else if (panel === "debug") {

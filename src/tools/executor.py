@@ -77,13 +77,19 @@ class ToolExecutorAdapter:
             effective_write_mode = self._write_mode_for(definition)
             available, availability = self.registry.availability(definition.name)
             if not available:
+                code = str(availability.get("code") or "tool_unavailable") if isinstance(availability, dict) else "tool_unavailable"
+                message = (
+                    str(availability.get("error") or "This tool is not available in this environment.")
+                    if isinstance(availability, dict)
+                    else "This tool is not available in this environment."
+                )
                 return ToolResult(
                     call_id=tool_call.call_id or tool_call.id,
                     name=tool_call.name,
                     content=json.dumps({
                         "success": False,
-                        "error": "This tool is not available in this environment.",
-                        "code": "tool_unavailable",
+                        "error": message,
+                        "code": code,
                         "availability": availability,
                     }, ensure_ascii=False),
                     is_error=True,

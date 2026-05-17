@@ -50,8 +50,14 @@ def get_agent_service() -> AgentService:
 
 def set_agent_service(service: AgentService | None) -> None:
     global _SERVICE
+    old_service: AgentService | None = None
     with _SERVICE_LOCK:
+        old_service = _SERVICE
         _SERVICE = service
+    if old_service is not None and old_service is not service:
+        close = getattr(old_service, "close", None)
+        if callable(close):
+            close()
 
 
 def get_agent_progress_store() -> AgentProgressStore:

@@ -173,6 +173,12 @@ function providerStatusLabel(provider, settings = state.aiSettings) {
   return openAiProviderConfigured(settings) ? "key configured" : "key not configured";
 }
 
+function setProviderStatusBadge(element, isConfigured, configuredLabel = "Connected", missingLabel = "Not configured") {
+  if (!element) return;
+  element.textContent = isConfigured ? configuredLabel : missingLabel;
+  element.classList.toggle("is-ready", isConfigured);
+}
+
 function renderDefaultProviderOptions(provider, settings) {
   if (!elements.aiProviderInput) return;
   const selectedProvider = normalizeAiProvider(provider);
@@ -413,7 +419,9 @@ function renderAiSettings() {
     elements.aiSettingsStatus.classList.toggle("is-ready", modelConfigured);
     elements.aiSettingsStatus.classList.toggle("is-missing", !modelConfigured);
     elements.aiSettingsStatus.innerHTML = `
-      <span>${modelConfigured ? "Ready" : "Not ready"} · ${connectedCount} connected</span>
+      <strong>${modelConfigured ? "Ready" : "Setup needed"}</strong>
+      <span>Default: ${escapeHtml(defaultLabel)}</span>
+      <span>${connectedCount} connected</span>
     `;
   }
 
@@ -444,6 +452,7 @@ function renderAiSettings() {
   elements.setGeminiDefaultButton.disabled = state.aiSettingsLoading;
   elements.setDeepSeekDefaultButton.disabled = state.aiSettingsLoading;
   elements.openAiKeyTitle.textContent = "OpenAI API key";
+  setProviderStatusBadge(elements.openAiStatusBadge, openAiKeyConfigured, "Key saved");
   elements.openAiKeyDetail.textContent = openAiKeyConfigured
     ? settings.provider === "openai" && settings.environmentKeyConfigured
       ? "An environment key is active. Save a local key only if you want a local fallback."
@@ -452,6 +461,7 @@ function renderAiSettings() {
   elements.addAiKeyButton.textContent = openAiKeyConfigured ? "Replace key" : "Add key";
   elements.deleteAiKeyButton.hidden = !providerLocalKeyConfigured("openai", settings);
   elements.anthropicKeyTitle.textContent = "Anthropic";
+  setProviderStatusBadge(elements.anthropicStatusBadge, anthropicKeyConfigured, "Key saved");
   elements.anthropicKeyDetail.textContent = anthropicKeyConfigured
     ? settings.provider === "anthropic" && settings.environmentKeyConfigured
       ? "An environment key is active. Save a local key only if you want a local fallback."
@@ -460,6 +470,7 @@ function renderAiSettings() {
   elements.addAnthropicKeyButton.textContent = anthropicKeyConfigured ? "Replace key" : "Add key";
   elements.deleteAnthropicKeyButton.hidden = !providerLocalKeyConfigured("anthropic", settings);
   elements.geminiKeyTitle.textContent = "Google Gemini";
+  setProviderStatusBadge(elements.geminiStatusBadge, geminiKeyConfigured, "Key saved");
   elements.geminiKeyDetail.textContent = geminiKeyConfigured
     ? settings.provider === "gemini" && settings.environmentKeyConfigured
       ? "An environment key is active. Save a local key only if you want a local fallback."
@@ -468,6 +479,7 @@ function renderAiSettings() {
   elements.addGeminiKeyButton.textContent = geminiKeyConfigured ? "Replace key" : "Add key";
   elements.deleteGeminiKeyButton.hidden = !providerLocalKeyConfigured("gemini", settings);
   elements.deepSeekKeyTitle.textContent = "DeepSeek";
+  setProviderStatusBadge(elements.deepSeekStatusBadge, deepSeekKeyConfigured, "Key saved");
   elements.deepSeekKeyDetail.textContent = deepSeekKeyConfigured
     ? settings.provider === "deepseek" && settings.environmentKeyConfigured
       ? "An environment key is active. Save a local key only if you want a local fallback."
@@ -504,6 +516,7 @@ function renderAiSettings() {
 
   const flow = state.codexAuthFlow;
   elements.codexAuthTitle.textContent = flow && !settings.codexAuth.loggedIn ? "Complete Codex sign-in" : "Codex OAuth";
+  setProviderStatusBadge(elements.codexStatusBadge, codexConfigured, "Signed in", "Not connected");
   elements.codexAuthDetail.textContent = settings.codexAuth.loggedIn
     ? [
         settings.codexAuth.accountEmail,
@@ -516,7 +529,7 @@ function renderAiSettings() {
   elements.codexAuthCode.textContent = flow ? flow.userCode : "";
   elements.codexAuthLink.hidden = !flow || settings.codexAuth.loggedIn || !safeLinkHref(flow.verificationUri);
   elements.codexAuthLink.href = flow ? safeLinkHref(flow.verificationUri) || "#" : "#";
-  elements.aiSettingsSource.textContent = "Image generation is currently only available through OpenAI API key and Codex OAuth providers.";
+  elements.aiSettingsSource.textContent = "Image generation: OpenAI API key or Codex OAuth only.";
   elements.saveAiSettings.disabled = state.aiSettingsLoading;
   elements.addAiKeyButton.disabled = state.aiSettingsLoading;
   elements.deleteAiKeyButton.disabled = state.aiSettingsLoading;

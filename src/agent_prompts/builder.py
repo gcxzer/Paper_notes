@@ -7,6 +7,7 @@ from agent_prompts.defaults import (
     PAPER_NOTES_AGENT_IDENTITY,
     PAPER_NOTES_CODE_EXECUTION_GUIDANCE,
     PAPER_NOTES_MEMORY_GUIDANCE,
+    PAPER_NOTES_MCP_GUIDANCE,
     PAPER_NOTES_NO_TOOL_GUIDANCE,
     PAPER_NOTES_RESPONSE_GUIDANCE,
     PAPER_NOTES_SEARCH_QUERY_GUIDANCE,
@@ -87,6 +88,9 @@ def _build_tool_guidance(
 
     if "execute_code" in tool_names:
         lines.extend(["", PAPER_NOTES_CODE_EXECUTION_GUIDANCE])
+
+    if any(tool_name.startswith("mcp_") for tool_name in tool_names):
+        lines.extend(["", PAPER_NOTES_MCP_GUIDANCE])
 
     return "\n".join(lines)
 

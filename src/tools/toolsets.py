@@ -168,6 +168,14 @@ BUILTIN_TOOL_GROUPS: dict[str, ToolGroupDefinition] = {
         tools=BUILTIN_TOOLSETS["web_search"].tools,
         capabilities=("web_search", "web_fetch", "source_attribution", "recency_filter", "domain_filter"),
     ),
+    "mcp": ToolGroupDefinition(
+        name="mcp",
+        display_name="MCP",
+        description="External Model Context Protocol tool servers connected from Settings.",
+        default_policy="auto",
+        tools=(),
+        capabilities=("external_mcp_tools", "stdio_transport", "streamable_http_transport"),
+    ),
     "generated_artifacts": ToolGroupDefinition(
         name="generated_artifacts",
         display_name="Generated Artifacts",

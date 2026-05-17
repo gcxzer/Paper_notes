@@ -88,6 +88,12 @@ function setSkillsSettingsError(message = "") {
   elements.skillsSettingsError.hidden = !message;
 }
 
+function setSkillsExternalError(message = "") {
+  if (!elements.skillsExternalError) return;
+  elements.skillsExternalError.textContent = message;
+  elements.skillsExternalError.hidden = !message;
+}
+
 function skillStatusLabel(detail) {
   if (!detail) return "";
   if (detail.readinessStatus === "setup_needed") return "Setup needed";
@@ -108,11 +114,36 @@ function basename(path) {
   return parts.at(-1) || normalizeText(path);
 }
 
+function skillListSubtitle(skill) {
+  return normalizeText(skill.category || skill.source || basename(skill.path) || "local");
+}
+
+function filterSkills(skills) {
+  const query = normalizeText(state.skillsSearchQuery).toLowerCase();
+  if (!query) return skills;
+  return (skills || []).filter((skill) => [
+    skill.name,
+    skill.description,
+    skill.category,
+    skill.source,
+    skill.path
+  ].some((value) => normalizeText(value).toLowerCase().includes(query)));
+}
+
 function stripMarkdownFrontmatter(content) {
   const text = String(content || "");
   if (!text.startsWith("---")) return text;
   const match = text.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
   return match ? text.slice(match[0].length).trimStart() : text;
+}
+
+function stripLeadingMarkdownHeading(content) {
+  return String(content || "").replace(/^\s*#\s+[^\n]+(?:\r?\n)+/, "").trimStart();
+}
+
+function leadingMarkdownHeading(content) {
+  const match = String(content || "").match(/^\s*#\s+([^\n]+)(?:\r?\n|$)/);
+  return normalizeText(match?.[1]);
 }
 
 function renderLinkedSkillFiles(detail) {
@@ -161,7 +192,7 @@ function renderSkillEditForm(detail, content) {
   return `
     <form id="skillEditForm" class="skill-edit-form" data-skill-edit-form>
       <label class="skill-edit-field skill-edit-field-content">
-        <span>Content</span>
+        <span>Instructions</span>
         <textarea name="content" spellcheck="true"${state.skillEditSaving ? " disabled" : ""}>${escapeHtml(content || "")}</textarea>
       </label>
       <div class="skill-edit-actions">
@@ -174,6 +205,7 @@ function renderSkillEditForm(detail, content) {
 
 function renderSkillDetail() {
   if (!elements.skillsSettingsDetail) return;
+  elements.skillsSettingsDetail.classList.remove("is-editing");
   const detail = state.selectedSkillDetail ? normalizeSkillDetail(state.selectedSkillDetail) : null;
   if (state.skillDetailLoading) {
     elements.skillsSettingsDetail.innerHTML = `<p class="memory-empty">Loading skill...</p>`;
@@ -200,15 +232,28 @@ function renderSkillDetail() {
     .map((entry) => normalizeText(entry?.name || entry))
     .filter(Boolean);
   const activeFile = detail.filePath || state.selectedSkillFilePath;
-  const content = detail.isBinary
+  const rawContent = detail.isBinary
     ? `Binary file${detail.mimeType ? ` (${detail.mimeType})` : ""}.`
     : stripMarkdownFrontmatter(detail.content);
   const isEditableSkill = !activeFile && !detail.isBinary;
   const isEditing = isEditableSkill && state.skillEditingName === detail.name;
+  const content = detail.isBinary || isEditing ? rawContent : stripLeadingMarkdownHeading(rawContent);
+  const displayTitle = activeFile ? basename(activeFile) : leadingMarkdownHeading(rawContent) || detail.name || "Skill";
+  const namePill = !activeFile && detail.name && detail.name !== displayTitle
+    ? `<span class="skill-meta-pill">${escapeHtml(detail.name)}</span>`
+    : "";
+  elements.skillsSettingsDetail.classList.toggle("is-editing", isEditing);
+  const setupNote = detail.missingRequiredEnvironmentVariables.length || detail.missingRequiredCommands.length ? `
+    <p class="skill-setup-note">Missing setup: ${escapeHtml([...detail.missingRequiredEnvironmentVariables, ...detail.missingRequiredCommands].join(", "))}</p>
+  ` : "";
   elements.skillsSettingsDetail.innerHTML = `
     <div class="skill-detail-header">
       <div>
-        <strong>${escapeHtml(activeFile ? basename(activeFile) : detail.name || "Skill")}</strong>
+        <div class="skill-detail-title-row">
+          <strong>${escapeHtml(displayTitle)}</strong>
+          <span class="skill-status-pill">${escapeHtml(skillStatusLabel(detail))}</span>
+          ${namePill}
+        </div>
         ${isEditing ? `
           <textarea class="skill-description-edit" name="description" form="skillEditForm" rows="3" spellcheck="true"${state.skillEditSaving ? " disabled" : ""}>${escapeHtml(detail.description || "")}</textarea>
         ` : `
@@ -219,16 +264,15 @@ function renderSkillDetail() {
         <button class="toolbar-button" type="button" data-skill-edit-start>Edit</button>
       ` : ""}
     </div>
-    ${detail.missingRequiredEnvironmentVariables.length || detail.missingRequiredCommands.length ? `
-      <p class="skill-setup-note">Missing setup: ${escapeHtml([...detail.missingRequiredEnvironmentVariables, ...detail.missingRequiredCommands].join(", "))}</p>
-    ` : ""}
-    ${isEditing ? renderSkillEditForm(detail, content) : `
-      ${renderLinkedSkillFiles(detail)}
-      <section class="skill-content-section">
-        <strong class="skill-section-title">CONTENT</strong>
-        <div class="skill-content">${renderLinkedText(content || "")}</div>
-      </section>
-    `}
+    <div class="skill-detail-body">
+      ${setupNote}
+      ${isEditing ? renderSkillEditForm(detail, content) : `
+        ${renderLinkedSkillFiles(detail)}
+        <section class="skill-content-section">
+          <div class="skill-content">${renderLinkedText(content || "")}</div>
+        </section>
+      `}
+    </div>
   `;
 }
 
@@ -236,12 +280,16 @@ function renderSkillsSettingsDialog() {
   if (!elements.skillsSettingsDialog) return;
   const settings = state.skillsSettings || normalizeSkillsSettings({});
   const skills = settings.skills || [];
+  const visibleSkills = filterSkills(skills);
   elements.skillsSettingsCount.textContent = state.skillsSettingsLoading
     ? "Loading skills..."
     : `${settings.count || skills.length} ${(settings.count || skills.length) === 1 ? "skill" : "skills"}`;
-  elements.skillsSettingsSource.textContent = settings.uiHint || "Add skills by placing SKILL.md folders in .paper-notes/skills or src/skills, or add another folder under External directories.";
+  elements.skillsSettingsSource.textContent = "Skill folders: .paper-notes/skills, src/skills, and external directories.";
   elements.refreshSkillsSettings.disabled = state.skillsSettingsLoading;
   elements.addExternalSkillDirectory.disabled = state.skillsSettingsLoading || state.skillsSettingsSaving;
+  if (elements.skillsSearchInput && elements.skillsSearchInput.value !== state.skillsSearchQuery) {
+    elements.skillsSearchInput.value = state.skillsSearchQuery;
+  }
   renderExternalSkillDirectories(settings);
 
   if (state.skillsSettingsLoading) {
@@ -255,11 +303,17 @@ function renderSkillsSettingsDialog() {
     renderSkillDetail();
     return;
   }
-  elements.skillsSettingsList.innerHTML = skills.map((skill) => {
+  if (!visibleSkills.length) {
+    elements.skillsSettingsList.innerHTML = `<p class="memory-empty">No matching skills.</p>`;
+    renderSkillDetail();
+    return;
+  }
+  elements.skillsSettingsList.innerHTML = visibleSkills.map((skill) => {
     const selected = skill.name === state.selectedSkillName;
     return `
       <button class="skill-list-item${selected ? " is-active" : ""}" type="button" data-skill-name="${escapeHtml(skill.name)}">
         <strong>${escapeHtml(skill.name)}</strong>
+        <span>${escapeHtml(skillListSubtitle(skill))}</span>
       </button>
     `;
   }).join("");
@@ -270,7 +324,7 @@ function renderExternalSkillDirectories(settings = state.skillsSettings || norma
   if (!elements.externalSkillDirectoryList) return;
   const directories = settings.externalDirectories || [];
   if (!directories.length) {
-    elements.externalSkillDirectoryList.innerHTML = `<p class="skills-external-empty">No external directories configured.</p>`;
+    elements.externalSkillDirectoryList.innerHTML = `<p class="skills-external-empty">None</p>`;
     return;
   }
   elements.externalSkillDirectoryList.innerHTML = directories.map((entry) => `
@@ -295,6 +349,7 @@ async function saveExternalSkillDirectories(paths) {
       ...payload
     });
     setSkillsSettingsError("");
+    setSkillsExternalError("");
     await loadSkillsSettings();
   } catch (error) {
     setSkillsSettingsError(error.message || "Could not save skill directories.");
@@ -313,9 +368,10 @@ function currentExternalSkillDirectoryPaths() {
 async function addExternalSkillDirectory() {
   const path = normalizeText(elements.externalSkillDirectoryInput?.value);
   if (!path) {
-    setSkillsSettingsError("Directory path is required.");
+    setSkillsExternalError("Directory path is required.");
     return;
   }
+  setSkillsExternalError("");
   const paths = currentExternalSkillDirectoryPaths();
   if (!paths.includes(path)) {
     paths.push(path);
@@ -420,6 +476,8 @@ async function loadSkillsSettings() {
 async function openSkillsSettingsDialog() {
   closeSettingsMenu();
   setSkillsSettingsError("");
+  setSkillsExternalError("");
+  state.skillEditingName = "";
   elements.skillsSettingsDialog.showModal();
   renderSkillsSettingsDialog();
   await loadSkillsSettings();
@@ -427,7 +485,8 @@ async function openSkillsSettingsDialog() {
 
 function closeSkillsSettingsDialog() {
   setSkillsSettingsError("");
+  setSkillsExternalError("");
+  state.skillEditingName = "";
   elements.skillsSettingsDialog.close();
   clearSettingsPanelUrl();
 }
-

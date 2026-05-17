@@ -22,7 +22,6 @@ from tools.paper_notes.notes import (
     search_library,
     update_note_metadata,
     validate_note_html,
-    write_note_section,
 )
 from tools.paper_notes.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
 from tools.paper_notes.schemas import (

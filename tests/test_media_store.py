@@ -28,6 +28,108 @@ def test_media_store_uploads_and_serves_registered_image(tmp_path):
     assert store.path_for(artifact.id).exists()
 
 
+def test_media_store_creates_mcp_image_artifact(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    artifact = store.create_mcp_image(
+        PNG_DATA_URL,
+        mime_type="image/png",
+        server_id="filesystem",
+        tool_name="read.file",
+        resource_uri="file:///image.png",
+        file_name="image.png",
+    )
+
+    assert artifact.id.startswith("mcp_")
+    assert artifact.source == "mcp"
+    assert artifact.kind == "image"
+    assert artifact.mime_type == "image/png"
+    assert artifact.file_name == "image.png"
+    assert "/mcp/filesystem/" in artifact.path
+    assert artifact.url == f"/api/media/{artifact.id}"
+    assert artifact.download_url == f"/api/media/{artifact.id}/download"
+    assert artifact.metadata["serverId"] == "filesystem"
+    assert artifact.metadata["toolName"] == "read.file"
+    assert artifact.metadata["resourceUri"] == "file:///image.png"
+    assert store.path_for(artifact.id).exists()
+
+
+def test_media_store_rejects_invalid_mcp_images(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+    oversized = base64.b64encode(b"x" * (20 * 1024 * 1024 + 1)).decode("ascii")
+
+    with pytest.raises(MediaStoreError, match="valid base64"):
+        store.create_mcp_image("not base64", mime_type="image/png", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="MIME type does not match"):
+        store.create_mcp_image(PNG_DATA_URL, mime_type="image/jpeg", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="Unsupported MCP image MIME type"):
+        store.create_mcp_image(PNG_DATA_URL, mime_type="application/pdf", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="too large"):
+        store.create_mcp_image(oversized, mime_type="image/png", server_id="filesystem")
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "file_name", "kind"),
+    [
+        ("text/plain", "notes.txt", "text"),
+        ("text/markdown", "notes.md", "text"),
+        ("application/json", "data.json", "json"),
+        ("text/csv", "table.csv", "csv"),
+        ("text/html", "page.html", "html"),
+    ],
+)
+def test_media_store_creates_mcp_text_file_artifacts(tmp_path, mime_type, file_name, kind):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    artifact = store.create_mcp_file(
+        "Hello from MCP",
+        mime_type=mime_type,
+        server_id="filesystem",
+        tool_name="read.file",
+        resource_uri=f"file:///{file_name}",
+        file_name=file_name,
+    )
+
+    assert artifact.id.startswith("mcp_")
+    assert artifact.source == "mcp"
+    assert artifact.kind == kind
+    assert artifact.mime_type == mime_type
+    assert artifact.file_name == file_name
+    assert "/mcp/filesystem/" in artifact.path
+    assert artifact.metadata["serverId"] == "filesystem"
+    assert artifact.metadata["toolName"] == "read.file"
+    assert artifact.metadata["resourceUri"] == f"file:///{file_name}"
+    assert artifact.metadata["extractionStatus"] == "complete"
+    assert artifact.metadata["extractedTextChars"] == len("Hello from MCP")
+    assert store.path_for(artifact.id).read_text(encoding="utf-8") == "Hello from MCP"
+    assert store.extracted_text_for_artifact(artifact.id) == "Hello from MCP"
+
+
+def test_media_store_mcp_file_allows_empty_content_and_storage_name_collisions(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    first = store.create_mcp_file("", mime_type="text/plain", server_id="filesystem", file_name="same.txt")
+    second = store.create_mcp_file("second", mime_type="text/plain", server_id="filesystem", file_name="same.txt")
+
+    assert first.file_name == "same.txt"
+    assert first.size == 0
+    assert first.metadata["extractedTextChars"] == 0
+    assert second.file_name == "same.txt"
+    assert first.path != second.path
+    assert second.metadata["storageFileName"].startswith("same-mcp_")
+
+
+def test_media_store_rejects_invalid_mcp_files(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    with pytest.raises(MediaStoreError, match="Unsupported MCP file MIME type"):
+        store.create_mcp_file("hello", mime_type="application/pdf", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="UTF-8"):
+        store.create_mcp_file(b"\xff\xfe\x00", mime_type="text/plain", server_id="filesystem")
+    with pytest.raises(MediaStoreError, match="too large"):
+        store.create_mcp_file("x" * (30 * 1024 * 1024 + 1), mime_type="text/plain", server_id="filesystem")
+
+
 def test_media_store_rejects_invalid_image(tmp_path):
     store = MediaStore(tmp_path / ".paper-notes" / "media")
 

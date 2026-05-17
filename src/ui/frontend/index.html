@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=site-layout-v2">
+  <link rel="stylesheet" href="styles/site/index.css?v=ai-provider-ui-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -69,6 +69,12 @@
               <span>
                 <span class="settings-theme-title">Tools</span>
                 <span class="settings-theme-value">Access and approvals</span>
+              </span>
+            </a>
+            <a class="settings-menu-item" id="openMcpSettings" href="index.html?settings=mcp">
+              <span>
+                <span class="settings-theme-title">MCP</span>
+                <span class="settings-theme-value">External tool servers</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openSkillsSettings" href="index.html?settings=skills">
@@ -283,15 +289,20 @@
       </div>
 
       <form class="memory-form" id="memoryForm">
-        <label class="field memory-field">
-          <span id="memoryContentLabel">New memory</span>
-          <textarea id="memoryContentInput" rows="3" maxlength="600" placeholder="Add a saved memory"></textarea>
-        </label>
-        <p class="field-error" id="memoryError" hidden></p>
-        <div class="memory-form-actions">
-          <button class="toolbar-button" type="button" id="cancelMemoryEdit" hidden>Cancel edit</button>
-          <button class="toolbar-button toolbar-button-primary" type="submit" id="saveMemoryEntry">Add</button>
+        <div class="memory-composer-head">
+          <div class="memory-composer-title">
+            <span id="memoryContentLabel">New memory</span>
+            <small id="memoryComposerHint">Saved facts are reused across chats.</small>
+          </div>
+          <div class="memory-form-actions">
+            <button class="toolbar-button" type="button" id="cancelMemoryEdit" hidden>Cancel edit</button>
+            <button class="toolbar-button toolbar-button-primary" type="submit" id="saveMemoryEntry">Add</button>
+          </div>
         </div>
+        <label class="field memory-field">
+          <textarea id="memoryContentInput" rows="2" maxlength="600" placeholder="Add a saved memory" aria-labelledby="memoryContentLabel"></textarea>
+        </label>
+        <p class="field-error memory-error" id="memoryError" hidden></p>
       </form>
 
       <div class="memory-list-header">
@@ -353,6 +364,40 @@
     </form>
   </dialog>
 
+  <dialog class="modal mcp-settings-modal" id="mcpSettingsDialog">
+    <form class="modal-card mcp-settings-card" id="mcpSettingsForm" method="dialog">
+      <div class="modal-header mcp-settings-header">
+        <div>
+          <div class="modal-eyebrow">Agent</div>
+          <h3>MCP</h3>
+        </div>
+        <button class="icon-button" type="button" id="closeMcpSettingsDialog" aria-label="Close MCP settings">x</button>
+      </div>
+
+      <div class="mcp-settings-toolbar">
+        <strong id="mcpSettingsCount">0 servers</strong>
+        <div class="mcp-settings-toolbar-actions">
+          <button class="toolbar-button" type="button" id="refreshMcpSettings">Refresh</button>
+          <button class="toolbar-button" type="button" id="addMcpServer">Add server</button>
+        </div>
+      </div>
+
+      <div class="mcp-settings-layout">
+        <div class="mcp-server-list" id="mcpServerList" aria-live="polite"></div>
+        <article class="mcp-server-editor" id="mcpServerEditor" aria-live="polite"></article>
+      </div>
+
+      <p class="settings-hint" id="mcpSettingsSource"></p>
+      <p class="field-error" id="mcpSettingsError" hidden></p>
+
+      <div class="modal-actions mcp-settings-actions">
+        <span class="ai-settings-action-spacer"></span>
+        <button class="toolbar-button" type="button" id="cancelMcpSettings">Cancel</button>
+        <button class="toolbar-button toolbar-button-primary" type="submit" id="saveMcpSettings">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="modal skills-settings-modal" id="skillsSettingsDialog">
     <div class="modal-card skills-settings-card">
       <div class="modal-header skills-settings-header">
@@ -368,19 +413,25 @@
         <button class="toolbar-button" type="button" id="refreshSkillsSettings">Refresh</button>
       </div>
 
-      <section class="skills-external-panel" aria-label="External skill directories">
-        <div class="skills-external-header">
-          <strong>External directories</strong>
-        </div>
-        <div class="skills-external-add">
-          <input id="externalSkillDirectoryInput" type="text" autocomplete="off" spellcheck="false" placeholder="/Users/you/agent-skills">
-          <button class="toolbar-button" type="button" id="addExternalSkillDirectory">Add</button>
-        </div>
-        <div class="skills-external-list" id="externalSkillDirectoryList" aria-live="polite"></div>
-      </section>
-
       <div class="skills-settings-layout">
-        <div class="skills-settings-list" id="skillsSettingsList" aria-live="polite"></div>
+        <aside class="skills-settings-sidebar" aria-label="Skills list">
+          <label class="skills-search-field">
+            <span>Search</span>
+            <input id="skillsSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search skills">
+          </label>
+          <div class="skills-settings-list" id="skillsSettingsList" aria-live="polite"></div>
+          <section class="skills-external-panel" aria-label="External skill directories">
+            <div class="skills-external-header">
+              <strong>External directories</strong>
+            </div>
+            <div class="skills-external-add">
+              <input id="externalSkillDirectoryInput" type="text" autocomplete="off" spellcheck="false" placeholder="/Users/you/agent-skills">
+              <button class="toolbar-button" type="button" id="addExternalSkillDirectory">Add</button>
+            </div>
+            <p class="skills-external-error" id="skillsExternalError" hidden></p>
+            <div class="skills-external-list" id="externalSkillDirectoryList" aria-live="polite"></div>
+          </section>
+        </aside>
         <article class="skills-settings-detail" id="skillsSettingsDetail" aria-live="polite"></article>
       </div>
 
@@ -408,7 +459,10 @@
         <article class="ai-provider-row openai-settings-panel" id="openAiSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">OA</div>
           <div class="provider-settings-copy">
-            <strong id="openAiKeyTitle">OpenAI API key not configured</strong>
+            <div class="ai-provider-title-row">
+              <strong id="openAiKeyTitle">OpenAI API key not configured</strong>
+              <span class="ai-provider-status-badge" id="openAiStatusBadge">Not configured</span>
+            </div>
             <span id="openAiKeyDetail">Add a local key to enable OpenAI.</span>
           </div>
           <div class="ai-provider-actions">
@@ -422,7 +476,10 @@
         <article class="ai-provider-row codex-settings-panel" id="codexSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">CX</div>
           <div class="provider-settings-copy">
-            <strong id="codexAuthTitle">Codex OAuth not connected</strong>
+            <div class="ai-provider-title-row">
+              <strong id="codexAuthTitle">Codex OAuth not connected</strong>
+              <span class="ai-provider-status-badge" id="codexStatusBadge">Not connected</span>
+            </div>
             <span id="codexAuthDetail">OAuth login will be added in the next step.</span>
             <span class="codex-auth-code" id="codexAuthCode" hidden></span>
             <a class="codex-auth-link" id="codexAuthLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Codex sign-in</a>
@@ -438,7 +495,10 @@
         <article class="ai-provider-row anthropic-settings-panel" id="anthropicSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">A</div>
           <div class="provider-settings-copy">
-            <strong id="anthropicKeyTitle">Anthropic</strong>
+            <div class="ai-provider-title-row">
+              <strong id="anthropicKeyTitle">Anthropic</strong>
+              <span class="ai-provider-status-badge" id="anthropicStatusBadge">Not configured</span>
+            </div>
             <span id="anthropicKeyDetail">Add an Anthropic API key to enable Claude.</span>
           </div>
           <div class="ai-provider-actions">
@@ -452,7 +512,10 @@
         <article class="ai-provider-row gemini-settings-panel" id="geminiSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">G</div>
           <div class="provider-settings-copy">
-            <strong id="geminiKeyTitle">Google Gemini</strong>
+            <div class="ai-provider-title-row">
+              <strong id="geminiKeyTitle">Google Gemini</strong>
+              <span class="ai-provider-status-badge" id="geminiStatusBadge">Not configured</span>
+            </div>
             <span id="geminiKeyDetail">Add a Gemini API key to enable Google Gemini.</span>
           </div>
           <div class="ai-provider-actions">
@@ -466,7 +529,10 @@
         <article class="ai-provider-row deepseek-settings-panel" id="deepSeekSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">DS</div>
           <div class="provider-settings-copy">
-            <strong id="deepSeekKeyTitle">DeepSeek</strong>
+            <div class="ai-provider-title-row">
+              <strong id="deepSeekKeyTitle">DeepSeek</strong>
+              <span class="ai-provider-status-badge" id="deepSeekStatusBadge">Not configured</span>
+            </div>
             <span id="deepSeekKeyDetail">Add a DeepSeek API key to enable DeepSeek.</span>
           </div>
           <div class="ai-provider-actions">
@@ -576,17 +642,18 @@
     </div>
   </dialog>
 
-  <script src="scripts/site/page_state.js?v=model-capabilities-v1"></script>
+  <script src="scripts/site/page_state.js?v=skills-ui-v2"></script>
   <script src="scripts/site/library.js?v=paper-url-import-v1"></script>
   <script src="scripts/site/render.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/ai.js?v=model-capabilities-v1"></script>
-  <script src="scripts/site/settings/tools.js?v=frontend-organized-v1"></script>
-  <script src="scripts/site/settings/skills.js?v=frontend-organized-v1"></script>
-  <script src="scripts/site/settings/memory.js?v=frontend-organized-v1"></script>
+  <script src="scripts/site/settings/tools.js?v=tools-ui-v14"></script>
+  <script src="scripts/site/settings/mcp.js?v=mcp-ui-v10"></script>
+  <script src="scripts/site/settings/skills.js?v=skills-ui-v2"></script>
+  <script src="scripts/site/settings/memory.js?v=memory-ui-v1"></script>
   <script src="scripts/shared/debug-panel.js?v=shared-debug-v1"></script>
   <script src="scripts/site/debug.js?v=shared-debug-v1"></script>
   <script src="scripts/site/actions.js?v=import-url-polish-v1"></script>
-  <script src="scripts/site/events.js?v=model-capabilities-v1"></script>
+  <script src="scripts/site/events.js?v=skills-ui-v2"></script>
   <script src="scripts/shared/floating-pad.js?v=floating-pad-v1"></script>
 </body>
 </html>

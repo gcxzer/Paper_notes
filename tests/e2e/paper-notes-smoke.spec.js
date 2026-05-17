@@ -458,8 +458,9 @@ async function installPdfTextFixture(page) {
   });
 }
 
-async function installAgentMocks(page) {
+async function installAgentMocks(page, options = {}) {
   const requests = [];
+  const extraArtifacts = Array.isArray(options.artifacts) ? options.artifacts : [];
   const debugRun = {
     requestId: DEBUG_REQUEST_ID,
     status: "completed",
@@ -625,11 +626,11 @@ async function installAgentMocks(page) {
             : "这篇论文当前的 tags 是：\n\n- `tool-test`\n- `deepseek`\n\n论文：**DeepSeek V4**",
           runTrace,
           workTrace,
-          artifacts: [...fileArtifacts, ...imageArtifacts],
+          artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
         },
       ],
       events: debugRun.events,
-      artifacts: [...fileArtifacts, ...imageArtifacts],
+      artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
     };
     const body = [
       sseFrame("progress", {
@@ -805,6 +806,149 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#cleanupDebugRuns")).toBeVisible();
 
   expect(consoleIssues).toEqual([]);
+});
+
+test("MCP settings opens from URL and supports add test save remove", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await page.route("**/notes.json**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
+    });
+  });
+  await page.route("**/api/settings/tools", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
+    });
+  });
+
+  let currentServers = [];
+  const savedPayloads = [];
+  const testPayloads = [];
+  const publicSettings = () => ({
+    success: true,
+    settingsPath: ".paper-notes/mcp-servers.json",
+    servers: currentServers.map((server) => ({
+      ...server,
+      env: (server.env || []).map((entry) => ({ name: entry.name, configured: Boolean(entry.value || entry.configured) })),
+      headers: (server.headers || []).map((entry) => ({ name: entry.name, configured: Boolean(entry.value || entry.configured) })),
+      status: {
+        connected: false,
+        error: "Reconnect attempts paused after repeated failures.",
+        toolCount: 1,
+        state: "circuit_open",
+        failureCount: 5,
+        nextRetryAt: Math.floor(Date.now() / 1000) + 90,
+        circuitOpen: true,
+        securityWarnings: [{
+          code: "mcp_prompt_injection_suspected",
+          surface: "tool_description",
+          message: "External MCP metadata contains instruction-like text.",
+        }],
+      },
+      tools: [{
+        name: "search",
+        generatedName: "mcp_filesystem_search",
+        readOnly: true,
+        securityWarnings: [{ code: "mcp_prompt_injection_suspected", surface: "tool_description" }],
+      }],
+    })),
+  });
+  await page.route("**/api/settings/mcp**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/api/settings/mcp/test")) {
+      testPayloads.push(route.request().postDataJSON());
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          toolCount: 1,
+          tools: [{
+            name: "search",
+            generatedName: "mcp_filesystem_search",
+            readOnly: true,
+            securityWarnings: [{ code: "mcp_prompt_injection_suspected", surface: "tool_description" }],
+          }],
+          securityWarnings: [{
+            code: "mcp_prompt_injection_suspected",
+            surface: "server_metadata",
+            message: "External MCP metadata contains instruction-like text.",
+          }],
+          error: "",
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      savedPayloads.push(payload);
+      currentServers = payload.servers || [];
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(publicSettings()) });
+  });
+
+  await page.goto("/index.html?settings=mcp");
+  await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
+  await expect(page.locator("#openMcpSettings .settings-theme-value")).toHaveText("External tool servers");
+  await expect(page.locator(".settings-menu-item .settings-theme-title")).toHaveText([
+    "AI Provider",
+    "Memory",
+    "Tools",
+    "MCP",
+    "Skills",
+    "Debug",
+  ]);
+
+  await page.locator("#addMcpServer").click();
+  await page.locator('[data-mcp-field="name"]').fill("Filesystem");
+  await page.locator('[data-mcp-transport-option="http"]').click();
+  await page.locator('[data-mcp-field="url"]').fill("http://127.0.0.1:7777/mcp");
+  await page.locator('[data-mcp-field="includeTools"]').fill("search\nlist_resources");
+  await page.locator('[data-mcp-field="excludeTools"]').fill("write_*");
+  await page.locator('[data-mcp-test]').click();
+  await expect(page.locator(".mcp-test-result")).toContainText("Discovered 1 tools");
+  await expect(page.locator(".mcp-test-result")).toContainText("2 security warnings");
+  await expect(page.locator(".mcp-tool-chip").filter({ hasText: "mcp_filesystem_search" })).toContainText("Warning");
+  await page.locator("#saveMcpSettings").click();
+  await expect(page.locator("#mcpSettingsDialog")).not.toBeVisible();
+
+  expect(testPayloads[0]).toMatchObject({
+    name: "Filesystem",
+    transport: "http",
+    enabled: true,
+    url: "http://127.0.0.1:7777/mcp",
+    includeTools: ["search", "list_resources"],
+    excludeTools: ["write_*"],
+  });
+  expect(savedPayloads[0].servers[0]).toMatchObject({
+    name: "Filesystem",
+    transport: "http",
+    enabled: true,
+    url: "http://127.0.0.1:7777/mcp",
+    includeTools: ["search", "list_resources"],
+    excludeTools: ["write_*"],
+  });
+  expect(savedPayloads[0].servers[0].status).toBeUndefined();
+  expect(savedPayloads[0].servers[0].tools).toBeUndefined();
+
+  await page.goto("/index.html?settings=mcp");
+  await expect(page.locator("#mcpSettingsDialog")).toBeVisible();
+  await expect(page.locator("#mcpServerList")).toContainText("Filesystem");
+  await expect(page.locator("#mcpServerList")).toContainText("Circuit open");
+  await expect(page.locator("#mcpServerList")).toContainText("5 failures");
+  await expect(page.locator("#mcpServerEditor")).toContainText("Status");
+  await expect(page.locator("#mcpServerEditor")).toContainText("Next retry");
+  await expect(page.locator("#mcpServerEditor")).toContainText("2 security warnings");
+  await expect(page.locator("#mcpServerEditor")).toContainText("Reconnect attempts paused");
+  await expect(page.locator('[data-mcp-field="includeTools"]')).toHaveValue("search\nlist_resources");
+  await expect(page.locator('[data-mcp-field="excludeTools"]')).toHaveValue("write_*");
+  await page.locator('[data-mcp-delete]').click();
+  await expect(page.locator("#confirmDialog")).toContainText("Delete Filesystem?");
+  await page.locator("#confirmDialogAction").click();
+  await page.locator("#saveMcpSettings").click();
+
+  expect(savedPayloads.at(-1)).toEqual({ servers: [] });
 });
 
 test("library tag add and remove flows persist through the details panel", async ({ page }) => {
@@ -1023,6 +1167,49 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   await expect(page.locator("#readerDebugDialog")).toContainText("model_request");
 
   expect(consoleIssues).toEqual([]);
+});
+
+test("reader ask flow renders MCP artifact cards", async ({ page }) => {
+  await openFixtureReader(page);
+  await installAgentMocks(page, {
+    artifacts: [
+      {
+        id: "mcp_img_e2e",
+        kind: "image",
+        source: "mcp",
+        mimeType: "image/png",
+        fileName: "mcp-chart.png",
+        url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        downloadUrl: "/api/media/mcp_img_e2e/download",
+        size: 12,
+        width: 1,
+        height: 1,
+      },
+      {
+        id: "mcp_file_e2e",
+        kind: "text",
+        source: "mcp",
+        mimeType: "text/markdown",
+        fileName: "mcp-note.md",
+        url: "/api/media/mcp_file_e2e",
+        downloadUrl: "/api/media/mcp_file_e2e/download",
+        size: 18,
+        width: 0,
+        height: 0,
+      },
+    ],
+  });
+
+  await showAskPane(page);
+  const askInput = page.getByPlaceholder("Ask anything");
+  await askInput.fill("展示 MCP 返回的 artifact");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  const askPane = page.locator("#askPane");
+  const imageCard = askPane.locator(".ask-image-card").filter({ hasText: "mcp-chart.png" });
+  await expect(imageCard).toBeVisible();
+  await expect(imageCard.locator("img")).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await expect(askPane.locator(".ask-file-card").filter({ hasText: "mcp-note.md" })).toHaveAttribute("href", /\/api\/media\/mcp_file_e2e\/download/);
 });
 
 test("reader trash uses clear all with confirmation", async ({ page }) => {

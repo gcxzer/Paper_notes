@@ -8,6 +8,12 @@ function memoryTargetPlaceholder(target = state.memoryTarget) {
     : "Add a durable user preference";
 }
 
+function memoryTargetHint(target = state.memoryTarget) {
+  return target === "memory"
+    ? "Project facts apply to this workspace."
+    : "User preferences apply across chats.";
+}
+
 function currentMemoryEntries() {
   return state.memoryEntries.filter((entry) => entry.target === state.memoryTarget);
 }
@@ -41,6 +47,9 @@ function renderMemoryDialog() {
   elements.memoryListTitle.textContent = memoryTargetLabel();
   elements.memoryCount.textContent = `${entries.length} saved`;
   elements.memoryContentLabel.textContent = editingEntry ? "Edit memory" : "New memory";
+  if (elements.memoryComposerHint) {
+    elements.memoryComposerHint.textContent = editingEntry ? "Update the saved fact." : memoryTargetHint();
+  }
   elements.memoryContentInput.placeholder = memoryTargetPlaceholder();
   elements.saveMemoryEntry.textContent = editingEntry ? "Save" : "Add";
   elements.cancelMemoryEdit.hidden = !editingEntry;
@@ -51,7 +60,12 @@ function renderMemoryDialog() {
   }
 
   if (!entries.length) {
-    elements.memoryList.innerHTML = `<p class="memory-empty">No saved memories.</p>`;
+    elements.memoryList.innerHTML = `
+      <div class="memory-empty">
+        <strong>No saved memories</strong>
+        <span>Add one above when there is a durable preference or project fact.</span>
+      </div>
+    `;
     return;
   }
 
@@ -184,4 +198,3 @@ async function deleteMemoryEntry(id) {
     console.error(error);
   }
 }
-

@@ -47,6 +47,7 @@ from library.annotations import read_annotations, write_annotations
 from app_infra.formatting import normalize_text
 from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
 from ui.backend.memory_api import list_memory, update_memory
+from ui.backend.mcp_api import get_mcp_settings, test_mcp_server, update_mcp_settings
 from ui.backend.model_providers_api import get_model_providers
 from app_infra.paths import (
     HOST,
@@ -87,7 +88,7 @@ MIME_TYPES = {
 
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
-    server_version = "PaperNotesPython/1.1.2"
+    server_version = "PaperNotesPython/1.2.0"
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -191,6 +192,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/settings/tools":
             self._run_api_handler(self.handle_get_tool_settings)
             return
+        if parsed.path == "/api/settings/mcp":
+            self._run_api_handler(self.handle_get_mcp_settings)
+            return
         if parsed.path == "/api/skills":
             self._run_api_handler(lambda: self.handle_list_skills(parsed.query))
             return
@@ -233,6 +237,8 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/memory": self.handle_update_memory,
             "/api/settings/ai": self.handle_update_ai_settings,
             "/api/settings/tools": self.handle_update_tool_settings,
+            "/api/settings/mcp": self.handle_update_mcp_settings,
+            "/api/settings/mcp/test": self.handle_test_mcp_server,
             "/api/skills/update": self.handle_update_skill,
             "/api/skills/settings": self.handle_update_skill_settings,
             "/api/auth/codex/start": self.handle_start_codex_auth,
@@ -448,6 +454,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
     def handle_get_tool_settings(self) -> None:
         self.send_json(HTTPStatus.OK, get_tool_settings())
 
+    def handle_get_mcp_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, get_mcp_settings())
+
     def handle_list_skills(self, query: str) -> None:
         params = parse_qs(query)
         category = params.get("category", [""])[0]
@@ -527,6 +536,12 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_update_tool_settings(self) -> None:
         self.send_json(HTTPStatus.OK, update_tool_settings(self.read_json_body()))
+
+    def handle_update_mcp_settings(self) -> None:
+        self.send_json(HTTPStatus.OK, update_mcp_settings(self.read_json_body()))
+
+    def handle_test_mcp_server(self) -> None:
+        self.send_json(HTTPStatus.OK, test_mcp_server(self.read_json_body()))
 
     def handle_delete_ai_api_key(self) -> None:
         query = parse_qs(urlparse(self.path).query)

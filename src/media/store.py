@@ -22,6 +22,7 @@ from media.image import (
     data_url_for_bytes,
     extension_for_mime,
     image_dimensions_for_path,
+    ImageValidationError,
     normalize_upload_image,
     parse_base64_image,
     sniff_image_mime,
@@ -146,6 +147,108 @@ class MediaStore:
             model=model,
             metadata=metadata,
         )
+
+    def create_mcp_image(
+        self,
+        image_data: str,
+        *,
+        mime_type: str = "",
+        server_id: str = "",
+        tool_name: str = "",
+        resource_uri: str = "",
+        file_name: str = "",
+    ) -> ImageArtifact:
+        requested_mime = normalize_text(mime_type).lower()
+        if requested_mime and not requested_mime.startswith("image/"):
+            raise MediaStoreError(f"Unsupported MCP image MIME type: {mime_type}")
+        try:
+            raw, sniffed_mime = parse_base64_image(image_data)
+        except ImageValidationError as error:
+            raise MediaStoreError(str(error)) from error
+        if requested_mime and requested_mime != sniffed_mime:
+            raise MediaStoreError("MCP image MIME type does not match its content.")
+        try:
+            data, final_mime, width, height = normalize_upload_image(raw, mime_type=sniffed_mime)
+        except ImageValidationError as error:
+            raise MediaStoreError(str(error)) from error
+        artifact_id = self._new_id("mcp")
+        extension = extension_for_mime(final_mime)
+        safe_server = _safe_segment(server_id or "unknown")
+        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
+        target = self.root / "mcp" / safe_server / safe_name
+        if target.exists():
+            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return self._register(
+            artifact_id=artifact_id,
+            source="mcp",
+            path=target,
+            mime_type=final_mime,
+            file_name=target.name,
+            kind="image",
+            size=len(data),
+            width=width,
+            height=height,
+            metadata={
+                "serverId": server_id,
+                "toolName": tool_name,
+                "resourceUri": resource_uri,
+                "storageFileName": target.name,
+            },
+        )
+
+    def create_mcp_file(
+        self,
+        content: Any,
+        *,
+        mime_type: str,
+        server_id: str = "",
+        tool_name: str = "",
+        resource_uri: str = "",
+        file_name: str = "",
+    ) -> ImageArtifact:
+        normalized_mime = normalize_text(mime_type).lower()
+        kind, extension = GENERATED_TEXT_MIME_KINDS.get(normalized_mime, ("", ""))
+        if not kind:
+            raise MediaStoreError(f"Unsupported MCP file MIME type: {mime_type}")
+        if isinstance(content, bytes):
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise MediaStoreError("MCP file content must be UTF-8 text.") from error
+        else:
+            text = "" if content is None else str(content)
+        data = text.encode("utf-8")
+        if len(data) > DEFAULT_MAX_ATTACHMENT_BYTES:
+            raise MediaStoreError("MCP file payload is too large.")
+        artifact_id = self._new_id("mcp")
+        safe_server = _safe_segment(server_id or "unknown")
+        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
+        target = self.root / "mcp" / safe_server / safe_name
+        if target.exists():
+            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        artifact = self._register(
+            artifact_id=artifact_id,
+            source="mcp",
+            path=target,
+            mime_type=normalized_mime,
+            file_name=safe_name,
+            kind=kind,
+            size=len(data),
+            metadata={
+                "serverId": server_id,
+                "toolName": tool_name,
+                "resourceUri": resource_uri,
+                "storageFileName": target.name,
+                "extractionStatus": "complete",
+                "extractedTextChars": len(text),
+            },
+        )
+        self._write_extracted_text(artifact.id, text)
+        return artifact
 
     def create_generated_file(
         self,

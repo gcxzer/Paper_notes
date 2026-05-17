@@ -1,11 +1,10 @@
 # Paper Notes Progress
 
-Updated: 2026-05-15
+Updated: 2026-05-17
 
 ## Remaining Follow-Ups
 
-- Cron function
-- channals ？
+- Cron
 - Improve memory management and retrieval quality.
 - Add a subagent system if the agent workflow grows beyond one session
   runner.
@@ -14,6 +13,39 @@ Updated: 2026-05-15
 - Consider a stronger sandbox backend for Code Execution, such as Docker or
   another isolated execution backend.
 - Keep README and this release brief aligned as tool behavior changes.
+- MCP follow-ups from the Hermes Agent comparison:
+  - P0 completed: dynamic `tools/list_changed` refresh,
+    reconnection/keepalive recovery, and capability-aware resource/prompt
+    utility tools for stdio and Streamable HTTP.
+  - P1 completed: per-server include/exclude tool filters with wildcard support
+    and Settings > MCP textarea configuration.
+  - P2A completed: MCP `image/*` tool/resource/prompt results are materialized
+    as Paper Notes media artifacts.
+  - P2B completed: MCP safe text-like tool/resource/prompt results are
+    materialized as Paper Notes file artifacts.
+  - P2C/hardening completed: artifact-safe trimming, MCP prompt-injection
+    warnings/sanitization, circuit breaker status, and best-effort stdio orphan
+    cleanup.
+  - P2D/status-smoke completed: Streamable HTTP cross-origin redirects strip
+    configured/sensitive headers, Settings > MCP shows circuit/security status,
+    and smoke coverage verifies MCP settings plus MCP artifact cards.
+  - Next: SSE transport and OAuth 2.1/PKCE.
+  - Later: MCP sampling/createMessage support, running Paper Notes as an MCP
+    server, and arbitrary binary/file artifactization.
+
+## Release 1.2.0
+
+- Added MCP stdio and Streamable HTTP tool integration with dynamic
+  `tools/list_changed` refresh, reconnect/keepalive recovery, and
+  circuit-breaker status reporting.
+- Added capability-aware MCP resource and prompt utility tools, plus
+  per-server include/exclude filters in Settings > MCP.
+- MCP image and safe text-like results now materialize as Paper Notes media
+  artifacts while preserving artifact fields through result trimming.
+- Added MCP prompt-injection warning/sanitization, redirect header stripping,
+  stdio orphan cleanup, and Settings > MCP status/security warning display.
+- Expanded MCP API, registry, media store, prompt, agent service, and Playwright
+  smoke coverage; full backend and smoke suites pass for the release.
 
 ## Release 1.1.2
 
@@ -111,6 +143,7 @@ The agent exposes these visible tool groups:
 6. Session Search
 7. Todo
 8. Skills
+9. MCP, when at least one enabled MCP server exposes tools
 
 Important current behavior:
 
@@ -129,6 +162,39 @@ Important current behavior:
 - `generated_artifacts` registers `create_file_artifact` and
   `create_image_artifact`, but the group is hidden from normal tool settings and
   only selected for explicit generation flows.
+- MCP currently connects enabled external servers at agent startup, registers
+  discovered tools under the `mcp` toolset, supports stdio and Streamable HTTP,
+  redacts env/header secrets in settings responses, and maps MCP `readOnlyHint`
+  annotations into Paper Notes read/write tool safety.
+- MCP refreshes the registry on `tools/list_changed`, recovers long-lived
+  sessions with keepalive/reconnect, and exposes read-only resources/prompts
+  utility tools when a server advertises those capabilities.
+- MCP server settings can include or exclude ordinary tools and MCP utility
+  tools per server, using exact names or `*` wildcards.
+- MCP `image/*` content returned by tools, resource reads, or prompt content is
+  now stored as local `source="mcp"` media artifacts and attached to assistant
+  messages through the existing artifact card pipeline.
+- MCP safe text-like content returned by tools, resource reads, or prompt
+  content is now stored as local `source="mcp"` file artifacts for download.
+- MCP preserves artifact, media error, and security warning fields when large
+  tool results are trimmed or persisted as compact references.
+- MCP treats external tool descriptions, schema descriptions, resources,
+  prompts, and results as untrusted content: suspicious instruction-like
+  descriptions are neutralized before model exposure, and suspicious result
+  content carries `securityWarnings` without blocking the result.
+- MCP long-lived servers report runtime state, failure counts, retry timing, and
+  circuit-open status; repeated reconnect failures pause retries until cooldown,
+  and circuit-open tool calls return `mcp_circuit_open`.
+- Settings > MCP displays circuit-open/reconnecting/connecting status, retry
+  timing, failure counts, and MCP security warning counts from the public status
+  payload.
+- MCP Streamable HTTP keeps normal same-origin redirects but strips configured
+  and standard sensitive headers on cross-origin redirects.
+- MCP stdio servers are tracked during transport startup and cleaned up
+  best-effort on shutdown, cancellation, or startup timeout.
+- Current MCP limits, compared with `hermes-agent`, are intentional gaps for now:
+  no SSE transport, OAuth, sampling, Paper Notes MCP-server mode, or arbitrary
+  binary MCP file artifactization.
 - Large tool outputs are stored under `.paper-notes/logs/tool-results/` and
   replaced with compact references when needed.
 
@@ -192,6 +258,64 @@ Recent focused verification:
 - Provider-native web search support is complete for the supported providers,
   and image-generation support now follows the current provider matrix with
   enforced runtime and UI routing.
+- Focused MCP coverage passes for settings persistence/redaction, stdio and
+  Streamable HTTP fixtures, tool registration, timeout/error handling, and
+  AgentService tool visibility.
+- MCP P0 coverage passes for dynamic tool refresh, `tools/list_changed`
+  notification handling, reconnect retry on expired sessions, keepalive-triggered
+  reconnect, and capability-aware resources/prompts utility tools.
+- 2026-05-17 MCP P0 verification:
+  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/registry.py`
+    passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py -q`
+    passed with 19 tests.
+  - `uv run pytest tests/test_tool_catalog.py tests/test_ai_settings_api.py tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py -q`
+    passed with 60 tests.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP"`
+    passed with 1 Playwright smoke test.
+- 2026-05-17 MCP P2C/hardening verification:
+  - `uv run python -m py_compile src/tools/registry.py src/tools/result_storage.py src/tools/mcp/manager.py src/tools/executor.py src/agent_prompts/builder.py`
+    passed.
+  - `uv run pytest tests/test_tool_registry.py tests/test_mcp_tool.py tests/test_agent_prompts.py -q`
+    passed with 70 tests.
+  - `uv run pytest tests/test_tool_registry.py tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
+    passed with 131 tests.
+- 2026-05-17 MCP P2D/status-smoke verification:
+  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/mcp/settings.py`
+    passed.
+  - `node --check src/ui/frontend/scripts/site/settings/mcp.js` passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
+    passed with 118 tests.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP|artifact"`
+    passed with 2 Playwright smoke tests.
+- 2026-05-17 MCP closure verification:
+  - `uv run pytest -q` passed with 528 tests.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js` passed with
+    48 Playwright smoke tests.
+  - `git diff --check` passed.
+- 2026-05-17 MCP P1 verification:
+  - `uv run python -m py_compile src/tools/mcp/settings.py src/tools/mcp/manager.py src/tools/registry.py`
+    passed.
+  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/events.js`
+    passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py -q`
+    passed with 22 tests.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_tool_catalog.py tests/test_ai_settings_api.py -q`
+    passed with 64 tests.
+  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP"`
+    passed with 1 Playwright smoke test.
+- 2026-05-17 MCP P2A verification:
+  - `uv run python -m py_compile src/tools/mcp/manager.py src/media/store.py src/agent_runtime/service.py`
+    passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_media_store.py tests/test_agent_service.py tests/test_mcp_agent_service.py -q`
+    passed with 98 tests.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_service.py tests/test_media_store.py -q`
+    passed with 102 tests.
+- 2026-05-17 MCP P2B verification:
+  - `uv run python -m py_compile src/tools/mcp/manager.py src/media/store.py src/agent_runtime/service.py`
+    passed.
+  - `uv run pytest tests/test_mcp_tool.py tests/test_media_store.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_service.py -q`
+    passed with 116 tests.
 
 Useful full checks:
 

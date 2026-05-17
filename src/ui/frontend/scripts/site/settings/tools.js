@@ -153,6 +153,13 @@ function setToolSettingsError(message = "") {
   elements.toolSettingsError.hidden = !message;
 }
 
+function displayToolSettingsPath(path) {
+  const normalized = normalizeText(path || ".paper-notes/tool-settings.json");
+  const marker = ".paper-notes/";
+  const markerIndex = normalized.lastIndexOf(marker);
+  return markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
+}
+
 function renderToolSettingsDialog() {
   if (!elements.toolSettingsDialog) return;
   const settings = state.toolSettings || normalizeToolSettings({});
@@ -164,7 +171,7 @@ function renderToolSettingsDialog() {
   elements.toolAccessFull.checked = settings.globalAccess === "full_access";
   elements.builtInToolSettingsCount.textContent = `${builtInTools.length} ${builtInTools.length === 1 ? "tool" : "tools"}`;
   elements.toolSettingsCount.textContent = `${customTools.length} ${customTools.length === 1 ? "tool" : "tools"}`;
-  elements.toolSettingsSource.textContent = `Local tool settings are stored in ${settings.settingsPath}.`;
+  elements.toolSettingsSource.textContent = `Config file: ${displayToolSettingsPath(settings.settingsPath)}`;
   elements.saveToolSettings.disabled = state.toolSettingsLoading;
 
   if (state.toolSettingsLoading) {
@@ -229,14 +236,15 @@ function renderToolSettingsItems(tools, inheritedLabel, options = {}) {
 function renderCustomWebSearchSettingsItem(tool) {
   return `
     <article class="tool-settings-item tool-settings-item--web-search">
-      <div class="tool-settings-copy">
-        <strong>${escapeHtml(tool.label || tool.name)}</strong>
-        <span>${escapeHtml(tool.description)}</span>
-        ${renderWebSearchProviderDetails()}
+      <div class="tool-settings-custom-head">
+        <div class="tool-settings-copy">
+          <strong>${escapeHtml(tool.label || tool.name)}</strong>
+        </div>
+        <div class="tool-settings-controls">
+          <span class="tool-readonly-pill">Read-only</span>
+        </div>
       </div>
-      <div class="tool-settings-controls">
-        <span class="tool-readonly-pill">Read-only</span>
-      </div>
+      ${renderWebSearchProviderDetails()}
     </article>
   `;
 }
@@ -253,14 +261,16 @@ function renderWebSearchProviderDetails() {
     ? `Key configured (${escapeHtml(provider.braveSearchKeySource || "local")})`
     : "Key not configured";
   return `
-    <details class="tool-provider-details"${state.toolSettingsWebSearchOpen ? " open" : ""}>
-      <summary>Configure providers</summary>
+    <section class="tool-provider-details" aria-label="Custom web search providers">
+      <div class="tool-provider-heading">
+        <strong>Providers</strong>
+      </div>
       <div class="tool-provider-panel">
         ${renderWebSearchProviderRow({
           name: "Tavily",
           label: "Tavily",
           enabled: tavilyEnabled,
-          keyLabel: "Tavily API key",
+          keyLabel: "API key",
           keyAttr: "data-web-search-tavily-key",
           placeholder: provider.tavilyKeyConfigured ? "Leave blank to keep current key" : "tvly-...",
           status: tavilyStatus
@@ -269,29 +279,28 @@ function renderWebSearchProviderDetails() {
           name: "Brave",
           label: "Brave Search",
           enabled: braveEnabled,
-          keyLabel: "Brave Search API key",
+          keyLabel: "API key",
           keyAttr: "data-web-search-brave-key",
           placeholder: provider.braveSearchKeyConfigured ? "Leave blank to keep current key" : "BSA...",
           status: braveStatus
         })}
       </div>
-    </details>
+    </section>
   `;
 }
 
 function renderWebSearchProviderRow({ name, label, enabled, keyLabel, keyAttr, placeholder, status }) {
   return `
     <section class="web-search-provider-row${enabled ? "" : " is-off"}">
-      <div class="web-search-provider-header">
-        <div class="web-search-provider-title">
-          <strong>${escapeHtml(label)}</strong>
-          <small>${escapeHtml(status)}</small>
-        </div>
-        <label class="tool-enabled-toggle">
-          <input type="checkbox" data-web-search-provider-enabled="${escapeHtml(name)}"${enabled ? " checked" : ""}>
-          <span>${enabled ? "Enabled" : "Off"}</span>
-        </label>
+      <div class="web-search-provider-title">
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(status)}</small>
       </div>
+      <label class="tool-provider-switch">
+        <input type="checkbox" data-web-search-provider-enabled="${escapeHtml(name)}"${enabled ? " checked" : ""}>
+        <span aria-hidden="true"></span>
+        <em>${enabled ? "Enabled" : "Off"}</em>
+      </label>
       <label class="tool-provider-field">
         <span>${escapeHtml(keyLabel)}</span>
         <input ${keyAttr} type="password" autocomplete="off" placeholder="${escapeHtml(placeholder)}">

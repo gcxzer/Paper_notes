@@ -27,6 +27,7 @@ _SETTINGS_GROUP_ORDER = (
     "todo",
     "skills",
     "web_search",
+    "mcp",
     "generated_artifacts",
 )
 

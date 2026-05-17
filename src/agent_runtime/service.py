@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 import os
@@ -60,6 +61,7 @@ from tools.web_search import register_web_search_tool
 
 MODEL_VISIBLE_ROLES = {"user", "assistant", "tool", "system", "developer"}
 CUSTOM_WEB_SEARCH_TOOL = "web_search"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -240,6 +242,15 @@ class AgentService:
                 image_generation_provider=self._current_tool_image_generation,
                 attachment_provider=self._current_tool_attachments,
             )
+        self.mcp_manager = None
+        if self._use_default_toolsets:
+            try:
+                from tools.mcp import MCPManager
+
+                self.mcp_manager = MCPManager(self.tool_registry, media_store=self.media_store)
+                self.mcp_manager.discover_from_settings()
+            except Exception as error:
+                logger.warning("MCP discovery failed during agent service startup: %s", error)
         self.tool_catalog = tool_catalog or ToolCatalog(self.tool_registry)
         self.provider_name = provider_name
         self.provider_kwargs = dict(provider_kwargs or {})
@@ -263,6 +274,11 @@ class AgentService:
         self.tool_result_store = tool_result_store or ToolResultStore(
             self.session_store.sessions_root.parent / "logs" / "tool-results"
         )
+
+    def close(self) -> None:
+        if self.mcp_manager is not None:
+            self.mcp_manager.shutdown()
+            self.mcp_manager = None
 
     def context_status_fuc(
         self,

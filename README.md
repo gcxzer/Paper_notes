@@ -196,6 +196,65 @@ Tool settings live in Settings > Tools. Built-in tools are enabled by default
 and currently default to full access unless you change the global or per-tool
 mode. You can switch tools to ask, read-only, block, or disabled from the UI.
 
+MCP settings live in Settings > MCP. Paper Notes acts as an MCP client/host:
+enabled external MCP servers are connected at agent startup and their tools are
+registered under the `MCP` tool group. The local config is stored in
+`.paper-notes/mcp-servers.json`; Paper Notes writes it with `0600` file
+permissions and redacts env/header values in API responses and the UI.
+
+Minimal stdio example:
+
+```json
+{
+  "servers": [{
+    "id": "filesystem",
+    "name": "Filesystem",
+    "enabled": true,
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/folder"],
+    "env": {},
+    "timeoutSeconds": 120,
+    "connectTimeoutSeconds": 10
+  }]
+}
+```
+
+Minimal Streamable HTTP example:
+
+```json
+{
+  "servers": [{
+    "id": "local_http_mcp",
+    "name": "Local HTTP MCP",
+    "enabled": true,
+    "transport": "http",
+    "url": "http://127.0.0.1:8000/mcp",
+    "headers": { "Authorization": "Bearer <token>" },
+    "timeoutSeconds": 120,
+    "connectTimeoutSeconds": 10
+  }]
+}
+```
+
+Secrets can be entered as `env` for stdio servers or `headers` for HTTP
+servers. You can optionally add `includeTools` and `excludeTools` arrays to a
+server entry; values match original MCP tool names, support `*` wildcards, and
+also apply to the utility names `list_resources`, `read_resource`,
+`list_prompts`, and `get_prompt`.
+
+Paper Notes also refreshes exposed tools after `tools/list_changed`, keeps
+long-lived sessions alive with reconnect/circuit-breaker handling, exposes
+read-only resource and prompt utility tools when advertised by the server, and
+materializes MCP image or safe text-like results as local `source="mcp"` media
+artifacts. Settings > MCP shows runtime status, retry timing, and MCP security
+warning counts.
+
+In v1.1, MCP support is still limited to external tools over stdio and
+Streamable HTTP. SSE transport, MCP OAuth, sampling/createMessage, running Paper
+Notes itself as an MCP server, and arbitrary binary artifactization are
+intentionally left for later.
+
 Visible tool groups are ordered as:
 
 1. Paper Notes
@@ -206,6 +265,7 @@ Visible tool groups are ordered as:
 6. Todo
 7. Skills
 8. Custom Web Search
+9. MCP, when at least one enabled MCP server exposes tools
 
 The Debug link under a completed answer opens the saved run log for model
 requests, tool calls, progress events, and work trace details. Tool activity
@@ -239,6 +299,7 @@ Agent and app runtime state:
 - `.paper-notes/memory/`: curated user/project memory
 - `.paper-notes/media/`: uploads and generated artifacts
 - `.paper-notes/skills/`: user-installed or user-authored skills
+- `.paper-notes/mcp-servers.json`: local MCP server configuration
 - `.paper-notes/tool-settings.json`: local tool permissions
 - `.paper-notes/secrets.env` and `.paper-notes/auth/`: local provider secrets/auth
 

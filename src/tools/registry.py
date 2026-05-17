@@ -15,6 +15,17 @@ from tools.types import ToolDefinition, ToolDispatchResult, ToolGroupDefinition,
 
 logger = logging.getLogger(__name__)
 _DEFAULT_AVAILABILITY_TTL_SECONDS = 30.0
+_PRESERVED_RESULT_FIELDS = (
+    "success",
+    "server_id",
+    "artifact",
+    "artifacts",
+    "mediaErrors",
+    "securityWarnings",
+    "code",
+    "error",
+)
+_TRIMMABLE_RESULT_FIELDS = ("result", "preview", "structuredContent")
 _tool_loop: asyncio.AbstractEventLoop | None = None
 _tool_loop_lock = threading.Lock()
 _worker_thread_local = threading.local()
@@ -93,6 +104,12 @@ class ToolRegistry:
             if definition.name in self._tools:
                 raise ValueError(f"Tool already registered: {definition.name}")
             self._tools[definition.name] = definition
+            self._generation += 1
+
+    def upsert(self, definition: ToolDefinition) -> None:
+        with self._lock:
+            self._tools[definition.name] = definition
+            self._availability_cache.pop(definition.name, None)
             self._generation += 1
 
     def register_group(self, group: ToolGroupDefinition) -> None:
@@ -211,12 +228,18 @@ class ToolRegistry:
             return ToolDispatchResult(name=name, content=_json_error(f"Unknown tool: {name}"), is_error=True)
         if not self.is_available(name):
             _, details = self.availability(name)
+            code = str(details.get("code") or "tool_unavailable") if isinstance(details, dict) else "tool_unavailable"
+            message = (
+                str(details.get("error") or "Tool is not available in this environment.")
+                if isinstance(details, dict)
+                else "Tool is not available in this environment."
+            )
             return ToolDispatchResult(
                 name=name,
                 content=json.dumps({
                     "success": False,
-                    "error": "Tool is not available in this environment.",
-                    "code": "tool_unavailable",
+                    "error": message,
+                    "code": code,
                     "availability": details,
                 }, ensure_ascii=False),
                 is_error=True,
@@ -347,6 +370,32 @@ def _is_error_result(result: Any) -> bool:
 
 def _trim_tool_result_content(content: str, *, max_chars: int) -> str:
     limit = max(200, int(max_chars))
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        compact: dict[str, Any] = {}
+        for key in _PRESERVED_RESULT_FIELDS:
+            if key in payload:
+                compact[key] = payload[key]
+        compact.setdefault("success", True)
+        compact.update({
+            "truncated": True,
+            "original_chars": len(content),
+        })
+        omitted: list[str] = []
+        for key in _TRIMMABLE_RESULT_FIELDS:
+            if key in payload:
+                compact[key] = _trim_result_field(payload[key], max_chars=limit)
+        for key in payload:
+            if key not in compact and key not in _TRIMMABLE_RESULT_FIELDS:
+                omitted.append(str(key))
+        if omitted:
+            compact["omitted_keys"] = omitted
+        if not any(key in compact for key in ("result", "preview", "structuredContent")):
+            compact["preview"] = f"{content[:limit].rstrip()}...[truncated]"
+        return json.dumps(compact, ensure_ascii=False, indent=2)
     preview = content[:limit].rstrip()
     return json.dumps({
         "success": True,
@@ -354,6 +403,21 @@ def _trim_tool_result_content(content: str, *, max_chars: int) -> str:
         "original_chars": len(content),
         "preview": f"{preview}...[truncated]",
     }, ensure_ascii=False, indent=2)
+
+
+def _trim_result_field(value: Any, *, max_chars: int) -> Any:
+    if isinstance(value, str):
+        if len(value) <= max_chars:
+            return value
+        return f"{value[:max_chars].rstrip()}...[truncated]"
+    text = json.dumps(value, ensure_ascii=False)
+    if len(text) <= max_chars:
+        return value
+    return {
+        "truncated": True,
+        "original_chars": len(text),
+        "preview": f"{text[:max_chars].rstrip()}...[truncated]",
+    }
 
 
 __all__ = [

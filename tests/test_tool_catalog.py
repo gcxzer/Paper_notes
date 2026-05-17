@@ -98,6 +98,39 @@ def test_generated_artifact_toolset_is_explicit_but_not_default():
     assert groups["generated_artifacts"].metadata["ui_hidden"] is True
 
 
+def test_mcp_toolset_is_explicit_dynamic_settings_group():
+    registry = _registry_with_group_tools()
+    registry.register(ToolDefinition(
+        name="mcp_filesystem_write_file",
+        description="Write through an external MCP server.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda args: {"success": True},
+        toolset="mcp",
+        mutating=True,
+        risk="write",
+        kind="external",
+    ))
+    catalog = ToolCatalog(registry)
+
+    default = catalog.resolve(ToolSelection.from_values())
+    mcp = catalog.resolve(ToolSelection.from_values(enabled_toolsets=["mcp"], default_toolsets=None))
+    group_names = [group.name for group in catalog.describe_groups()]
+
+    assert "mcp_filesystem_write_file" not in default.tool_names
+    assert mcp.tool_names == ("mcp_filesystem_write_file",)
+    assert group_names == [
+        "paper_notes",
+        "code_execution",
+        "persistent_memory",
+        "session_search",
+        "todo",
+        "skills",
+        "web_search",
+        "mcp",
+    ]
+    assert catalog.describe_groups()[-1].display_name == "MCP"
+
+
 def test_catalog_cache_returns_deep_copy_and_invalidates_on_generation():
     registry = _registry_with_group_tools()
     catalog = ToolCatalog(registry)

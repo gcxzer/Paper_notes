@@ -3,7 +3,7 @@
 @import "./shell.css";
 @import "./library.css";
 @import "./dialogs.css";
-@import "./settings.css";
-@import "./skills.css";
-@import "./memory-debug.css";
+@import "./settings.css?v=ai-provider-ui-v1";
+@import "./skills.css?v=skills-ui-v4";
+@import "./memory-debug.css?v=memory-ui-v1";
 @import "./responsive.css";

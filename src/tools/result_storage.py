@@ -32,6 +32,16 @@ from app_infra.storage import atomic_write_json
 
 PERSISTED_RESULT_MARKER = '"persisted_tool_result": true'
 _BUDGET_TOOL_NAME = "__turn_budget__"
+_PRESERVED_REFERENCE_FIELDS = (
+    "success",
+    "server_id",
+    "artifact",
+    "artifacts",
+    "mediaErrors",
+    "securityWarnings",
+    "code",
+    "error",
+)
 
 
 @dataclass(slots=True)
@@ -111,6 +121,7 @@ class ToolResultStore:
         }
         atomic_write_json(path, payload)
         relative_path = self._relative_path(path)
+        preserved = _preserved_reference_fields(text)
         reference = _persisted_reference(
             tool_name=tool_name,
             result_id=path.stem,
@@ -119,6 +130,7 @@ class ToolResultStore:
             preview=preview,
             has_more=has_more,
             reason=reason,
+            preserved=preserved,
         )
         return ToolResultPersistence(
             content=reference,
@@ -199,10 +211,12 @@ def _persisted_reference(
     preview: str,
     has_more: bool,
     reason: str,
+    preserved: dict[str, Any] | None = None,
 ) -> str:
     suffix = "\n..." if has_more else ""
-    return json.dumps({
-        "success": True,
+    preserved_payload = dict(preserved or {})
+    payload = {
+        "success": preserved_payload.pop("success", True),
         "persisted_tool_result": True,
         "tool_name": str(tool_name or ""),
         "result_id": result_id,
@@ -212,7 +226,27 @@ def _persisted_reference(
         "preview_chars": len(preview),
         "message": "Tool result was too large for inline model context; full output was saved locally.",
         "preview": preview + suffix,
-    }, ensure_ascii=False, indent=2)
+    }
+    for key in _PRESERVED_REFERENCE_FIELDS:
+        if key == "success":
+            continue
+        if key in preserved_payload:
+            payload[key] = preserved_payload[key]
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _preserved_reference_fields(content: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: payload[key]
+        for key in _PRESERVED_REFERENCE_FIELDS
+        if key in payload
+    }
 
 
 def _safe_id(value: object) -> str:

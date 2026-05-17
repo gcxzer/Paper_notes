@@ -33,7 +33,7 @@ TOOL_ACCESS_VALUES = frozenset({"inherit", "ask", "auto", "warn", "readonly", "b
 NATIVE_WEB_SEARCH = "native_web_search"
 LEGACY_NATIVE_WEB_SEARCH = "provider_native_web_search"
 BUILT_IN_TOOL_SETTING_GROUPS = ("paper_notes", "code_execution", "persistent_memory", "session_search", "todo", "skills")
-CUSTOM_TOOL_SETTING_GROUPS = ("web_search",)
+CUSTOM_TOOL_SETTING_GROUPS = ("web_search", "mcp")
 VIRTUAL_TOOL_SETTING_GROUPS = (NATIVE_WEB_SEARCH,)
 TOOL_SETTING_GROUPS = (*BUILT_IN_TOOL_SETTING_GROUPS, *CUSTOM_TOOL_SETTING_GROUPS)
 
@@ -333,6 +333,10 @@ def _default_tool_settings() -> dict[str, Any]:
     }
 
 
+def _default_toolset_enabled(group: str) -> bool:
+    return group != "web_search"
+
+
 def _normalize_stored_tool_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload.get("toolsets"), dict):
         return {
@@ -378,7 +382,7 @@ def _normalize_tool_settings_update(body: dict[str, Any], catalog: ToolCatalog, 
         mutating = any(definition.mutating for definition in definitions)
         read_only = all(definition.read_only for definition in definitions) and not mutating
         access = _normalize_tool_access(raw.get("access"), mutating=mutating)
-        enabled = _bool_or_default(raw.get("enabled"), group not in CUSTOM_TOOL_SETTING_GROUPS)
+        enabled = _bool_or_default(raw.get("enabled"), _default_toolset_enabled(group))
         if access == "disabled":
             enabled = False
         toolset_entry: dict[str, object] = {
@@ -473,7 +477,7 @@ def _normalize_stored_toolsets(raw: Any, payload: dict[str, Any] | None = None) 
         if not isinstance(name, str) or not isinstance(entry, dict):
             continue
         normalized_entry: dict[str, object] = {
-            "enabled": _bool_or_default(entry.get("enabled"), name not in CUSTOM_TOOL_SETTING_GROUPS),
+            "enabled": _bool_or_default(entry.get("enabled"), _default_toolset_enabled(name)),
             "access": _normalize_tool_access(entry.get("access"), mutating=True),
         }
         if name == "web_search":
@@ -683,7 +687,7 @@ def _migrate_legacy_tool_settings(payload: dict[str, Any]) -> dict[str, Any]:
         raw = raw_tools.get(group)
         if isinstance(raw, dict):
             toolsets[group] = {
-                "enabled": _bool_or_default(raw.get("enabled"), group not in CUSTOM_TOOL_SETTING_GROUPS),
+                "enabled": _bool_or_default(raw.get("enabled"), _default_toolset_enabled(group)),
                 "access": _normalize_tool_access(raw.get("access"), mutating=True),
             }
     provider_raw = raw_tools.get(NATIVE_WEB_SEARCH, raw_tools.get(LEGACY_NATIVE_WEB_SEARCH))
@@ -778,11 +782,11 @@ def _stored_group_settings(group: str, stored: dict[str, Any]) -> dict[str, Any]
     toolsets = stored.get("toolsets")
     if isinstance(toolsets, dict) and isinstance(toolsets.get(group), dict):
         return dict(toolsets[group])
-    return {"enabled": group not in CUSTOM_TOOL_SETTING_GROUPS, "access": "inherit"}
+    return {"enabled": _default_toolset_enabled(group), "access": "inherit"}
 
 
 def _stored_group_enabled(group: str, stored: dict[str, Any]) -> bool:
-    return _bool_or_default(_stored_group_settings(group, stored).get("enabled"), group not in CUSTOM_TOOL_SETTING_GROUPS)
+    return _bool_or_default(_stored_group_settings(group, stored).get("enabled"), _default_toolset_enabled(group))
 
 
 def _runtime_group_enabled(group: str, stored: dict[str, Any], native_web_search_enabled: bool) -> bool:
@@ -806,36 +810,14 @@ def _runtime_disabled_tools(
 
 def _group_description(catalog: ToolCatalog, group: str) -> str:
     descriptions = {
-        "paper_notes": (
-            "Allow the agent to search your library, read PDF text, render PDF pages, extract PDF images, inspect note HTML "
-            "and annotations, preview changes, and write safe note sections, metadata, "
-            "or annotation comments."
-        ),
-        "persistent_memory": (
-            "Allow the agent to read and update long-term user or project facts that should "
-            "carry across chat sessions."
-        ),
-        "session_search": (
-            "Allow the agent to search previous chat transcripts for earlier decisions, "
-            "task history, and context."
-        ),
-        "todo": (
-            "Allow the agent to maintain a session task list while it works through "
-            "multi-step note-writing requests."
-        ),
-        "skills": (
-            "Allow the agent to discover local task skills and load their instructions, "
-            "references, templates, and scripts only when needed."
-        ),
-        "code_execution": (
-            "Allow the agent to run local Python in a temporary directory with light process guardrails "
-            "and read-only Paper Notes tool callbacks. Approval follows the current tool permission mode; "
-            "this is not a strong isolation sandbox."
-        ),
-        "web_search": (
-            "Allow the agent to call configured custom web search providers, fetch specific public URLs, "
-            "and return answers with sources. If more than one provider is enabled, Tavily is used before Brave Search."
-        ),
+        "paper_notes": "Search notes and PDFs, inspect annotations, preview diffs, and write safe note updates.",
+        "persistent_memory": "Read and update long-term user or project facts across chats.",
+        "session_search": "Search previous chat transcripts for decisions and context.",
+        "todo": "Maintain a session task list while the agent works.",
+        "skills": "Discover local skills and load their instructions when needed.",
+        "code_execution": "Run local Python with light guardrails and read-only Paper Notes callbacks.",
+        "web_search": "Use configured custom search providers and fetch public URLs with sources.",
+        "mcp": "Call tools discovered from enabled MCP servers.",
     }
     groups = {definition.name: definition for definition in catalog.describe_groups()}
     group_definition = groups.get(group)
@@ -891,6 +873,7 @@ def _tool_label(name: str) -> str:
         "execute_code": "Execute Code",
         "web_search": "Custom Web Search",
         "web_fetch": "Web Fetch",
+        "mcp": "MCP",
     }
     if name in labels:
         return labels[name]
@@ -960,10 +943,7 @@ def _native_web_search_item(stored: dict[str, Any], *, enabled: bool | None = No
     return {
         "name": NATIVE_WEB_SEARCH,
         "label": _tool_label(NATIVE_WEB_SEARCH),
-        "description": (
-            "Allow supported model providers to use their native web_search tool "
-            "with provider citations and sources."
-        ),
+        "description": "Use the active provider's native web search with citations.",
         "toolset": "built_in",
         "readOnly": True,
         "mutating": False,
