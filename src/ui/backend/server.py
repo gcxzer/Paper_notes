@@ -652,7 +652,8 @@ def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), PaperNotesHandler)
-    print(f"Paper Notes is running at http://localhost:{PORT}")
+    display_host = "localhost" if HOST in {"127.0.0.1", "0.0.0.0"} else HOST
+    print(f"Paper Notes is running at http://{display_host}:{PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
