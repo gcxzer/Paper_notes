@@ -1305,7 +1305,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await expect(page.locator(".mcp-settings-toolbar")).toHaveCount(0);
   await expect(page.locator("#mcpSearchInput")).toBeVisible();
   await expect(page.locator("#mcpSettingsCount")).toHaveText("0 servers");
-  await expect(page.locator("#openMcpSettings .settings-theme-value")).toHaveText("External tool servers");
+  await expect(page.locator(".settings-menu-item .settings-theme-value")).toHaveCount(0);
   await expect(page.locator(".settings-menu-item .settings-theme-title")).toHaveText([
     "AI Provider",
     "Memory",
