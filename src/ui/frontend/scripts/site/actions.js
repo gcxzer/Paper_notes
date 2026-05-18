@@ -329,41 +329,22 @@ function readFileAsBase64(file) {
 }
 
 async function importPdfWithServer(file, categoryId) {
-  const response = await fetch(getApiUrl("/api/import-pdf"), {
+  return fetchJson("/api/import-pdf", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: {
       fileName: file.name,
       mimeType: file.type || "application/pdf",
       dataBase64: await readFileAsBase64(file),
       categoryId
-    })
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    if (response.status === 405) {
-      throw new Error("Link import is not loaded in the running server yet. Restart Paper Notes, then try again.");
     }
-    throw new Error(message || `Import failed (${response.status})`);
-  }
-
-  return response.json();
+  });
 }
 
 async function importPaperUrlWithServer(url, categoryId) {
-  const response = await fetch(getApiUrl("/api/import-paper-url"), {
+  return fetchJson("/api/import-paper-url", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, categoryId })
+    body: { url, categoryId }
   });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Import failed (${response.status})`);
-  }
-
-  return response.json();
 }
 
 function appendImportedNotes(importedNotes) {
