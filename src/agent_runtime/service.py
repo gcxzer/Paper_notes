@@ -63,6 +63,7 @@ from tools.web_search import register_web_search_tool
 MODEL_VISIBLE_ROLES = {"user", "assistant", "tool", "system", "developer"}
 CUSTOM_WEB_SEARCH_TOOL = "web_search"
 _RUNTIME_GENERATION_TOOL_HIDE_MODES = {"readonly", "block", "halt", "disabled"}
+ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
 logger = logging.getLogger(__name__)
 
 
@@ -393,6 +394,7 @@ class AgentService:
     def run(self, request: AgentServiceRequest) -> AgentServiceResult:
         run_started_at = datetime.now().astimezone()
         normalized_attachments = self._normalize_attachments(request.attachments)
+        request.message = _message_with_attachment_fallback(request.message, normalized_attachments)
         if isinstance(request.message, str) and not request.message.strip() and not normalized_attachments:
             raise ValueError("AgentServiceRequest.message must not be empty.")
         if request.edit_latest_user_message and not request.session_id:
@@ -2465,6 +2467,16 @@ def _attachment_instructions(attachments: list[dict[str, Any]]) -> str:
         f"using paper or note context. Do not answer from the current paper/note context when the question can "
         f"be answered from the attachment context.{suffix}"
     )
+
+
+def _message_with_attachment_fallback(message: Any, attachments: list[dict[str, Any]]) -> Any:
+    if not attachments:
+        return message
+    if message is None:
+        return ATTACHMENT_ONLY_MESSAGE
+    if isinstance(message, str) and not message.strip():
+        return ATTACHMENT_ONLY_MESSAGE
+    return message
 
 
 def _normalize_image_generation_config(value: dict[str, Any] | None) -> dict[str, Any]:

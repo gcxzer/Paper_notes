@@ -894,6 +894,18 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#openToolSettings")).toBeVisible();
   await expect(page.locator("#openSkillsSettings")).toBeVisible();
   await expect(page.locator("#openDebugSettings")).toBeVisible();
+  await expect(page.locator("#settingsMenuShield")).toBeVisible();
+  const settingsLayering = await page.evaluate(() => {
+    const menu = document.querySelector("#settingsMenu");
+    const shield = document.querySelector("#settingsMenuShield");
+    return {
+      menuBackground: getComputedStyle(menu).backgroundColor,
+      menuZIndex: Number(getComputedStyle(menu).zIndex),
+      shieldZIndex: Number(getComputedStyle(shield).zIndex),
+    };
+  });
+  expect(settingsLayering.menuBackground).not.toContain("rgba(0, 0, 0, 0)");
+  expect(settingsLayering.menuZIndex).toBeGreaterThan(settingsLayering.shieldZIndex);
 
   await page.locator("#openToolSettings").click();
   await expect(page.locator("#toolSettingsDialog")).toBeVisible();
@@ -1923,6 +1935,41 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Think" }).filter({ hasText: "Thinking through the paper context..." })).toBeVisible();
   await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Tool" }).filter({ hasText: "Reading note context..." })).toBeVisible();
   await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Status" }).filter({ hasText: "Preparing answer..." })).toBeVisible();
+  const activeToolProgress = askPane.locator(".ask-progress-inline.is-active .ask-progress-inline-text").filter({ hasText: "Reading note context..." });
+  const originalTheme = await page.evaluate(() => document.documentElement.dataset.theme || "");
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+  });
+  await expect(activeToolProgress).toHaveCSS("color", "rgb(36, 33, 29)");
+  await expect.poll(() => activeToolProgress.evaluate((node) => getComputedStyle(node.parentElement).getPropertyValue("--ask-progress-sheen-color").trim())).toBe("#ffffff");
+  const activeToolChars = activeToolProgress.locator(".ask-progress-inline-char");
+  await expect(activeToolChars).toHaveCount(Array.from("Reading note context...").length);
+  await expect(activeToolChars.first()).toHaveCSS("animation-duration", "3.2s");
+  await expect.poll(async () => {
+    const firstDelay = await activeToolChars.first().evaluate((node) => Number.parseFloat(getComputedStyle(node).animationDelay));
+    const lastDelay = await activeToolChars.last().evaluate((node) => Number.parseFloat(getComputedStyle(node).animationDelay));
+    return firstDelay < 0 && lastDelay < 0 && Math.abs(lastDelay - firstDelay) > 0.5;
+  }).toBe(true);
+  const freshToolDelays = await page.evaluate(() => {
+    const html = renderProgressInlineReadingText("Using a new tool call", new Date().toISOString());
+    const shell = document.createElement("span");
+    shell.innerHTML = html;
+    return [...shell.querySelectorAll(".ask-progress-inline-char")].map((node) => node.style.getPropertyValue("--progress-char-delay"));
+  });
+  expect(Number.parseFloat(freshToolDelays[0])).toBeGreaterThan(-0.25);
+  expect(Number.parseFloat(freshToolDelays.at(-1))).toBeLessThan(Number.parseFloat(freshToolDelays[0]));
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "dark";
+  });
+  await expect(activeToolProgress).toHaveCSS("color", "rgb(241, 242, 245)");
+  await expect.poll(() => activeToolProgress.evaluate((node) => getComputedStyle(node.parentElement).getPropertyValue("--ask-progress-sheen-color").trim())).toBe("#000000");
+  await page.evaluate((theme) => {
+    if (theme) {
+      document.documentElement.dataset.theme = theme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }, originalTheme);
   await expect.poll(async () => askPane.locator(".ask-message-progress-inline .ask-progress-inline-text").evaluateAll((nodes) => (
     nodes.map((node) => node.textContent?.trim()).filter(Boolean)
   ))).toEqual([
@@ -2845,6 +2892,7 @@ test("reader chat renders markdown blockquotes", async ({ page }) => {
   await expect(quote).toContainText("第一段引用");
   await expect(quote).toContainText("第二段引用");
   await expect(quote.locator("strong")).toHaveText("重点");
+  await expect(quote.locator("strong")).toHaveCSS("font-weight", "600");
   await expect(bubble).not.toContainText("> 第一段引用");
 });
 

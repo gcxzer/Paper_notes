@@ -1146,7 +1146,7 @@ function progressInlineRows(progress) {
     const key = `${type}\n${detail}`;
     if (seen.has(key)) return null;
     seen.add(key);
-    return { type, detail };
+    return { type, detail, at: normalizeText(row.at) };
   }).filter(Boolean);
 }
 
@@ -1188,19 +1188,36 @@ function isStatusProgressType(type) {
 }
 
 function renderProgressInlineRow(row, { active = false } = {}) {
-  const detail = escapeHtml(row.detail);
+  const detailText = normalizeText(row.detail);
+  const detail = escapeHtml(detailText);
   const type = progressInlineType(row.type);
   const activeClass = active && type === "tool" ? " is-active" : "";
+  const textHtml = activeClass ? renderProgressInlineReadingText(detailText, row.at) : detail;
   return `
     <div class="ask-message ask-message-assistant ask-message-progress-inline${activeClass}" role="status" aria-live="polite">
       <div class="ask-message-stack">
         <div class="ask-progress-inline${activeClass}">
           <span class="ask-progress-inline-type">${escapeHtml(workTraceItemLabel(type))}</span>
-          <span class="ask-progress-inline-text" data-progress-text="${detail}">${detail}</span>
+          <span class="ask-progress-inline-text" data-progress-text="${detail}" aria-label="${detail}">${textHtml}</span>
         </div>
       </div>
     </div>
   `;
+}
+
+function renderProgressInlineReadingText(text, startedAt = "") {
+  const chars = Array.from(normalizeText(text));
+  const stepSeconds = 0.032;
+  const durationSeconds = Math.max(3.2, Math.min(9, chars.length * stepSeconds + 0.9));
+  const startedMs = Date.parse(normalizeText(startedAt));
+  const elapsedSeconds = Number.isFinite(startedMs) ? Math.max(0, (Date.now() - startedMs) / 1000) : 0;
+  const phaseSeconds = elapsedSeconds % durationSeconds;
+  return chars.map((char, index) => {
+    const targetPhase = index * stepSeconds;
+    const currentPhase = (phaseSeconds - targetPhase + durationSeconds) % durationSeconds;
+    const delay = -currentPhase;
+    return `<span class="ask-progress-inline-char" style="--progress-char-duration: ${durationSeconds.toFixed(3)}s; --progress-char-delay: ${delay.toFixed(3)}s" aria-hidden="true">${escapeHtml(char)}</span>`;
+  }).join("");
 }
 
 function renderContextCompactionMarker(events, { running = false } = {}) {

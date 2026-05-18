@@ -7,7 +7,7 @@
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
   <script src="scripts/shared/model.js"></script>
-  <link rel="stylesheet" href="styles/site/index.css?v=note-card-tags-v2">
+  <link rel="stylesheet" href="styles/site/index.css?v=skills-title-weight-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -32,6 +32,7 @@
       <div class="sidebar-footer">
         <div class="settings-control">
           <button class="settings-button" id="settingsButton" type="button" aria-expanded="false" aria-haspopup="menu">Settings</button>
+          <div class="settings-menu-shield" id="settingsMenuShield" hidden></div>
           <div class="settings-menu" id="settingsMenu" role="menu" hidden>
             <div class="settings-menu-label">Appearance</div>
             <button class="settings-theme-switch" type="button" data-theme-switch role="switch" aria-checked="false">
@@ -659,7 +660,7 @@
     </div>
   </dialog>
 
-  <script src="scripts/site/page_state.js?v=ai-provider-actions-v1"></script>
+  <script src="scripts/site/page_state.js?v=settings-menu-shield-v1"></script>
   <script src="scripts/site/library.js?v=settings-info-hint-v1"></script>
   <script src="scripts/site/render.js?v=model-capabilities-v1"></script>
   <script src="scripts/site/settings/ai.js?v=ai-save-close-fast-v1"></script>
@@ -669,8 +670,8 @@
   <script src="scripts/site/settings/memory.js?v=settings-footer-actions-v1"></script>
   <script src="scripts/shared/debug-panel.js?v=debug-detail-kv-v1"></script>
   <script src="scripts/site/debug.js?v=settings-footer-actions-v1"></script>
-  <script src="scripts/site/actions.js?v=scratchpad-default-off-v1"></script>
-  <script src="scripts/site/events.js?v=settings-footer-actions-v1"></script>
+  <script src="scripts/site/actions.js?v=settings-menu-shield-v1"></script>
+  <script src="scripts/site/events.js?v=settings-menu-shield-v1"></script>
   <script src="scripts/shared/floating-pad.js?v=scratchpad-default-off-v1"></script>
 </body>
 </html>

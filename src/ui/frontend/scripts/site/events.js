@@ -207,6 +207,11 @@ elements.emptyState?.addEventListener("click", (event) => {
 });
 
 elements.settingsButton.addEventListener("click", toggleSettingsMenu);
+elements.settingsMenuShield?.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  closeSettingsMenu();
+});
 elements.settingsMenu.addEventListener("click", (event) => {
   if (event.target.closest("[data-theme-option]")) closeSettingsMenu();
 });

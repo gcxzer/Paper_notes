@@ -916,6 +916,38 @@ def test_upload_chat_attachment_keeps_index_error_raw():
         )
 
 
+def test_handle_chat_request_uses_default_prompt_for_attachment_only_message(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([ModelResponse(content="Attachment summary.")]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    artifact = service.media_store.create_upload(
+        "data:text/markdown;base64,IyBWb2NhYnVsYXJ5Cg==",
+        file_name="deutsch_vokabeln.md",
+        scope="session-1",
+        mime_type="text/markdown",
+    )
+
+    payload = handle_chat_request(
+        {"message": "", "attachments": [{"id": artifact.id}], "requestId": "request-1"},
+        service=service,
+        progress_store=AgentProgressStore(),
+        run_coordinator=AgentRunCoordinator(),
+        debug_store=DebugRunStore(tmp_path / "logs"),
+    )
+
+    user_message = payload["messages"][0]
+    assert user_message["role"] == "user"
+    assert user_message["text"] == "Please read and summarize the attached file."
+    assert user_message["attachments"][0]["fileName"] == "deutsch_vokabeln.md"
+    model_user_messages = [
+        message for message in service._model_provider.requests[0].messages
+        if message.get("role") == "user"
+    ]
+    assert model_user_messages[-1]["content"] == "Please read and summarize the attached file."
+
+
 def test_handle_chat_request_keeps_attachment_index_error_raw(tmp_path):
     class BrokenProvider:
         name = "broken"

@@ -11,7 +11,14 @@ from typing import Any, Callable
 
 from agent_runtime import AgentEvent
 from agent_runtime.tool_trace import read_paper_progress_detail
-from agent_runtime.service import AgentCompactResult, AgentContextStatus, AgentService, AgentServiceRequest, AgentServiceResult
+from agent_runtime.service import (
+    ATTACHMENT_ONLY_MESSAGE,
+    AgentCompactResult,
+    AgentContextStatus,
+    AgentService,
+    AgentServiceRequest,
+    AgentServiceResult,
+)
 from agent_sessions import AgentSession, AgentSessionMetadata, SessionNotFoundError
 from tool_safety import ToolApprovalNotFoundError, ToolSnapshotConflictError, ToolSnapshotError
 from media import MediaStoreError
@@ -114,6 +121,8 @@ def handle_chat_request(
     if message is None and not attachments:
         _debug_finish_error(debug, debug_request_id, "json", "message_required", "Message is required.", body=body)
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "message_required", "Message is required.")
+    if attachments and (message is None or (isinstance(message, str) and not normalize_text(message))):
+        message = ATTACHMENT_ONLY_MESSAGE
 
     progress = progress_store or get_agent_progress_store()
     if request_id:
@@ -1892,7 +1901,8 @@ def _session_title(body: dict[str, Any], message: Any) -> str:
         return explicit
 
     if isinstance(message, str):
-        message_title = normalize_text(message).splitlines()[0][:80]
+        message_lines = normalize_text(message).splitlines()
+        message_title = message_lines[0][:80] if message_lines else ""
         if message_title:
             return message_title
 

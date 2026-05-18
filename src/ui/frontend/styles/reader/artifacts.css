@@ -148,19 +148,17 @@
 }
 
 .ask-progress-inline {
-  --ask-progress-sheen-color: #c74424;
-  --ask-progress-sheen-glow: rgba(199, 68, 36, 0.46);
+  --ask-progress-sheen-color: #ffffff;
   display: flex;
   align-items: baseline;
   gap: 10px;
   max-width: min(900px, 100%);
-  color: var(--muted-strong);
+  color: var(--text);
   line-height: 1.45;
 }
 
 html[data-theme="dark"] .ask-progress-inline {
-  --ask-progress-sheen-color: #ffbf57;
-  --ask-progress-sheen-glow: rgba(255, 191, 87, 0.58);
+  --ask-progress-sheen-color: #000000;
 }
 
 .ask-progress-inline-type {
@@ -183,44 +181,34 @@ html[data-theme="dark"] .ask-progress-inline {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  color: var(--muted-strong);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
-@supports ((mask-image: linear-gradient(#000, #000)) or (-webkit-mask-image: linear-gradient(#000, #000))) {
-  .ask-progress-inline.is-active .ask-progress-inline-text::after {
-    position: absolute;
-    inset: 0;
-    content: attr(data-progress-text);
-    pointer-events: none;
-    color: color-mix(in srgb, var(--ask-progress-sheen-color) 90%, var(--text));
-    text-shadow: 0 0 0.16em var(--ask-progress-sheen-glow), 0 0 0.72em var(--ask-progress-sheen-glow);
-    -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
-    mask-image: linear-gradient(100deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
-    -webkit-mask-size: 190% 100%;
-    mask-size: 190% 100%;
-    -webkit-mask-position: 150% 0;
-    mask-position: 150% 0;
-    animation: ask-progress-text-sheen 5s linear infinite;
-  }
+.ask-progress-inline-char {
+  color: inherit;
 }
 
-@keyframes ask-progress-text-sheen {
-  0% {
-    -webkit-mask-position: 150% 0;
-    mask-position: 150% 0;
+.ask-progress-inline.is-active .ask-progress-inline-char {
+  animation: ask-progress-char-read var(--progress-char-duration, 5.6s) linear infinite;
+  animation-delay: var(--progress-char-delay, 0s);
+}
+
+@keyframes ask-progress-char-read {
+  0%,
+  8%,
+  100% {
+    color: var(--text);
   }
 
-  100% {
-    -webkit-mask-position: -150% 0;
-    mask-position: -150% 0;
+  2.5%,
+  4.5% {
+    color: var(--ask-progress-sheen-color);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ask-progress-inline.is-active .ask-progress-inline-text::after {
-    content: none;
-    background: none;
+  .ask-progress-inline.is-active .ask-progress-inline-char {
     animation: none;
   }
 }

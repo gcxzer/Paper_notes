@@ -151,6 +151,7 @@ const elements = {
   submitImportUrl: document.querySelector("#submitImportUrl"),
   settingsButton: document.querySelector("#settingsButton"),
   settingsMenu: document.querySelector("#settingsMenu"),
+  settingsMenuShield: document.querySelector("#settingsMenuShield"),
   scratchpadSettingsSwitch: document.querySelector("#scratchpadSettingsSwitch"),
   scratchpadSettingsValue: document.querySelector("#scratchpadSettingsValue"),
   modelConnectionStatus: document.querySelector("#modelConnectionStatus"),

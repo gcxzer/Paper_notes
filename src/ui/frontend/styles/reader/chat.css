@@ -240,6 +240,11 @@
   overflow-wrap: anywhere;
 }
 
+.ask-bubble strong,
+.ask-bubble b {
+  font-weight: 600;
+}
+
 .ask-bubble code {
   padding: 0 0.12em;
   border: 0;

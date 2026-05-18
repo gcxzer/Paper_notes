@@ -426,6 +426,7 @@ function closeContextMenu() {
 function closeSettingsMenu() {
   if (!elements.settingsMenu || !elements.settingsButton) return;
   elements.settingsMenu.hidden = true;
+  if (elements.settingsMenuShield) elements.settingsMenuShield.hidden = true;
   elements.settingsButton.setAttribute("aria-expanded", "false");
 }
 
@@ -500,6 +501,7 @@ function toggleSettingsMenu() {
   if (!elements.settingsMenu || !elements.settingsButton) return;
   const nextOpen = elements.settingsMenu.hidden;
   elements.settingsMenu.hidden = !nextOpen;
+  if (elements.settingsMenuShield) elements.settingsMenuShield.hidden = !nextOpen;
   elements.settingsButton.setAttribute("aria-expanded", String(nextOpen));
 }
 
