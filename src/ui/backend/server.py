@@ -58,6 +58,7 @@ from ui.backend.mcp_api import (
     update_mcp_settings,
 )
 from ui.backend.model_providers_api import get_model_providers
+from ui.backend.scratchpads_api import read_scratchpads, write_scratchpads
 from app_infra.paths import (
     HOST,
     MAX_BODY_SIZE,
@@ -217,6 +218,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/memory":
             self._run_api_handler(self.handle_list_memory)
             return
+        if parsed.path == "/api/scratchpads":
+            self._run_api_handler(self.handle_read_scratchpads)
+            return
         if parsed.path == "/api/settings/ai":
             self._run_api_handler(self.handle_get_ai_settings)
             return
@@ -269,6 +273,7 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/chat/session/model": self.handle_update_chat_session_model,
             "/api/open-local-file": self.handle_open_local_file,
             "/api/memory": self.handle_update_memory,
+            "/api/scratchpads": self.handle_write_scratchpads,
             "/api/settings/ai": self.handle_update_ai_settings,
             "/api/settings/tools": self.handle_update_tool_settings,
             "/api/settings/mcp": self.handle_update_mcp_settings,
@@ -510,6 +515,12 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_update_skill(self) -> None:
         self.send_json(HTTPStatus.OK, update_skill(self.read_json_body()))
+
+    def handle_read_scratchpads(self) -> None:
+        self.send_json(HTTPStatus.OK, read_scratchpads())
+
+    def handle_write_scratchpads(self) -> None:
+        self.send_json(HTTPStatus.OK, write_scratchpads(self.read_json_body()))
 
     def handle_get_model_providers(self) -> None:
         self.send_json(HTTPStatus.OK, get_model_providers())

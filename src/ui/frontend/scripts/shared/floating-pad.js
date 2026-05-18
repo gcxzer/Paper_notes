@@ -6,6 +6,7 @@
   const LEGACY_HTML_KEY = "paper-notes-floating-pad-html-v1";
   const PADS_KEY = "paper-notes-floating-pad-pads-v1";
   const ACTIVE_PAD_KEY = "paper-notes-floating-pad-active-v1";
+  const SERVER_MIGRATED_KEY = "paper-notes-floating-pad-server-migrated-v1";
   const DRAG_THRESHOLD = 5;
   const EDGE_PADDING = 12;
   const BUTTON_SIZE = 54;
@@ -43,11 +44,18 @@
     };
   }
 
+  function defaultPadState() {
+    const pad = createPad("Pad 1");
+    return { activeId: pad.id, pads: [pad] };
+  }
+
   function padTitle(pad, index = 0) {
     return String(pad?.title || `Pad ${index + 1}`);
   }
 
-  function readPads() {
+  let writeQueue = Promise.resolve();
+
+  function readLocalPads() {
     const stored = readJson(PADS_KEY, null);
     if (stored && Array.isArray(stored.pads) && stored.pads.length) {
       return {
@@ -66,17 +74,84 @@
     return { activeId: pad.id, pads: [pad] };
   }
 
+  function normalizePadState(raw) {
+    const stored = raw && typeof raw === "object" ? raw : {};
+    const rawPads = Array.isArray(stored.pads) ? stored.pads : [];
+    const pads = rawPads.map((pad, index) => ({
+      ...createPad(`Pad ${index + 1}`),
+      ...pad,
+      id: String(pad?.id || `pad-${index + 1}`),
+      content: String(pad?.content || ""),
+    }));
+    const activeId = String(stored.activeId || localStorage.getItem(ACTIVE_PAD_KEY) || pads[0]?.id || "");
+    return { activeId, pads };
+  }
+
+  function hasScratchpadContent(state) {
+    return Array.isArray(state?.pads) && state.pads.some((pad) => String(pad?.content || "").trim() || pad?.customTitle);
+  }
+
+  function scratchpadApiAvailable() {
+    return window.location.protocol !== "file:";
+  }
+
+  async function fetchScratchpads() {
+    const response = await fetch("/api/scratchpads", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Scratchpad load failed (${response.status})`);
+    return normalizePadState(await response.json());
+  }
+
+  async function writePadsToServer(state) {
+    const response = await fetch("/api/scratchpads", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activeId: state.activeId,
+        pads: state.pads,
+      }),
+    });
+    if (!response.ok) throw new Error(`Scratchpad save failed (${response.status})`);
+    return response.json();
+  }
+
+  async function readPads() {
+    const local = readLocalPads();
+    if (!scratchpadApiAvailable()) return local;
+    try {
+      const remote = await fetchScratchpads();
+      if (remote.pads.length) return remote;
+      if (!localStorage.getItem(SERVER_MIGRATED_KEY) && hasScratchpadContent(local)) {
+        await writePadsToServer(local);
+        localStorage.setItem(SERVER_MIGRATED_KEY, "true");
+        return local;
+      }
+      return defaultPadState();
+    } catch (error) {
+      return local;
+    }
+  }
+
   function writePads(state) {
     const pads = Array.isArray(state?.pads) && state.pads.length ? state.pads : [createPad("Pad 1")];
     const activeId = String(state?.activeId || pads[0].id);
-    writeJson(PADS_KEY, { activeId, pads });
+    if (state) {
+      state.pads = pads;
+      state.activeId = activeId;
+    }
     try {
       localStorage.setItem(ACTIVE_PAD_KEY, activeId);
-      localStorage.setItem(CONTENT_KEY, pads.find((pad) => pad.id === activeId)?.content || "");
       localStorage.removeItem(LEGACY_HTML_KEY);
+      if (!scratchpadApiAvailable()) {
+        localStorage.setItem(CONTENT_KEY, pads.find((pad) => pad.id === activeId)?.content || "");
+        writeJson(PADS_KEY, { activeId, pads });
+        return;
+      }
     } catch (error) {
       // Ignore quota and privacy-mode failures.
     }
+    const snapshot = JSON.parse(JSON.stringify({ activeId, pads }));
+    writeQueue = writeQueue.catch(() => null).then(() => writePadsToServer(snapshot)).catch(() => null);
   }
 
   function clamp(value, min, max) {
@@ -207,11 +282,11 @@
     }[char]));
   }
 
-  function createFloatingPad() {
+  async function createFloatingPad() {
     if (document.querySelector(".floating-pad")) return;
 
     let position = readPosition();
-    const padState = readPads();
+    const padState = await readPads();
     writePads(padState);
     const root = document.createElement("div");
     root.className = "floating-pad";
@@ -227,7 +302,7 @@
         <header class="floating-pad-header">
           <div>
             <strong>Scratchpad</strong>
-            <span><span class="floating-pad-active-title"></span> · Autosaves locally</span>
+            <span><span class="floating-pad-active-title"></span> · Autosaves to Paper Notes</span>
           </div>
           <div class="floating-pad-actions">
             <button class="floating-pad-icon floating-pad-directory" type="button" data-floating-pad-directory aria-label="Show scratchpad list">Pads</button>
