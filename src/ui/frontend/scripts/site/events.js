@@ -594,6 +594,9 @@ elements.pdfInput.addEventListener("change", async (event) => {
 
 function importPdfErrorMessage(error) {
   const message = normalizeText(error?.message || "");
+  if (/permission denied/i.test(message) && /\/app\/\.notes_/i.test(message)) {
+    return "Docker cannot write notes.json yet. Pull the latest code, then restart with `PAPER_NOTES_UID=\"$(id -u)\" PAPER_NOTES_GID=\"$(id -g)\" docker compose up --build -d` and try the import again.";
+  }
   if (message && !/failed to fetch|load failed|networkerror/i.test(message)) {
     return message;
   }
