@@ -1328,7 +1328,7 @@ test("MCP settings renders each operation error under its button", async ({ page
   await expect(page.locator(".mcp-status-note.is-error")).toContainText("Server status failure");
   await page.locator('[data-mcp-reconnect]').click();
   await expect(page.locator('[data-mcp-action-error="reconnect"]')).toContainText("Reconnect failed");
-  await expect(page.locator('[data-mcp-action-error="reconnect"]')).toContainText("Reconnect denied");
+  await expect(page.locator('[data-mcp-action-error="reconnect"]')).toContainText("Connect denied");
   await page.locator('[data-mcp-reset-circuit]').click();
   await expect(page.locator('[data-mcp-action-error="reset"]')).toContainText("Reset failed");
   await expect(page.locator('[data-mcp-action-error="reset"]')).toContainText("Reset denied");

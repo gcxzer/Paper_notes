@@ -1012,22 +1012,40 @@ async function restoreMcpRuntimeFromBaseline() {
 
 async function reconnectMcpServer(id) {
   if (!id || state.mcpOperationId) return;
+  const settings = state.mcpSettings || normalizeMcpSettings({});
+  const server = settings.servers.find((entry) => entry.id === id);
+  if (!server) return;
+  const validationError = validateMcpServer(server);
+  if (validationError) {
+    setMcpActionError("reconnect", id, validationError, "Reconnect failed");
+    setMcpSettingsError("");
+    renderMcpSettingsDialog();
+    return;
+  }
   state.mcpOperationId = `reconnect:${id}`;
   state.mcpLogResult = null;
   clearMcpActionError("reconnect", id);
   setMcpSettingsError("");
   renderMcpSettingsDialog();
   try {
-    const payload = await fetchJson("/api/settings/mcp/reconnect", {
+    const payload = await fetchJson("/api/settings/mcp/connect", {
       method: "POST",
-      body: { serverId: id }
+      body: {
+        serverId: id,
+        servers: settings.servers.map(mcpServerForSave),
+        persist: false
+      }
     });
     if (payload?.success === false) {
       setMcpActionError("reconnect", id, payload.error || "Could not reconnect MCP server.", "Reconnect failed");
       return;
     }
+    state.mcpSettings = normalizeMcpSettings(payload);
+    state.mcpEditingId = id;
+    state.mcpRuntimePreviewDirty = true;
+    state.mcpTestResult = null;
     clearMcpActionError("reconnect", id);
-    await loadMcpSettings();
+    void loadToolSettings();
   } catch (error) {
     setMcpActionError("reconnect", id, mcpRequestErrorMessage(error, "Could not reconnect MCP server."), "Reconnect failed");
   } finally {
