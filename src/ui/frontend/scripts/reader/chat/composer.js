@@ -407,8 +407,8 @@ function renderReaderChatComposerState() {
   const currentPending = isChatSessionPending();
   const progress = normalizeChatProgress(currentChatProgress());
   const cancelling = currentPending && normalizeText(progress?.status) === "cancelling";
-  if (elements.readerChatInput) elements.readerChatInput.disabled = currentPending;
-  if (elements.readerToolMenuButton) elements.readerToolMenuButton.disabled = currentPending;
+  if (elements.readerChatInput) elements.readerChatInput.disabled = false;
+  if (elements.readerToolMenuButton) elements.readerToolMenuButton.disabled = false;
   if (elements.sendReaderChat) {
     const label = cancelling ? "Cancelling" : currentPending ? "Cancel" : "Send";
     const iconName = currentPending ? "stop" : "send";
@@ -765,7 +765,15 @@ function renderReaderContextControls() {
   const modelLabel = modelDisplayLabel(status.model || model, status.provider || provider, "label") || status.model || model || "Model";
   const tokenLine = `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)} context used`;
   const sessionId = getChatSessionId();
-  const canCompact = Boolean(sessionId && status.compactionEnabled && !readerState.contextCompacting);
+  const pending = isChatSessionPending(sessionId);
+  const canCompact = Boolean(sessionId && status.compactionEnabled && !pending && !readerState.contextCompacting);
+  const compactTitle = pending
+    ? "Wait for current answer to finish"
+    : readerState.contextCompacting
+      ? "Compacting already in progress"
+      : status.compactionEnabled
+        ? "Compact now"
+        : "Context compaction unavailable";
   const compressedLine = status.compressionCount
     ? `${status.compressionCount} compacted${status.lastCompressedAt ? ` · ${formatChatSessionTime(status.lastCompressedAt)}` : ""}`
     : "No compaction yet";
@@ -802,7 +810,7 @@ function renderReaderContextControls() {
     ${readerState.contextCompactStatus ? `<div class="ask-context-status">${escapeHtml(readerState.contextCompactStatus)}</div>` : ""}
     <div class="ask-context-actions">
       <input class="ask-context-focus" id="readerContextCompactFocus" type="text" value="${escapeHtml(readerState.contextCompactFocus)}" placeholder="Focus" aria-label="Compaction focus">
-      <button class="ask-context-compact" type="button" data-context-action="compact" ${canCompact ? "" : "disabled"}>${escapeHtml(readerState.contextCompacting ? "Compacting" : "Compact now")}</button>
+      <button class="ask-context-compact" type="button" data-context-action="compact" title="${escapeHtml(compactTitle)}" ${canCompact ? "" : "disabled"}>${escapeHtml(readerState.contextCompacting ? "Compacting" : "Compact now")}</button>
     </div>
   `;
 }
@@ -862,11 +870,12 @@ async function loadReaderContextStatus({ silent = false } = {}) {
 
 async function compactReaderContext() {
   const sessionId = getChatSessionId();
-  if (!sessionId || readerState.contextCompacting) return;
+  if (!sessionId || isChatSessionPending(sessionId) || readerState.contextCompacting) return;
   const context = readerChatContext();
   readerState.contextCompacting = true;
   readerState.contextCompactStatus = "Compacting context...";
   renderReaderContextControls();
+  renderReaderChatMessages({ scrollToBottom: true });
   try {
     const payload = await fetchAgentJson("/api/chat/compress", {
       method: "POST",
@@ -899,5 +908,6 @@ async function compactReaderContext() {
   } finally {
     readerState.contextCompacting = false;
     renderReaderContextControls();
+    renderReaderChatMessages({ scrollToBottom: true });
   }
 }

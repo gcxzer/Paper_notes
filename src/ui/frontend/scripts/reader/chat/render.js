@@ -1142,6 +1142,11 @@ function renderChatProgress() {
   return `${compactionMarkerHtml}${rowsHtml}${approvalHtml}`;
 }
 
+function renderManualContextCompactionProgress() {
+  if (!readerState.contextCompacting) return "";
+  return renderContextCompactionDivider("Compacting context", "running");
+}
+
 function progressInlineRows(progress) {
   const rows = [];
   if (progress.workTrace?.items?.length) {
@@ -1648,7 +1653,8 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   if (!elements.readerChatMessages) return;
   const previousScrollTop = elements.readerChatMessages.scrollTop;
   const wasNearBottom = readerChatIsNearBottom(elements.readerChatMessages);
-  if (!readerState.chatMessages.length && !isChatSessionPending()) {
+  const manualContextCompactionHtml = renderManualContextCompactionProgress();
+  if (!readerState.chatMessages.length && !isChatSessionPending() && !manualContextCompactionHtml) {
     elements.readerChatMessages.innerHTML = `
       <div class="ask-empty-chat">
         <p>Ask about this paper, or tell me what to do.</p>
@@ -1658,7 +1664,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   }
 
   const latestUserIndex = latestReaderUserMessageIndex();
-  const chatProgressHtml = renderChatProgress();
+  const chatProgressHtml = `${renderChatProgress()}${manualContextCompactionHtml}`;
   const streamingAssistantIndex = isChatSessionPending()
     ? readerState.chatMessages.findIndex((message, index) => (
       index > latestUserIndex
