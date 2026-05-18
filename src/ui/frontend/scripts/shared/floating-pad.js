@@ -21,7 +21,7 @@
   }
 
   function scratchpadEnabled() {
-    return localStorage.getItem(ENABLED_KEY) !== "false";
+    return localStorage.getItem(ENABLED_KEY) === "true";
   }
 
   function writeJson(key, value) {

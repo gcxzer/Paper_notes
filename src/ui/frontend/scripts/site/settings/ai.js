@@ -181,7 +181,7 @@ function setProviderStatusBadge(element, isConfigured, configuredLabel = "Connec
 
 function renderDefaultProviderOptions(provider, settings) {
   if (!elements.aiProviderInput) return;
-  const selectedProvider = normalizeAiProvider(provider);
+  const selectedProvider = normalizeText(provider) ? normalizeAiProvider(provider) : "";
   const options = sortedAiProviders().map((value) => ({
     value,
     label: `${providerDisplayName(value)} (${providerStatusLabel(value, settings)})`
@@ -192,8 +192,33 @@ function renderDefaultProviderOptions(provider, settings) {
   elements.aiProviderInput.value = selectedProvider;
 }
 
+function configuredAiProviders(settings = state.aiSettings) {
+  const normalized = settings || normalizeAiSettings({});
+  return sortedAiProviders().filter((provider) => {
+    if (provider === "codex-oauth") return codexProviderConfigured(normalized);
+    if (provider === "anthropic") return anthropicProviderConfigured(normalized);
+    if (provider === "gemini") return geminiProviderConfigured(normalized);
+    if (provider === "deepseek") return deepSeekProviderConfigured(normalized);
+    return openAiProviderConfigured(normalized);
+  });
+}
+
+function hasSavedAiProvider(settings = state.aiSettings) {
+  const normalized = settings || normalizeAiSettings({});
+  return Boolean(normalized.localProviderConfigured || normalized.environmentProviderConfigured);
+}
+
+function effectiveDefaultAiProvider(settings = state.aiSettings) {
+  const normalized = settings || normalizeAiSettings({});
+  const configured = configuredAiProviders(normalized);
+  if (!configured.length) return "";
+  if (configured.length === 1) return configured[0];
+  const selected = normalizeAiProvider(elements.aiProviderInput?.value || normalized.provider);
+  return configured.includes(selected) ? selected : configured[0];
+}
+
 function selectedAiProvider(settings = state.aiSettings) {
-  return normalizeAiProvider(elements.aiProviderInput?.value || settings?.provider);
+  return effectiveDefaultAiProvider(settings);
 }
 
 function capabilityValue(capabilities, key, fallback = false) {
@@ -420,6 +445,8 @@ function renderAiSettings() {
   const anthropicKeyConfigured = anthropicProviderConfigured(settings);
   const geminiKeyConfigured = geminiProviderConfigured(settings);
   const deepSeekKeyConfigured = deepSeekProviderConfigured(settings);
+  const configuredProviders = configuredAiProviders(settings);
+  const hasMultipleConfiguredProviders = configuredProviders.length > 1;
   const keyEditingProvider = normalizeAiProvider(state.aiKeyEditingProvider);
   const keyDialogOpen = Boolean(state.aiKeyEditingProvider);
 
@@ -439,11 +466,11 @@ function renderAiSettings() {
   elements.anthropicDefaultBadge.hidden = !anthropicDefault;
   elements.geminiDefaultBadge.hidden = !geminiDefault;
   elements.deepSeekDefaultBadge.hidden = !deepSeekDefault;
-  elements.setOpenAiDefaultButton.hidden = openAiDefault || !openAiKeyConfigured;
-  elements.setCodexDefaultButton.hidden = codexDefault || !codexConfigured;
-  elements.setAnthropicDefaultButton.hidden = anthropicDefault || !anthropicKeyConfigured;
-  elements.setGeminiDefaultButton.hidden = geminiDefault || !geminiKeyConfigured;
-  elements.setDeepSeekDefaultButton.hidden = deepSeekDefault || !deepSeekKeyConfigured;
+  elements.setOpenAiDefaultButton.hidden = !hasMultipleConfiguredProviders || openAiDefault || !openAiKeyConfigured;
+  elements.setCodexDefaultButton.hidden = !hasMultipleConfiguredProviders || codexDefault || !codexConfigured;
+  elements.setAnthropicDefaultButton.hidden = !hasMultipleConfiguredProviders || anthropicDefault || !anthropicKeyConfigured;
+  elements.setGeminiDefaultButton.hidden = !hasMultipleConfiguredProviders || geminiDefault || !geminiKeyConfigured;
+  elements.setDeepSeekDefaultButton.hidden = !hasMultipleConfiguredProviders || deepSeekDefault || !deepSeekKeyConfigured;
   elements.setOpenAiDefaultButton.disabled = state.aiSettingsLoading;
   elements.setCodexDefaultButton.disabled = state.aiSettingsLoading;
   elements.setAnthropicDefaultButton.disabled = state.aiSettingsLoading;
@@ -630,10 +657,23 @@ async function confirmAiKeyEdit(provider = state.aiKeyEditingProvider) {
 
 async function saveAiSettings(options = {}) {
   const { closeDialog = true, keyProvider = state.aiKeyEditingProvider } = options;
-  const body = {
-    provider: normalizeText(elements.aiProviderInput.value || "openai")
-  };
+  const currentSettings = state.aiSettings || normalizeAiSettings({});
   const editingProvider = normalizeAiProvider(keyProvider);
+  const configured = configuredAiProviders(currentSettings);
+  const selectedProvider = configured.length
+    ? normalizeAiProvider(elements.aiProviderInput.value || currentSettings.provider)
+    : "";
+  const shouldAutoDefaultToFirstKey = Boolean(
+    keyProvider
+    && editingProvider
+    && !configured.length
+    && !hasSavedAiProvider(currentSettings)
+  );
+  const body = {};
+  const providerForSave = shouldAutoDefaultToFirstKey ? editingProvider : selectedProvider;
+  if (providerForSave || hasSavedAiProvider(currentSettings)) {
+    body.provider = normalizeText(providerForSave || currentSettings.provider || "openai");
+  }
   const keyInput = elements.aiKeyInput;
   const apiKey = keyProvider ? normalizeText(keyInput?.value) : "";
   if (apiKey) {

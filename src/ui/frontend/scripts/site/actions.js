@@ -430,7 +430,7 @@ function closeSettingsMenu() {
 }
 
 function scratchpadEnabled() {
-  return localStorage.getItem(SCRATCHPAD_ENABLED_KEY) !== "false";
+  return localStorage.getItem(SCRATCHPAD_ENABLED_KEY) === "true";
 }
 
 function applyScratchpadSettingControls() {

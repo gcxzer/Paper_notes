@@ -252,15 +252,12 @@ async function showAskPane(page) {
 
 test("floating scratchpad persists content and position across library and reader", async ({ page }) => {
   await openFixtureLibrary(page);
-  const button = page.locator(".floating-pad-button");
-  await expect(button).toBeVisible();
-  await page.locator("#settingsButton").click();
-  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "true");
-  await page.locator("#scratchpadSettingsSwitch").click();
-  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "false");
   await expect(page.locator(".floating-pad")).toBeHidden();
+  await page.locator("#settingsButton").click();
+  await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "false");
   await page.locator("#scratchpadSettingsSwitch").click();
   await expect(page.locator("#scratchpadSettingsSwitch")).toHaveAttribute("aria-checked", "true");
+  const button = page.locator(".floating-pad-button");
   await expect(button).toBeVisible();
   await page.locator(".app-shell").click({ position: { x: 20, y: 20 } });
 
