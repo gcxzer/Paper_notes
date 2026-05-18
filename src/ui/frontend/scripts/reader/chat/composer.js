@@ -764,17 +764,6 @@ function renderReaderContextControls() {
   const providerName = providerDisplayName(status.provider || provider);
   const modelLabel = modelDisplayLabel(status.model || model, status.provider || provider, "label") || status.model || model || "Model";
   const tokenLine = `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)} context used`;
-  const estimatedLine = status.estimatedRequestTokens
-    ? `Estimated request: ${formatTokenCount(status.estimatedRequestTokens)} tokens`
-    : "Estimated request: unavailable";
-  const estimatedKnownTokens = Math.max(0, status.messageTokens + status.instructionTokens + status.toolSchemaTokens);
-  const estimatedOverheadTokens = Math.max(0, status.estimatedRequestTokens - estimatedKnownTokens);
-  const estimatedParts = [
-    status.messageTokens ? `Messages ${formatTokenCount(status.messageTokens)}` : "",
-    status.instructionTokens ? `Instructions ${formatTokenCount(status.instructionTokens)}` : "",
-    status.toolSchemaTokens ? `Tools ${formatTokenCount(status.toolSchemaTokens)}` : "",
-    estimatedOverheadTokens ? `Overhead ${formatTokenCount(estimatedOverheadTokens)}` : ""
-  ].filter(Boolean).join(" · ");
   const sessionId = getChatSessionId();
   const canCompact = Boolean(sessionId && status.compactionEnabled && !readerState.contextCompacting);
   const compressedLine = status.compressionCount
@@ -792,7 +781,7 @@ function renderReaderContextControls() {
     elements.readerContextButton.classList.toggle("is-loading", readerState.contextStatusLoading);
     elements.readerContextButton.classList.remove("is-warning");
     elements.readerContextButton.classList.remove("is-full");
-    elements.readerContextButton.title = `${percent}% full · ${tokenLine} · ${estimatedLine}`;
+    elements.readerContextButton.title = `${percent}% full · ${tokenLine}`;
     elements.readerContextButton.setAttribute("aria-expanded", String(readerState.contextPopoverOpen));
   }
 
@@ -803,8 +792,6 @@ function renderReaderContextControls() {
     <div class="ask-context-title">Context window</div>
     <div class="ask-context-percent">${escapeHtml(readerState.contextStatusLoading ? "Checking..." : `${percent}% full`)}</div>
     <div class="ask-context-tokens">${escapeHtml(tokenLine)}</div>
-    <div class="ask-context-estimate">${escapeHtml(estimatedLine)}</div>
-    ${estimatedParts ? `<div class="ask-context-estimate-detail">${escapeHtml(estimatedParts)}</div>` : ""}
     <div class="ask-context-model">${escapeHtml(`${providerName} · ${modelLabel}`)}</div>
     <div class="ask-context-grid">
       <span>Messages</span><strong>${escapeHtml(String(status.messageCount))}</strong>

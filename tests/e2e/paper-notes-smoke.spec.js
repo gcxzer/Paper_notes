@@ -2902,8 +2902,8 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toBeVisible();
   await expect(page.locator("#readerContextPopover")).toContainText("88% full");
   await expect(page.locator("#readerContextPopover")).toContainText("112k / 128k context used");
-  await expect(page.locator("#readerContextPopover")).toContainText("Estimated request: 118k tokens");
-  await expect(page.locator("#readerContextPopover")).toContainText("Messages 50k · Instructions 4k · Tools 64k");
+  await expect(page.locator("#readerContextPopover")).not.toContainText("Estimated request:");
+  await expect(page.locator("#readerContextPopover")).not.toContainText("Instructions 4k");
   await expect(page.locator("#readerContextPopover")).not.toContainText("Threshold");
   await expect(page.locator("#readerContextButton")).not.toHaveClass(/is-warning/);
   await page.locator("#readerContextCompactFocus").fill("tags only");
@@ -2915,7 +2915,7 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
   await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
   await expect(page.locator("#readerContextPopover")).toContainText("50% full");
-  await expect(page.locator("#readerContextPopover")).toContainText("Estimated request: 64k tokens");
+  await expect(page.locator("#readerContextPopover")).not.toContainText("Estimated request:");
   await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
   await expect(page.locator(".ask-message-divider")).not.toContainText("Earlier conversation was summarized");
   expect(compressRequest).toMatchObject({
