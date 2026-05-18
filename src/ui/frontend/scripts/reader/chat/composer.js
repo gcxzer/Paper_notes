@@ -64,45 +64,6 @@ function localFileKind(file) {
   return "file";
 }
 
-function normalizeReaderRuntimeSettings(payload) {
-  return {
-    docker: Boolean(payload?.docker),
-    dockerLocalFileMessage: normalizeText(payload?.dockerLocalFileMessage)
-      || "Docker mode cannot open files in the host desktop. Put the file under .paper-notes/media/uploads, then use that Paper Notes media path from the app."
-  };
-}
-
-async function loadReaderRuntimeSettings() {
-  if (readerState.runtimeSettings) return readerState.runtimeSettings;
-  if (readerState.runtimeSettingsLoading) {
-    while (readerState.runtimeSettingsLoading) {
-      await new Promise((resolve) => window.setTimeout(resolve, 30));
-    }
-    return readerState.runtimeSettings || normalizeReaderRuntimeSettings(null);
-  }
-  readerState.runtimeSettingsLoading = true;
-  try {
-    readerState.runtimeSettings = normalizeReaderRuntimeSettings(await fetchAgentJson("/api/runtime"));
-  } catch (error) {
-    console.warn("Could not load reader runtime settings.", error);
-    readerState.runtimeSettings = normalizeReaderRuntimeSettings(null);
-  } finally {
-    readerState.runtimeSettingsLoading = false;
-  }
-  return readerState.runtimeSettings;
-}
-
-async function shouldBlockLocalFileImportForDocker(source) {
-  if (normalizeText(source || "local") !== "local") return false;
-  const runtimeSettings = await loadReaderRuntimeSettings();
-  if (!runtimeSettings.docker) return false;
-  setReaderChatError(runtimeSettings.dockerLocalFileMessage);
-  if (elements.readerAttachmentInput) elements.readerAttachmentInput.value = "";
-  renderAttachmentTray();
-  renderReaderToolControls();
-  return true;
-}
-
 async function uploadReaderAttachmentFile(file) {
   const data = await readFileAsDataUrl(file);
   const payload = await fetchAgentJson("/api/chat/attachments", {
@@ -119,10 +80,9 @@ async function uploadReaderAttachmentFile(file) {
   return normalizeAttachmentArtifacts([payload.artifact])[0];
 }
 
-async function handleReaderAttachmentFiles(files, { source = "local" } = {}) {
+async function handleReaderAttachmentFiles(files) {
   let selectedFiles = Array.from(files || []).filter(isSupportedAttachmentFile);
   if (!selectedFiles.length) return;
-  if (await shouldBlockLocalFileImportForDocker(source)) return;
   const imageFiles = selectedFiles.filter(isImageFile);
   let blockedImageMessage = "";
   if (imageFiles.length && !activeProviderSupportsImageInput()) {
@@ -177,8 +137,8 @@ async function handleReaderAttachmentFiles(files, { source = "local" } = {}) {
   }
 }
 
-function handleReaderImageFiles(files, options = {}) {
-  return handleReaderAttachmentFiles(files, options);
+function handleReaderImageFiles(files) {
+  return handleReaderAttachmentFiles(files);
 }
 
 function currentPdfPageCanvasForScreenshot() {
@@ -221,7 +181,7 @@ async function addCurrentPdfPageScreenshot() {
   const blob = await canvasToPngBlob(canvas);
   const file = new File([blob], screenshotFileName(page), { type: "image/png" });
   closeReaderToolMenu();
-  await handleReaderAttachmentFiles([file], { source: "generated" });
+  await handleReaderAttachmentFiles([file]);
   elements.readerChatInput?.focus();
 }
 
@@ -440,7 +400,7 @@ function handleReaderImagePaste(event) {
     setReaderChatError(activeProviderImageInputUnsupportedMessage());
     return;
   }
-  handleReaderAttachmentFiles(files, { source: "clipboard" });
+  handleReaderAttachmentFiles(files);
 }
 
 function renderReaderChatComposerState() {
