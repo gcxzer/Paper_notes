@@ -1,7 +1,7 @@
 (function () {
   const STORAGE_KEY = "paper-notes-theme";
   const MODES = new Set(["light", "dark"]);
-  const DEFAULT_MODE = "dark";
+  const DEFAULT_MODE = "light";
 
   function readStoredMode(key, fallback) {
     const value = localStorage.getItem(key) || fallback;

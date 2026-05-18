@@ -92,7 +92,7 @@ prepare_frontend_environment() {
     return 0
   fi
   local missing_frontend_packages=()
-  for package in pdfjs-dist katex; do
+  for package in pdfjs-dist katex lucide-static; do
     if [[ ! -d "$APP_DIR/node_modules/$package" ]]; then
       missing_frontend_packages+=("$package")
     fi

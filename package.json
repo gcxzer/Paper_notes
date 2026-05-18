@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "katex": "^0.16.46",
+    "lucide-static": "^1.16.0",
     "pdfjs-dist": "^5.7.284"
   },
   "devDependencies": {

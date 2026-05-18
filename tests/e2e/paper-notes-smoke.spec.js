@@ -250,7 +250,111 @@ async function showAskPane(page) {
   await expect(page.locator("#askPane")).toBeVisible();
 }
 
+test("library workbench row exposes icon actions without changing note actions", async ({ page }) => {
+  await openFixtureLibrary(page);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+  const card = page.locator(".note-card").first();
+  await expect(card.locator(".note-card-icon .ui-icon")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Open DeepSeek V4" })).toBeVisible();
+
+  await card.getByRole("button", { name: "Rename DeepSeek V4" }).click();
+  await expect(page.locator("#renameNoteDialog")).toBeVisible();
+  await page.locator("#closeRenameNoteDialog").click();
+  await expect(page.locator("#renameNoteDialog")).not.toBeVisible();
+
+  await card.getByRole("button", { name: "Delete DeepSeek V4" }).click();
+  await expect(page.locator("#confirmDialog")).toBeVisible();
+  await page.locator("#cancelConfirmDialog").click();
+  await expect(page.locator("#confirmDialog")).not.toBeVisible();
+});
+
+test("reader workbench toolbar toggles panes and keeps ask composer visible", async ({ page }) => {
+  await openFixtureReader(page);
+
+  await expect(page.getByRole("link", { name: "Toggle HTML note" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Toggle Ask panel" })).toBeVisible();
+  await page.getByRole("button", { name: "Toggle Ask panel" }).click();
+
+  await expect(page.locator("#askPane")).toBeVisible();
+  await expect(page.locator("#readerChatInput")).toBeVisible();
+  await expect(page.locator("#sendReaderChat")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close Ask panel" })).toBeVisible();
+});
+
+test("settings modal stays within the mobile viewport and keeps provider list scrollable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/settings/ai", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        provider: "openai",
+        providerSource: "default",
+        supportedProviders: ["openai", "codex-oauth", "anthropic", "gemini", "deepseek"],
+        configured: false,
+        ready: false,
+        model: "gpt-5.5",
+        modelConfigured: false,
+        modelConnectionConfigured: false,
+        codexAuth: { loggedIn: false },
+      }),
+    });
+  });
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.5",
+        modelConnectionConfigured: false,
+        providers: [
+          { name: "openai", displayName: "OpenAI API key", configured: false, ready: false, models: [{ value: "gpt-5.5", label: "GPT-5.5" }] },
+          { name: "codex-oauth", displayName: "Codex OAuth", configured: false, ready: false, models: [{ value: "gpt-5.5", label: "GPT-5.5" }] },
+          { name: "anthropic", displayName: "Anthropic", configured: false, ready: false, models: [{ value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" }] },
+          { name: "gemini", displayName: "Gemini", configured: false, ready: false, models: [{ value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" }] },
+          { name: "deepseek", displayName: "DeepSeek", configured: false, ready: false, models: [{ value: "deepseek-chat", label: "DeepSeek Chat" }] },
+        ],
+      }),
+    });
+  });
+
+  await openFixtureLibrary(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator("#openAiSettings").click();
+  await expect(page.locator("#aiSettingsDialog")).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const card = document.querySelector(".ai-settings-card");
+    const providerList = document.querySelector(".ai-provider-list");
+    const rect = card.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      listOverflowY: getComputedStyle(providerList).overflowY,
+      listCanScroll: providerList.scrollHeight >= providerList.clientHeight,
+    };
+  });
+  expect(metrics.left).toBeGreaterThanOrEqual(0);
+  expect(metrics.right).toBeLessThanOrEqual(metrics.viewportWidth);
+  expect(metrics.bottom).toBeLessThanOrEqual(metrics.viewportHeight);
+  expect(metrics.listOverflowY).toBe("auto");
+  expect(metrics.listCanScroll).toBe(true);
+});
+
 test("floating scratchpad persists content and position across library and reader", async ({ page }) => {
+  let scratchpadState = { activeId: "", pads: [] };
+  await page.route("**/api/scratchpads", async (route) => {
+    if (route.request().method() === "POST") {
+      scratchpadState = route.request().postDataJSON();
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(scratchpadState),
+    });
+  });
   await openFixtureLibrary(page);
   await expect(page.locator(".floating-pad")).toBeHidden();
   await page.locator("#settingsButton").click();

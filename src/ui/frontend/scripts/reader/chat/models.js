@@ -1,3 +1,9 @@
+function renderReaderIcon(name, label = "", className = "", size = 16) {
+  return window.renderPaperIcon
+    ? window.renderPaperIcon(name, { label, className, size })
+    : "";
+}
+
 function renderReaderModelControls() {
   const settings = readerState.aiSettings || normalizeReaderAiSettings({});
   const availableProviders = modelProvidersForMenu();
@@ -178,7 +184,7 @@ function modelButtonHtml({ provider, label, loading }) {
       && !providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())
     )
   ) {
-    return `<span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>`;
+    return `${renderReaderIcon("bot", "", "", 16)}<span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>`;
   }
   const thinkMode = normalizedProvider === "deepseek"
     ? currentDeepSeekThinkMode()
@@ -191,6 +197,7 @@ function modelButtonHtml({ provider, label, loading }) {
     ? `Think ${thinkModeLabel(normalizedProvider, thinkMode.effort)}`
     : "Think off";
   return `
+    ${renderReaderIcon("bot", "", "", 16)}
     <span class="ask-model-button-stack">
       <span class="ask-model-button-label">${escapeHtml(label || "Model")}</span>
       <span class="ask-model-button-meta">${escapeHtml(thinkLabel)}</span>
