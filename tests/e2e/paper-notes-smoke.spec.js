@@ -2163,6 +2163,24 @@ test("reader ask send button cancels a pending request", async ({ page }) => {
   await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
   await expect(sendButton).toHaveText("");
   await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(askInput).toBeEnabled();
+  const toolButton = page.locator("#readerToolMenuButton");
+  await expect(toolButton).toBeEnabled();
+
+  await askInput.fill("/");
+  await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
+  await expect(page.locator("[data-slash-command='new']")).toBeEnabled();
+  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
+  await expect(page.locator("[data-slash-command='compact']")).toContainText("Wait for current answer to finish");
+
+  await askInput.fill("draft next question");
+  await askInput.press("Enter");
+  await expect.poll(() => agentMocks.cancelRequests.length).toBe(0);
+  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(askInput).toHaveValue("draft next question");
+  await toolButton.click();
+  await expect(page.locator("#readerToolPopover")).toBeVisible();
+  await toolButton.click();
 
   await sendButton.click();
   await expect.poll(() => agentMocks.cancelRequests.length).toBe(1);
@@ -2717,6 +2735,113 @@ test("reader new chat is available in sessions and at the bottom of the ask tool
   await expect(askInput).toBeFocused();
 });
 
+test("reader slash commands show icons filter and start a new chat", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [] }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  const askInput = page.locator("#readerChatInput");
+  await page.evaluate(() => {
+    readerState.chatMessages = [{ role: "assistant", text: "Old session text." }];
+    setCurrentChatSessionId("session-before-slash-new");
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+  await expect(page.locator("#readerChatMessages")).toContainText("Old session text.");
+
+  await askInput.fill("/");
+  await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
+  await expect(page.locator(".slash-command-item")).toHaveCount(2);
+  await expect(page.locator(".slash-command-icon")).toHaveCount(2);
+  await expect(page.locator(".slash-command-item").nth(0)).toContainText("New chat");
+  await expect(page.locator(".slash-command-item").nth(0)).toContainText("Start a fresh Ask session");
+  await expect(page.locator(".slash-command-item").nth(1)).toContainText("Compact");
+
+  await askInput.fill("/ne");
+  await expect(page.locator(".slash-command-item")).toHaveCount(1);
+  await expect(page.locator(".slash-command-item")).toContainText("New chat");
+  await expect(page.locator(".slash-command-item")).not.toContainText("Compact");
+  await page.locator("[data-slash-command='new']").click();
+
+  await expect(page.locator("#readerSlashCommandMenu")).toBeHidden();
+  await expect(page.locator("#readerChatMessages")).not.toContainText("Old session text.");
+  await expect(askInput).toHaveValue("");
+  await expect(askInput).toBeFocused();
+});
+
+test("reader slash compact is disabled without a session and executable with one", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  let compressRequest = null;
+  await page.route("**/api/chat/compress", async (route) => {
+    compressRequest = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        compressed: true,
+        context: {
+          provider: "openai",
+          model: "gpt-5.5",
+          contextLength: 128000,
+          tokensUsed: 64000,
+          percentFull: 50,
+          messageCount: 7,
+          compactionEnabled: true,
+          compressionCount: 1,
+          lastCompressedAt: "2026-05-15T11:30:00.000Z",
+          summaryAvailable: true,
+        },
+        message: {
+          role: "divider",
+          text: "Context compacted. Earlier conversation was summarized.",
+          metadata: { type: "context_compaction" },
+        },
+      }),
+    });
+  });
+
+  const askInput = page.locator("#readerChatInput");
+  await askInput.fill("/compact");
+  await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
+  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
+  await expect(page.locator("[data-slash-command='compact']")).toContainText("No active session yet");
+  await askInput.press("Enter");
+  await expect.poll(() => compressRequest).toBeNull();
+
+  await page.evaluate(() => {
+    setCurrentChatSessionId("slash-compact-session");
+    setReaderChatPending(true, "slash-compact-session");
+  });
+  await askInput.fill("/compact");
+  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
+  await expect(page.locator("[data-slash-command='compact']")).toContainText("Wait for current answer to finish");
+  await askInput.press("Enter");
+  await expect.poll(() => compressRequest).toBeNull();
+
+  await page.evaluate(() => {
+    setReaderChatPending(false, "slash-compact-session");
+  });
+  await askInput.fill("/");
+  await askInput.press("ArrowDown");
+  await expect(page.locator("[data-slash-command='compact']")).toHaveClass(/is-active/);
+  await expect(page.locator("[data-slash-command='compact']")).toBeEnabled();
+  await expect(page.locator("[data-slash-command='compact']")).toContainText("Summarize this session's context");
+  await askInput.press("Enter");
+
+  await expect(page.locator("#readerSlashCommandMenu")).toBeHidden();
+  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
+  expect(compressRequest).toMatchObject({ sessionId: "slash-compact-session", noteId: E2E_NOTE_ID });
+});
+
 test("reader attachment uploads show tray progress and can be removed", async ({ page }) => {
   await openFixtureReader(page);
   const askInput = page.getByPlaceholder("Ask anything");
@@ -2909,6 +3034,8 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await page.locator("#readerContextCompactFocus").fill("tags only");
   await page.locator("[data-context-action='compact']").click();
   await expect(page.locator("[data-context-action='compact']")).toHaveText("Compacting");
+  await expect(page.locator(".ask-context-compaction-divider.is-running")).toContainText("Compacting context");
+  await expect(page.locator(".ask-context-compaction-spinner")).toBeVisible();
 
   releaseCompress();
 
@@ -2916,6 +3043,7 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
   await expect(page.locator("#readerContextPopover")).toContainText("50% full");
   await expect(page.locator("#readerContextPopover")).not.toContainText("Estimated request:");
+  await expect(page.locator(".ask-context-compaction-divider.is-running")).toHaveCount(0);
   await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
   await expect(page.locator(".ask-message-divider")).not.toContainText("Earlier conversation was summarized");
   expect(compressRequest).toMatchObject({

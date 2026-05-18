@@ -529,7 +529,7 @@ function initializeReaderChat() {
   elements.readerChatForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (isChatSessionPending()) {
-      cancelReaderChatRequest();
+      if (event.submitter === elements.sendReaderChat) cancelReaderChatRequest();
       return;
     }
     sendReaderChatMessage();

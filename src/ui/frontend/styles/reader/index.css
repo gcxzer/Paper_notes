@@ -7,6 +7,7 @@
 @import "./ask.css";
 @import "./chat.css";
 @import "./prompts.css";
+@import "./slash-commands.css";
 @import "./debug.css?v=debug-unified-v1";
 @import "./artifacts.css?v=progress-text-reading-v2";
 @import "./note.css";
