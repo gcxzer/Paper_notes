@@ -255,11 +255,20 @@ body.is-resizing .panel-resizer::before {
   line-height: 1.1;
 }
 
+.settings-theme-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
 .settings-theme-value {
-  display: block;
-  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
   color: var(--muted);
   font-size: 0.78rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .settings-switch-track {
