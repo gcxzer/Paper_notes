@@ -901,6 +901,44 @@ def test_upload_chat_attachment_accepts_code_file_artifact(tmp_path):
     assert artifact["metadata"]["detectedText"] is True
 
 
+def test_upload_chat_attachment_maps_index_error_to_docker_file_guidance(monkeypatch):
+    class BrokenMediaStore:
+        def create_upload(self, *args, **kwargs):
+            raise IndexError("list index out of range")
+
+    class Service:
+        media_store = BrokenMediaStore()
+
+    monkeypatch.setenv("PAPER_NOTES_DOCKER", "1")
+
+    with pytest.raises(AgentAPIError) as exc:
+        upload_chat_attachment(
+            {"data": PNG_DATA_URL, "fileName": "LICENSE.txt", "sessionId": "session-1"},
+            service=Service(),
+        )
+
+    assert exc.value.status == HTTPStatus.CONFLICT
+    assert exc.value.code == "docker_host_file_unavailable"
+    assert ".paper-notes/media/uploads" in exc.value.message
+
+
+def test_upload_chat_attachment_keeps_index_error_raw_outside_docker(monkeypatch):
+    class BrokenMediaStore:
+        def create_upload(self, *args, **kwargs):
+            raise IndexError("list index out of range")
+
+    class Service:
+        media_store = BrokenMediaStore()
+
+    monkeypatch.setenv("PAPER_NOTES_DOCKER", "0")
+
+    with pytest.raises(IndexError):
+        upload_chat_attachment(
+            {"data": PNG_DATA_URL, "fileName": "LICENSE.txt", "sessionId": "session-1"},
+            service=Service(),
+        )
+
+
 def test_handle_chat_request_records_progress_events(tmp_path):
     provider = FakeProvider([ModelResponse(content="Here is the answer.")])
     service = AgentService(

@@ -697,15 +697,11 @@ async function saveAiSettings(options = {}) {
     setAiSettingsError("");
     setAiKeyDialogError("");
     renderAiSettings();
-    try {
-      await loadAiSettings();
-      await loadToolSettings();
-    } catch (refreshError) {
-      console.error(refreshError);
-      setAiSettingsError("Key saved, but provider status could not refresh. Reopen AI Provider settings to check it.");
-    }
     if (closeDialog) {
       closeAiSettingsDialog();
+      void refreshAiSettingsAfterSave();
+    } else {
+      await refreshAiSettingsAfterSave({ showError: true });
     }
   } catch (error) {
     if (keyProvider) {
@@ -722,6 +718,18 @@ async function saveAiSettings(options = {}) {
     elements.deleteGeminiKeyButton.disabled = false;
     elements.deleteDeepSeekKeyButton.disabled = false;
     elements.confirmAiKeyEditButton.disabled = false;
+  }
+}
+
+async function refreshAiSettingsAfterSave({ showError = false } = {}) {
+  try {
+    await loadAiSettings();
+    await loadToolSettings();
+  } catch (refreshError) {
+    console.error(refreshError);
+    if (showError) {
+      setAiSettingsError("Key saved, but provider status could not refresh. Reopen AI Provider settings to check it.");
+    }
   }
 }
 
