@@ -221,6 +221,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/scratchpads":
             self._run_api_handler(self.handle_read_scratchpads)
             return
+        if parsed.path == "/api/runtime":
+            self._run_api_handler(self.handle_get_runtime)
+            return
         if parsed.path == "/api/settings/ai":
             self._run_api_handler(self.handle_get_ai_settings)
             return
@@ -524,6 +527,15 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_get_model_providers(self) -> None:
         self.send_json(HTTPStatus.OK, get_model_providers())
+
+    def handle_get_runtime(self) -> None:
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "docker": is_docker_runtime(),
+                "dockerLocalFileMessage": DOCKER_LOCAL_FILE_OPEN_MESSAGE,
+            },
+        )
 
     def handle_open_local_file(self) -> None:
         if self.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":

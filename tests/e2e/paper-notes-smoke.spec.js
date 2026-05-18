@@ -2558,6 +2558,43 @@ test("reader attachment uploads show tray progress and can be removed", async ({
   await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 });
 
+test("reader blocks host file imports in docker mode before upload", async ({ page }) => {
+  await openFixtureReader(page);
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+
+  const uploads = [];
+  await page.route("**/api/runtime", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        docker: true,
+        dockerLocalFileMessage: "Docker mode cannot open files in the host desktop. Put the file under .paper-notes/media/uploads.",
+      }),
+    });
+  });
+  await page.route("**/api/chat/attachments", async (route) => {
+    uploads.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "upload should not be reached" }),
+    });
+  });
+
+  await page.locator("#readerAttachmentInput").setInputFiles({
+    name: "hooks.py",
+    mimeType: "text/x-python",
+    buffer: Buffer.from("print('hello')\n"),
+  });
+
+  await expect(page.locator("#readerChatError")).toContainText("Docker mode cannot open files in the host desktop");
+  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
+  expect(uploads).toHaveLength(0);
+});
+
 test("reader ask tools add the current PDF page as an attachment", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);

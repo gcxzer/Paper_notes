@@ -317,6 +317,8 @@ const readerState = {
   pendingSelectedTextContext: null,
   imageUploadPending: false,
   attachmentUploadPending: false,
+  runtimeSettings: null,
+  runtimeSettingsLoading: false,
   aiSettings: null,
   aiSettingsLoading: false,
   modelCatalog: null,
