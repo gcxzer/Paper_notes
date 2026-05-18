@@ -223,6 +223,16 @@ def handle_chat_request(
             "model_provider_api",
             public_message,
         ) from error
+    except IndexError as error:
+        if _is_docker_runtime() and attachments:
+            _fail_progress(progress, request_id, _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE)
+            _debug_finish_error(debug, debug_request_id, "json", "docker_host_file_unavailable", _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE, body=body)
+            raise AgentAPIError(
+                HTTPStatus.CONFLICT,
+                "docker_host_file_unavailable",
+                _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE,
+            ) from error
+        raise
     except ValueError as error:
         _fail_progress(progress, request_id, str(error))
         _debug_finish_error(debug, debug_request_id, "json", "invalid_request", str(error), body=body)
