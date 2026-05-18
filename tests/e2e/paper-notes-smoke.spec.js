@@ -988,6 +988,73 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   expect(consoleIssues).toEqual([]);
 });
 
+test("codex oauth status badge follows the signed-in auth state", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await page.route("**/api/settings/ai", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        provider: "codex-oauth",
+        providerSource: "auto",
+        supportedProviders: ["codex-oauth", "deepseek"],
+        configured: true,
+        ready: true,
+        model: "gpt-5.5",
+        modelConfigured: true,
+        modelSource: "profile",
+        modelConnectionConfigured: true,
+        codexAuth: {
+          loggedIn: true,
+          authMode: "oauth",
+          accountEmail: "",
+          planType: "",
+          authStorePath: ".paper-notes/auth/codex.json",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "codex-oauth",
+        defaultModel: "gpt-5.5",
+        modelConnectionConfigured: true,
+        providers: [
+          {
+            name: "codex-oauth",
+            displayName: "Codex OAuth",
+            configured: false,
+            ready: false,
+            model: "gpt-5.5",
+            selectedModel: "gpt-5.5",
+            defaultModel: "gpt-5.5",
+            models: [{ value: "gpt-5.5", label: "GPT-5.5" }],
+          },
+          {
+            name: "deepseek",
+            displayName: "DeepSeek",
+            configured: true,
+            ready: true,
+            model: "deepseek-v4-flash",
+            selectedModel: "deepseek-v4-flash",
+            defaultModel: "deepseek-v4-flash",
+            models: [{ value: "deepseek-v4-flash", label: "V4 Flash" }],
+          },
+        ],
+      }),
+    });
+  });
+
+  await openFixtureLibrary(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator("#openAiSettings").click();
+
+  await expect(page.locator("#aiSettingsDialog")).toBeVisible();
+  await expect(page.locator("#codexAuthDetail")).toContainText("Signed in locally.");
+  await expect(page.locator("#codexStatusBadge")).toHaveText("Signed in");
+});
+
 test("MCP settings opens from URL and supports add test save remove", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await page.route("**/notes.json**", async (route) => {

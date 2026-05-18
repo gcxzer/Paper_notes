@@ -86,9 +86,9 @@ function openAiProviderConfigured(settings = state.aiSettings) {
 }
 
 function codexProviderConfigured(settings = state.aiSettings) {
+  if (settings) return Boolean(normalizeAiSettings(settings).codexAuth.loggedIn);
   const profile = aiProviderProfile("codex-oauth");
-  if (profile) return Boolean(profile.configured);
-  return Boolean((settings || normalizeAiSettings({})).codexAuth.loggedIn);
+  return Boolean(profile?.configured);
 }
 
 function geminiProviderConfigured(settings = state.aiSettings) {
