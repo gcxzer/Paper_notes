@@ -62,6 +62,7 @@ JSON
 fi
 
 if [ "$(id -u)" = "0" ]; then
+  chown "$PAPER_NOTES_UID:$PAPER_NOTES_GID" "$APP_ROOT"
   chown -R "$PAPER_NOTES_UID:$PAPER_NOTES_GID" \
     "$APP_ROOT/resources" \
     "$APP_ROOT/.paper-notes" \
