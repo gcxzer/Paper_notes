@@ -344,13 +344,14 @@
     status.textContent = textarea.value.trim() ? "Saved" : "Empty";
     setButtonPosition(button, position);
     setOpen(root, panel, button, position, localStorage.getItem(OPEN_KEY) === "true");
-    applyVisibility();
 
     let drag = null;
     let suppressNextClick = false;
     let openPadMenuId = "";
     let renamingPadId = "";
     let confirmingDeletePadId = "";
+
+    applyVisibility();
 
     function padById(padId) {
       return padState.pads.find((entry) => entry.id === padId);
@@ -423,14 +424,17 @@
     }
 
     function finishDrag(event, { cancelled = false } = {}) {
-      if (!drag || drag.pointerId !== event.pointerId) return false;
+      const pointerId = event.pointerId ?? "mouse";
+      if (!drag || drag.pointerId !== pointerId) return false;
       const wasDrag = drag.moved;
       drag = null;
       button.classList.remove("is-dragging");
-      try {
-        button.releasePointerCapture(event.pointerId);
-      } catch (error) {
-        // Pointer capture may already be released by the browser.
+      if (event.pointerId !== undefined) {
+        try {
+          button.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
       }
       if (wasDrag && !cancelled) {
         writeJson(POSITION_KEY, position);
@@ -439,21 +443,20 @@
       return wasDrag;
     }
 
-    button.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
+    function startDrag(pointerId, clientX, clientY) {
       drag = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
+        pointerId,
+        startX: clientX,
+        startY: clientY,
         originX: position.x,
         originY: position.y,
         moved: false,
       };
-      button.setPointerCapture(event.pointerId);
-    });
+    }
 
-    button.addEventListener("pointermove", (event) => {
-      if (!drag || drag.pointerId !== event.pointerId) return;
+    function updateDrag(event) {
+      const pointerId = event.pointerId ?? "mouse";
+      if (!drag || drag.pointerId !== pointerId) return;
       const dx = event.clientX - drag.startX;
       const dy = event.clientY - drag.startY;
       if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
@@ -462,17 +465,49 @@
       position = clampPosition({ x: drag.originX + dx, y: drag.originY + dy });
       setButtonPosition(button, position);
       if (!panel.hidden) setPanelPosition(panel, position);
-    });
+    }
+
+    function beginPointerDrag(event) {
+      if (event.button !== 0 || drag) return;
+      startDrag(event.pointerId, event.clientX, event.clientY);
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // Document-level move handlers keep dragging working if pointer capture is unavailable.
+      }
+    }
+
+    function beginMouseDrag(event) {
+      if (event.button !== 0 || drag) return;
+      startDrag("mouse", event.clientX, event.clientY);
+    }
+
+    document.addEventListener("pointerdown", (event) => {
+      if (event.target?.closest?.(".floating-pad-button") !== button) return;
+      beginPointerDrag(event);
+    }, true);
+
+    button.addEventListener("pointerdown", beginPointerDrag);
+
+    document.addEventListener("mousedown", (event) => {
+      if (event.target?.closest?.(".floating-pad-button") !== button) return;
+      beginMouseDrag(event);
+    }, true);
+
+    button.addEventListener("mousedown", beginMouseDrag);
+
+    button.addEventListener("pointermove", updateDrag);
+    document.addEventListener("pointermove", updateDrag, true);
+    document.addEventListener("mousemove", updateDrag, true);
 
     button.addEventListener("pointerup", (event) => {
       finishDrag(event);
     });
+    document.addEventListener("mouseup", (event) => {
+      finishDrag(event);
+    }, true);
 
     button.addEventListener("pointercancel", (event) => {
-      finishDrag(event, { cancelled: true });
-    });
-
-    button.addEventListener("lostpointercapture", (event) => {
       finishDrag(event, { cancelled: true });
     });
 

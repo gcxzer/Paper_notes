@@ -48,19 +48,13 @@ npm install
 uv sync
 ```
 
-Run manually:
-
-```bash
-uv run python main.py
-```
-
-Open `http://127.0.0.1:4173`.
-
-Or install the local background service:
+Install and start the local background service:
 
 ```bash
 scripts/install-autostart.sh
 ```
+
+Open `http://127.0.0.1:4173`.
 
 After pulling new code:
 
@@ -68,6 +62,7 @@ After pulling new code:
 git pull
 npm install
 uv sync
+scripts/install-autostart.sh
 ```
 
 Remove the local background service:

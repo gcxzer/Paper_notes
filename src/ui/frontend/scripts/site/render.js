@@ -3,6 +3,12 @@ function applyPanelWidths() {
   document.documentElement.style.setProperty("--details-width", `${state.panelWidths.details}px`);
 }
 
+function renderIcon(name, label = "", className = "", size = 18) {
+  return window.renderPaperIcon
+    ? window.renderPaperIcon(name, { label, className, size })
+    : "";
+}
+
 function renderCategoryNode(category, level = 0) {
   const childCategories = getChildren(category.id);
   const expanded = state.expandedCategoryIds.has(category.id);
@@ -21,7 +27,7 @@ function renderCategoryNode(category, level = 0) {
           </span>
           <span class="category-count">${getCategoryCount(category.id)}</span>
         </button>
-        ${!category.system ? `<button class="category-more" type="button" data-menu-category-id="${category.id}" aria-label="Collection options">...</button>` : ""}
+        ${!category.system ? `<button class="category-more" type="button" data-menu-category-id="${category.id}" aria-label="Collection options">${renderIcon("more-horizontal", "", "", 16)}</button>` : ""}
       </div>
       ${childCategories.length && expanded ? `<div class="tree-children">${childCategories.map((child) => renderCategoryNode(child, level + 1)).join("")}</div>` : ""}
     </div>
@@ -42,7 +48,7 @@ function renderContentHeader() {
       ? "Collection"
       : "Sub-collection";
   elements.contentTitle.textContent = category ? category.name : "All Notes";
-  elements.sortButton.textContent = `Sort: ${getSortLabel()}`;
+  elements.sortButton.innerHTML = `<span>Sort: ${escapeHtml(getSortLabel())}</span>${renderIcon("chevron-down", "", "", 15)}`;
   elements.sortMenu.querySelectorAll("[data-sort-mode]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.sortMode === state.sortMode);
   });
@@ -60,7 +66,7 @@ function renderStatus() {
         ${activeTags.map((tag) => `
           <span class="library-status-tag">
             <span>#${escapeHtml(tag)}</span>
-            <button type="button" data-remove-tag-filter="${escapeHtml(tag)}" aria-label="Remove tag filter ${escapeHtml(tag)}">×</button>
+            <button type="button" data-remove-tag-filter="${escapeHtml(tag)}" aria-label="Remove tag filter ${escapeHtml(tag)}">${renderIcon("x", "", "", 14)}</button>
           </span>
         `).join("")}
       </span>
@@ -104,8 +110,8 @@ function renderEmptyState(category, label) {
       </div>
       ${hasQuery ? "" : `
         <div class="library-empty-actions">
-          <button class="toolbar-button" type="button" data-empty-import-action="local">Import PDF</button>
-          <button class="toolbar-button" type="button" data-empty-import-action="url">Paste link</button>
+          <button class="toolbar-button" type="button" data-empty-import-action="local">${renderIcon("file-text", "", "", 16)}<span>Import PDF</span></button>
+          <button class="toolbar-button" type="button" data-empty-import-action="url">${renderIcon("external-link", "", "", 16)}<span>Paste link</span></button>
         </div>
       `}
     </div>
@@ -132,20 +138,26 @@ function renderNotes() {
     const detailLabel = parent && leafCategory && parent.id !== leafCategory.id
       ? `${parent.name} / ${leafCategory.name}`
       : leafCategory?.name || "Uncategorized";
+    const noteTitle = escapeHtml(note.title);
+    const noteId = escapeHtml(note.id);
+    const readerHref = escapeHtml(getReaderHref(note));
+    const venue = normalizeText(note.venue);
     return `
-      <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${note.id}" draggable="true">
+      <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${noteId}" draggable="true">
+        <div class="note-card-icon" aria-hidden="true">${renderIcon("file-text", "", "", 20)}</div>
         <div class="note-card-main">
-          <div class="meta">
-            <span>${note.date || "No date"}</span>
-            <span>${detailLabel}</span>
+          <div class="meta note-card-meta">
+            <span>${renderIcon("calendar", "", "", 13)}${escapeHtml(note.date || "No date")}</span>
+            <span>${renderIcon("folder", "", "", 13)}${escapeHtml(detailLabel)}</span>
+            ${venue ? `<span>${escapeHtml(venue)}</span>` : ""}
           </div>
-          <h3>${note.title}</h3>
+          <h3>${noteTitle}</h3>
           ${renderNoteCardTags(note)}
         </div>
-        <span class="note-card-actions-inline">
-          <button class="note-open" type="button" data-rename-note-id="${note.id}">Rename</button>
-          <button class="note-open note-open-danger" type="button" data-delete-note-id="${note.id}">Delete</button>
-          <a class="note-open" href="${getReaderHref(note)}" aria-label="Open ${note.title}">Open</a>
+        <span class="note-card-actions-inline" aria-label="Paper actions">
+          <a class="note-open note-open-primary" href="${readerHref}" aria-label="Open ${noteTitle}" title="Open">${renderIcon("book-open", "", "", 16)}<span class="note-action-label">Open</span></a>
+          <button class="note-open" type="button" data-rename-note-id="${noteId}" aria-label="Rename ${noteTitle}" title="Rename">${renderIcon("edit-3", "", "", 16)}<span class="note-action-label">Rename</span></button>
+          <button class="note-open note-open-danger" type="button" data-delete-note-id="${noteId}" aria-label="Delete ${noteTitle}" title="Delete">${renderIcon("trash-2", "", "", 16)}<span class="note-action-label">Delete</span></button>
         </span>
       </article>
     `;
@@ -156,9 +168,9 @@ function renderNoteCardTags(note) {
   const tags = Array.isArray(note?.tags) ? note.tags.filter(Boolean) : [];
   if (!tags.length) return "";
   return `
-    <p class="note-card-tags" aria-label="Tags">
-      ${tags.map((tag, index) => `${index ? `<span class="note-card-tag-separator" aria-hidden="true">·</span>` : ""}<span>${escapeHtml(tag)}</span>`).join("")}
-    </p>
+    <div class="note-card-tags" aria-label="Tags">
+      ${tags.map((tag) => `<span class="note-card-tag">${renderIcon("tag", "", "", 12)}${escapeHtml(tag)}</span>`).join("")}
+    </div>
   `;
 }
 
@@ -173,25 +185,27 @@ function renderDetails() {
 
   const allAssignable = getAssignableCategories();
   const tags = Array.isArray(note.tags) ? note.tags.filter(Boolean) : [];
+  const noteTitle = escapeHtml(note.title);
   elements.detailsPanel.hidden = false;
   elements.rightResizer.hidden = false;
   elements.detailsCard.innerHTML = `
     <div>
       <div class="content-kicker">Paper</div>
-      <h3>${note.title}</h3>
+      <h3>${noteTitle}</h3>
       <div class="details-meta">
-        <span>${note.date || "No date"}</span>
+        <span>${renderIcon("calendar", "", "", 13)}${escapeHtml(note.date || "No date")}</span>
+        ${note.venue ? `<span>${escapeHtml(note.venue)}</span>` : ""}
       </div>
       <div class="note-card-actions">
-        <a class="toolbar-button" href="${getReaderHref(note)}">Open Note</a>
-        ${note.href ? `<a class="toolbar-button" href="${note.href}" target="_blank" rel="noopener">Open PDF</a>` : ""}
-        ${note.htmlHref ? `<a class="toolbar-button" href="${note.htmlHref}" target="_blank" rel="noopener">Open HTML</a>` : ""}
+        <a class="toolbar-button toolbar-button-primary" href="${escapeHtml(getReaderHref(note))}">${renderIcon("book-open", "", "", 16)}<span>Open Note</span></a>
+        ${note.href ? `<a class="toolbar-button" href="${escapeHtml(note.href)}" target="_blank" rel="noopener">${renderIcon("file-text", "", "", 16)}<span>Open PDF</span></a>` : ""}
+        ${note.htmlHref ? `<a class="toolbar-button" href="${escapeHtml(note.htmlHref)}" target="_blank" rel="noopener">${renderIcon("external-link", "", "", 16)}<span>Open HTML</span></a>` : ""}
       </div>
     </div>
     <div class="details-row details-tags-row">
       <div class="details-row-heading">
-        <strong>Tags</strong>
-        <button class="details-tag-add" type="button" data-open-tag-dialog="${escapeHtml(note.id)}">Add</button>
+        <strong>${renderIcon("tags", "", "", 15)}<span>Tags</span></strong>
+        <button class="details-tag-add" type="button" data-open-tag-dialog="${escapeHtml(note.id)}">${renderIcon("plus", "", "", 14)}<span>Add</span></button>
       </div>
       ${tags.length ? `
         <div class="details-tags" aria-label="Paper tags">
@@ -211,18 +225,18 @@ function renderDetails() {
                 data-remove-tag="${escapeHtml(tag)}"
                 aria-label="Remove ${escapeHtml(tag)} tag"
                 title="Remove tag"
-              >×</button>
+              >${renderIcon("x", "", "", 12)}</button>
             </span>
           `).join("")}
         </div>
       ` : `<p class="details-tags-empty">No tags yet</p>`}
     </div>
     <div class="details-row">
-      <strong>Summary</strong>
+      <strong>${renderIcon("sticky-note", "", "", 15)}<span>Summary</span></strong>
       <textarea class="details-summary-input" data-summary-note-id="${note.id}" rows="6" placeholder="Write a short summary...">${escapeHtml(note.summary)}</textarea>
     </div>
     <div class="details-row">
-      <strong>Collection</strong>
+      <strong>${renderIcon("folder", "", "", 15)}<span>Collection</span></strong>
       <select class="note-select" data-detail-note-id="${note.id}" aria-label="Move note to collection">
         ${allAssignable.map((entry) => `
           <option value="${entry.id}"${entry.id === note.categoryId ? " selected" : ""}>${entry.parentId ? `${getCategoryById(entry.parentId)?.name} / ${entry.name}` : entry.name}</option>

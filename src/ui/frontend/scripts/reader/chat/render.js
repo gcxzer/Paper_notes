@@ -580,15 +580,29 @@ function renderAttachmentTrayItem(attachment) {
       </span>
     `;
   }
+  const typeLabel = fileKindLabel(attachment);
+  const meta = fileMetaLabel(attachment) || `${typeLabel} file`;
   return `
     <span class="${classes}" title="${escapeHtml(attachment.fileName)}">
-      <span class="ask-attachment-file-icon">${escapeHtml(fileKindLabel(attachment))}</span>
-      <span class="ask-attachment-file-name">${escapeHtml(attachment.fileName)}</span>
+      <span class="ask-attachment-file-mark" aria-hidden="true">
+        ${renderChatIcon(fileIconName(attachment), "", "ask-attachment-file-glyph", 20)}
+        <span class="ask-attachment-file-type">${escapeHtml(typeLabel)}</span>
+      </span>
+      <span class="ask-attachment-file-copy">
+        <span class="ask-attachment-file-name">${escapeHtml(attachment.fileName)}</span>
+        <span class="ask-attachment-file-meta">${escapeHtml(meta)}</span>
+      </span>
       ${attachment.uploadPending ? `<span class="ask-attachment-badge">Uploading</span>` : ""}
       ${attachment.uploadError ? `<span class="ask-attachment-badge">Failed</span>` : ""}
-      <button type="button" data-attachment-remove="${escapeHtml(attachment.id)}" aria-label="Remove attachment">×</button>
+      <button type="button" data-attachment-remove="${escapeHtml(attachment.id)}" aria-label="Remove attachment">${renderChatIcon("x", "", "", 14)}</button>
     </span>
   `;
+}
+
+function renderChatIcon(name, label = "", className = "", size = 16) {
+  return window.renderPaperIcon
+    ? window.renderPaperIcon(name, { label, className, size })
+    : "";
 }
 
 function isImageArtifact(artifact) {
@@ -607,6 +621,18 @@ function fileKindLabel(file) {
   if (extensionLabel) return extensionLabel;
   if (kind === "text" || mimeType.startsWith("text/")) return "TXT";
   return "FILE";
+}
+
+function fileIconName(file) {
+  const kind = normalizeText(file?.kind).toLowerCase();
+  const mimeType = normalizeText(file?.mimeType).toLowerCase();
+  const name = normalizeText(file?.fileName).toLowerCase();
+  if (isImageArtifact(file)) return "image";
+  if (kind === "spreadsheet" || name.endsWith(".xlsx") || name.endsWith(".csv")) return "file-spreadsheet";
+  if (mimeType.includes("json") || name.endsWith(".json")) return "file-json";
+  if (name.endsWith(".js") || name.endsWith(".ts") || name.endsWith(".tsx") || name.endsWith(".py") || name.endsWith(".css") || name.endsWith(".html")) return "file-code";
+  if (kind === "text" || mimeType.startsWith("text/") || name.endsWith(".md") || name.endsWith(".txt")) return "file-text";
+  return "file";
 }
 
 function fileExtensionLabel(fileName) {

@@ -444,6 +444,7 @@ function applyScratchpadSettingControls() {
 function setScratchpadEnabled(enabled) {
   localStorage.setItem(SCRATCHPAD_ENABLED_KEY, enabled ? "true" : "false");
   applyScratchpadSettingControls();
+  document.querySelector(".floating-pad")?.toggleAttribute("hidden", !enabled);
   window.dispatchEvent(new CustomEvent("paper-scratchpad-setting-change", {
     detail: { enabled }
   }));

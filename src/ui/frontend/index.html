@@ -6,6 +6,7 @@
   <title>Paper Notes</title>
   <script src="scripts/shared/theme.js"></script>
   <script src="scripts/shared/button-feedback.js?v=button-press-v2"></script>
+  <script src="scripts/shared/icons.js?v=workspace-ui-v1"></script>
   <script src="scripts/shared/model.js"></script>
   <link rel="stylesheet" href="styles/site/index.css?v=skills-title-weight-v1">
 </head>
@@ -17,7 +18,7 @@
           <div class="sidebar-kicker">Library</div>
           <h1>Paper Notes</h1>
         </div>
-        <button class="icon-button" id="newCategoryButton" type="button" aria-label="New collection">+</button>
+        <button class="icon-button" id="newCategoryButton" type="button" aria-label="New collection"><span data-paper-icon="folder-plus" data-paper-icon-size="18"></span></button>
       </div>
 
       <div class="sidebar-search">
@@ -31,7 +32,7 @@
 
       <div class="sidebar-footer">
         <div class="settings-control">
-          <button class="settings-button" id="settingsButton" type="button" aria-expanded="false" aria-haspopup="menu">Settings</button>
+          <button class="settings-button" id="settingsButton" type="button" aria-expanded="false" aria-haspopup="menu"><span data-paper-icon="settings" data-paper-icon-size="16"></span><span>Settings</span></button>
           <div class="settings-menu-shield" id="settingsMenuShield" hidden></div>
           <div class="settings-menu" id="settingsMenu" role="menu" hidden>
             <div class="settings-menu-label">Appearance</div>
@@ -57,31 +58,37 @@
             <a class="settings-menu-item" id="openAiSettings" href="index.html?settings=ai-provider">
               <span>
                 <span class="settings-theme-title">AI Provider</span>
+                <span class="settings-theme-value">Models and keys</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openMemorySettings" href="index.html?settings=memory">
               <span>
                 <span class="settings-theme-title">Memory</span>
+                <span class="settings-theme-value">Saved context</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openToolSettings" href="index.html?settings=tools">
               <span>
                 <span class="settings-theme-title">Tools</span>
+                <span class="settings-theme-value">Agent access</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openMcpSettings" href="index.html?settings=mcp">
               <span>
                 <span class="settings-theme-title">MCP</span>
+                <span class="settings-theme-value">External tool servers</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openSkillsSettings" href="index.html?settings=skills">
               <span>
                 <span class="settings-theme-title">Skills</span>
+                <span class="settings-theme-value">Local workflows</span>
               </span>
             </a>
             <a class="settings-menu-item" id="openDebugSettings" href="index.html?settings=debug">
               <span>
                 <span class="settings-theme-title">Debug</span>
+                <span class="settings-theme-value">Agent traces</span>
               </span>
             </a>
           </div>
@@ -101,7 +108,7 @@
         </div>
         <div class="content-actions">
           <div class="import-control">
-            <button class="icon-button add-paper-button" id="addPdfButton" type="button" aria-label="Import paper" aria-expanded="false" aria-haspopup="menu">+</button>
+            <button class="icon-button add-paper-button" id="addPdfButton" type="button" aria-label="Import paper" aria-expanded="false" aria-haspopup="menu"><span data-paper-icon="plus" data-paper-icon-size="18"></span></button>
             <div class="import-menu" id="importMenu" role="menu" hidden>
               <button class="import-option" type="button" data-import-action="local" role="menuitem">Local PDF</button>
               <button class="import-option" type="button" data-import-action="url" role="menuitem">DOI / arXiv / URL</button>

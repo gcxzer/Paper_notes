@@ -1,5 +1,7 @@
 @import "../shared/floating-pad.css";
+@import "../shared/icons.css";
 @import "./base.css";
+@import "../shared/workspace-theme.css";
 @import "./shell.css";
 @import "./library.css";
 @import "./dialogs.css";
@@ -7,3 +9,4 @@
 @import "./skills.css?v=skills-size-1260x860-v1";
 @import "./memory-debug.css?v=debug-unified-v1";
 @import "./responsive.css";
+@import "./workbench.css";
