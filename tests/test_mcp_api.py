@@ -61,6 +61,54 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
     assert "super-secret" not in str(payload)
 
 
+def test_mcp_settings_warns_stdio_runs_inside_docker(tmp_path, monkeypatch):
+    settings_path = tmp_path / ".paper-notes" / "mcp-servers.json"
+    monkeypatch.setenv("PAPER_NOTES_DOCKER", "1")
+    monkeypatch.setattr(mcp_api, "_reset_agent_service", lambda: None)
+
+    payload = mcp_api.update_mcp_settings({
+        "servers": [
+            {
+                "id": "filesystem",
+                "name": "Filesystem",
+                "transport": "stdio",
+                "command": "npx",
+            },
+            {
+                "id": "remote",
+                "name": "Remote",
+                "transport": "http",
+                "url": "https://mcp.example/mcp",
+            },
+        ]
+    }, settings_path=settings_path)
+
+    stdio_server = next(server for server in payload["servers"] if server["id"] == "filesystem")
+    http_server = next(server for server in payload["servers"] if server["id"] == "remote")
+    assert stdio_server["runtimeWarnings"][0]["code"] == "docker_stdio_runs_in_container"
+    assert "inside the Paper Notes container" in stdio_server["runtimeWarnings"][0]["message"]
+    assert "runtimeWarnings" not in http_server
+
+
+def test_mcp_test_endpoint_warns_stdio_in_docker(monkeypatch):
+    monkeypatch.setenv("PAPER_NOTES_DOCKER", "1")
+    monkeypatch.setattr(mcp_api, "probe_mcp_server", lambda server: {
+        "success": True,
+        "toolCount": 0,
+        "tools": [],
+        "error": "",
+    })
+
+    result = mcp_api.test_mcp_server({
+        "id": "filesystem",
+        "name": "Filesystem",
+        "transport": "stdio",
+        "command": "npx",
+    })
+
+    assert result["runtimeWarnings"][0]["code"] == "docker_stdio_runs_in_container"
+
+
 def test_mcp_settings_update_preserves_redacted_existing_secret(tmp_path, monkeypatch):
     settings_path = tmp_path / "mcp-servers.json"
     monkeypatch.setattr(mcp_api, "_reset_agent_service", lambda: None)

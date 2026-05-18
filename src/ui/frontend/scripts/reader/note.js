@@ -60,11 +60,28 @@ async function handleNoteLocalFileLinkClick(event) {
       body: JSON.stringify({ path }),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
+      const detail = await readLocalFileOpenError(response);
       throw new Error(detail || "Could not open local file.");
     }
   } catch (error) {
     console.warn("Failed to open local file link.", error);
+    showLocalFileOpenError(error);
+  }
+}
+
+async function readLocalFileOpenError(response) {
+  const contentType = response.headers.get("Content-Type") || "";
+  if (contentType.includes("application/json")) {
+    const payload = await response.json().catch(() => null);
+    return payload?.error || payload?.message || "";
+  }
+  return response.text().catch(() => "");
+}
+
+function showLocalFileOpenError(error) {
+  const message = error?.message || "Could not open local file.";
+  if (typeof window.alert === "function") {
+    window.alert(message);
   }
 }
 
