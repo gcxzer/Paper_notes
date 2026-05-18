@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "progress-text-sheen-v17";
+const READER_SCRIPT_VERSION = "no-model-empty-state-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-default-off-v1",

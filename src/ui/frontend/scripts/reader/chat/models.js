@@ -14,18 +14,21 @@ function renderReaderModelControls() {
   const savedLabel = modelDisplayLabel(savedModel, savedProvider, "label");
   const selectedShortLabel = modelDisplayLabel(savedModel, savedProvider, "shortLabel");
   const loading = readerState.aiSettingsLoading || readerState.modelCatalogLoading;
+  const noConfiguredProviders = !loading && !availableProviders.length;
   const configured = Boolean(profile?.configured || (settings.provider === provider && settings.configured));
 
   if (elements.readerModelMenuButton) {
-    const buttonLabel = loading ? "Model" : selectedShortLabel || "Model";
+    const buttonLabel = loading ? "Model" : noConfiguredProviders ? "No model" : selectedShortLabel || "Model";
     elements.readerModelMenuButton.innerHTML = modelButtonHtml({
       provider: savedProvider,
       label: buttonLabel,
-      loading,
+      loading: loading || noConfiguredProviders,
     });
     elements.readerModelMenuButton.title = savedLabel
       ? `${providerDisplayName(savedProvider)}: ${savedLabel}`
-      : `${providerDisplayName(savedProvider)}: select a model`;
+      : noConfiguredProviders
+        ? "No configured providers"
+        : `${providerDisplayName(savedProvider)}: select a model`;
     elements.readerModelMenuButton.disabled = loading || readerState.modelSaving || isChatSessionPending();
     elements.readerModelMenuButton.setAttribute("aria-expanded", String(readerState.modelMenuOpen));
   }
