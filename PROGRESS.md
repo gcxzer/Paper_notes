@@ -1,43 +1,29 @@
 # Paper Notes Progress
 
-Updated: 2026-05-17
+Updated: 2026-05-18
 
 ## Remaining Follow-Ups
 
 - Cron
-- Improve memory management and retrieval quality.
-- Add a subagent system if the agent workflow grows beyond one session
-  runner.
+- Improve memory management and retrieval quality, dreaming.
+- Add a subagent system
 - Consider splitting large backend API modules once their route groups
   stabilize.
 - Consider a stronger sandbox backend for Code Execution, such as Docker or
   another isolated execution backend.
-- Keep README and this release brief aligned as tool behavior changes.
-- MCP follow-ups from the Hermes Agent comparison:
-  - P0 completed: dynamic `tools/list_changed` refresh,
-    reconnection/keepalive recovery, and capability-aware resource/prompt
-    utility tools for stdio and Streamable HTTP.
-  - P1 completed: per-server include/exclude tool filters with wildcard support
-    and Settings > MCP textarea configuration.
-  - P2A completed: MCP `image/*` tool/resource/prompt results are materialized
-    as Paper Notes media artifacts.
-  - P2B completed: MCP safe text-like tool/resource/prompt results are
-    materialized as Paper Notes file artifacts.
-  - P2C/hardening completed: artifact-safe trimming, MCP prompt-injection
-    warnings/sanitization, circuit breaker status, and best-effort stdio orphan
-    cleanup.
-  - P2D/status-smoke completed: Streamable HTTP cross-origin redirects strip
-    configured/sensitive headers, Settings > MCP shows circuit/security status,
-    and smoke coverage verifies MCP settings plus MCP artifact cards.
-  - Post-1.2 hardening completed: MCP env/header secrets are externalized into
-    `.paper-notes/secrets.env`, Settings > MCP has reconnect/reset/log actions,
-    MCP security helpers were split out of `manager.py`, PDF results can become
-    local artifacts, and MCP annotations/output schemas are preserved in tool
-    metadata.
-  - SSE transport and OAuth 2.1/PKCE are intentionally not planned for now.
-  - Later candidates: MCP sampling/createMessage support, running Paper Notes as
-    an MCP server, richer log/status UX, Office artifactization, archives, and
-    arbitrary binary artifactization after safety review.
+
+## Release 1.2.1
+
+- Added Docker Compose deployment support with a project `Dockerfile`,
+  `.dockerignore`, host-mounted runtime data, and a startup entrypoint that
+  initializes required local paths plus a minimal `notes.json`.
+- Added `HOST` environment-variable support so the app keeps its local
+  `127.0.0.1` default outside Docker while binding to `0.0.0.0` inside
+  containers.
+- Added Compose health checks and documented clone, first run, update, cleanup,
+  and local-runtime fallback flows in `README.md`.
+- Verified image build, Compose startup, HTTP reachability, healthy container
+  status, and restart persistence for mounted local data.
 
 ## Release 1.2.0
 
@@ -72,8 +58,8 @@ Updated: 2026-05-17
 
 Paper Notes is now a local research workspace with a PDF reader, editable HTML
 notes, a paper library, and an agent-backed Ask panel. The app runs from a local
-Python server, can be installed as a local background service, and keeps user
-data on disk instead of relying on a hosted service.
+Python server, can be installed as a local background service or run with Docker
+Compose, and keeps user data on disk instead of relying on a hosted service.
 
 Current user-facing capabilities include:
 
@@ -98,6 +84,8 @@ Current user-facing capabilities include:
   images to model requests when the selected provider supports vision.
 - Configure OpenAI, Codex OAuth, Anthropic, Gemini, and DeepSeek providers,
   tool permissions, memory, skills, and native/custom web search from Settings.
+- Connect external MCP servers over stdio or Streamable HTTP, filter exposed
+  MCP tools per server, and inspect connection/security status from Settings.
 - Monitor context budget, manually compact long sessions, and continue from
   persisted compression checkpoints when sessions grow large.
 
@@ -168,40 +156,20 @@ Important current behavior:
 - `generated_artifacts` registers `create_file_artifact` and
   `create_image_artifact`, but the group is hidden from normal tool settings and
   only selected for explicit generation flows.
-- MCP currently connects enabled external servers at agent startup, registers
-  discovered tools under the `mcp` toolset, supports stdio and Streamable HTTP,
-  stores env/header secrets in `.paper-notes/secrets.env` rather than
-  `.paper-notes/mcp-servers.json`, redacts settings responses, and maps MCP
-  read-only/destructive/idempotent/open-world annotations into tool metadata.
-- MCP refreshes the registry on `tools/list_changed`, recovers long-lived
-  sessions with keepalive/reconnect, and exposes read-only resources/prompts
-  utility tools when a server advertises those capabilities.
-- MCP server settings can include or exclude ordinary tools and MCP utility
-  tools per server, using exact names or `*` wildcards.
-- MCP `image/*`, safe text-like, and PDF content returned by tools, resource
-  reads, or prompt content is now stored as local `source="mcp"` media/file
-  artifacts and attached to assistant messages through the existing artifact
-  card pipeline.
-- MCP preserves artifact, media error, and security warning fields when large
-  tool results are trimmed or persisted as compact references.
-- MCP treats external tool descriptions, schema descriptions, resources,
-  prompts, and results as untrusted content: suspicious instruction-like
-  descriptions are neutralized before model exposure, and suspicious result
-  content carries `securityWarnings` without blocking the result.
-- MCP long-lived servers report runtime state, failure counts, retry timing, and
-  circuit-open status; repeated reconnect failures pause retries until cooldown,
-  and circuit-open tool calls return `mcp_circuit_open`.
-- Settings > MCP displays circuit-open/reconnecting/connecting status, retry
-  timing, failure counts, and MCP security warning counts from the public status
-  payload; it also exposes reconnect, reset circuit, and stderr-log actions for
-  already configured servers.
-- MCP Streamable HTTP keeps normal same-origin redirects but strips configured
-  and standard sensitive headers on cross-origin redirects.
-- MCP stdio servers are tracked during transport startup and cleaned up
-  best-effort on shutdown, cancellation, or startup timeout.
-- Current MCP limits, compared with `hermes-agent`, are intentional gaps for now:
-  no SSE transport, OAuth, sampling, Paper Notes MCP-server mode,
-  Office/archive artifactization, or arbitrary binary MCP file artifactization.
+- MCP currently supports external stdio and Streamable HTTP servers, dynamic
+  tool refresh, reconnect/keepalive recovery, per-server tool filters, and
+  capability-aware resource/prompt utility tools.
+- MCP settings externalize env/header secrets into `.paper-notes/secrets.env`,
+  redact returned settings payloads, and expose reconnect, reset-circuit, and
+  stderr-log actions plus runtime/security status in Settings > MCP.
+- MCP `image/*`, safe text-like, and PDF results can become local artifacts,
+  while artifact/security metadata is preserved when large results are trimmed.
+- MCP treats external descriptions, schemas, resources, prompts, and results as
+  untrusted input; suspicious instruction-like content is neutralized or tagged
+  with `securityWarnings` before model exposure.
+- Current MCP limits are intentional for now: no SSE transport, OAuth,
+  sampling/createMessage, Paper Notes MCP-server mode, Office/archive
+  artifactization, or arbitrary binary file artifactization.
 - Large tool outputs are stored under `.paper-notes/logs/tool-results/` and
   replaced with compact references when needed.
 
@@ -265,103 +233,15 @@ Recent focused verification:
 - Provider-native web search support is complete for the supported providers,
   and image-generation support now follows the current provider matrix with
   enforced runtime and UI routing.
+- Docker deployment support now passes image build, Compose startup,
+  health-check, HTTP reachability, and restart-persistence checks for mounted
+  local data.
 - Focused MCP coverage passes for settings persistence/redaction, stdio and
-  Streamable HTTP fixtures, tool registration, timeout/error handling, and
-  AgentService tool visibility.
-- MCP P0 coverage passes for dynamic tool refresh, `tools/list_changed`
-  notification handling, reconnect retry on expired sessions, keepalive-triggered
-  reconnect, and capability-aware resources/prompts utility tools.
-- 2026-05-17 MCP P0 verification:
-  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/registry.py`
-    passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py -q`
-    passed with 19 tests.
-  - `uv run pytest tests/test_tool_catalog.py tests/test_ai_settings_api.py tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py -q`
-    passed with 60 tests.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP"`
-    passed with 1 Playwright smoke test.
-- 2026-05-17 MCP P2C/hardening verification:
-  - `uv run python -m py_compile src/tools/registry.py src/tools/result_storage.py src/tools/mcp/manager.py src/tools/executor.py src/agent_prompts/builder.py`
-    passed.
-  - `uv run pytest tests/test_tool_registry.py tests/test_mcp_tool.py tests/test_agent_prompts.py -q`
-    passed with 70 tests.
-  - `uv run pytest tests/test_tool_registry.py tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
-    passed with 131 tests.
-- 2026-05-17 MCP P2D/status-smoke verification:
-  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/mcp/settings.py`
-    passed.
-  - `node --check src/ui/frontend/scripts/site/settings/mcp.js` passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
-    passed with 118 tests.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP|artifact"`
-    passed with 2 Playwright smoke tests.
-- 2026-05-17 MCP closure verification:
-  - `uv run pytest -q` passed with 528 tests.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js` passed with
-    48 Playwright smoke tests.
-  - `git diff --check` passed.
-- 2026-05-17 MCP P1 verification:
-  - `uv run python -m py_compile src/tools/mcp/settings.py src/tools/mcp/manager.py src/tools/registry.py`
-    passed.
-  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/events.js`
-    passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py -q`
-    passed with 22 tests.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_tool_catalog.py tests/test_ai_settings_api.py -q`
-    passed with 64 tests.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP"`
-    passed with 1 Playwright smoke test.
-- 2026-05-17 MCP P2A verification:
-  - `uv run python -m py_compile src/tools/mcp/manager.py src/media/store.py src/agent_runtime/service.py`
-    passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_media_store.py tests/test_agent_service.py tests/test_mcp_agent_service.py -q`
-    passed with 98 tests.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_service.py tests/test_media_store.py -q`
-    passed with 102 tests.
-- 2026-05-17 MCP P2B verification:
-  - `uv run python -m py_compile src/tools/mcp/manager.py src/media/store.py src/agent_runtime/service.py`
-    passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_media_store.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_service.py -q`
-    passed with 116 tests.
-- 2026-05-17 MCP post-1.2 hardening verification:
-  - `uv run python -m py_compile src/tools/mcp/manager.py src/tools/mcp/security.py src/tools/mcp/settings.py src/media/store.py src/ui/backend/mcp_api.py src/ui/backend/server.py src/agent_runtime/service.py src/tools/registry.py src/tools/result_storage.py src/agent_prompts/builder.py`
-    passed.
-  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/settings/ai.js && node --check src/ui/frontend/scripts/site/events.js && node --check src/ui/frontend/scripts/site/page_state.js && node --check tests/e2e/paper-notes-smoke.spec.js`
-    passed.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_media_store.py tests/test_tool_registry.py tests/test_agent_prompts.py tests/test_agent_service.py tests/test_tool_catalog.py tests/test_ai_settings_api.py -q`
-    passed with 204 tests and 5 PyMuPDF deprecation warnings, including
-    circuit reset interrupting circuit-open cooldown.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP|artifact|home settings"`
-    passed with 3 Playwright smoke tests.
-  - `uv run pytest -q` passed with 534 tests and 5 PyMuPDF deprecation
-    warnings.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js` passed with
-    48 Playwright smoke tests.
-  - Manual rendered smoke on `http://localhost:4174` passed for desktop/mobile
-    Model capabilities modal bounds and Settings > MCP empty-state rendering;
-    console warnings/errors were clean.
-  - `git diff --check` passed.
-- 2026-05-17 MCP env-header settings follow-up:
-  - Added Streamable HTTP `bearerTokenEnvVar` and `headerEnvVars` support. Runtime
-    resolves declared env names from `os.environ`, `.paper-notes/secrets.env`,
-    `.env.local`, and `.env`, then sends only the requested headers.
-  - Settings > MCP now exposes `Bearer token env var` and `Headers from
-    environment variables` for HTTP servers; Test/Save payloads preserve the
-    fields without storing secret values.
-  - Added concise Settings hints for env-backed HTTP headers and standardized
-    MCP timeout cancellation by sending `notifications/cancelled` before
-    cancelling a pending request locally.
-  - `uv run python -m py_compile src/tools/mcp/settings.py src/tools/mcp/manager.py`
-    passed.
-  - `node --check src/ui/frontend/scripts/site/settings/mcp.js && node --check src/ui/frontend/scripts/site/events.js && node --check tests/e2e/paper-notes-smoke.spec.js`
-    passed.
-  - `uv run pytest tests/test_mcp_api.py tests/test_mcp_tool.py -q`
-    passed with 49 tests and 5 PyMuPDF deprecation warnings.
-  - `uv run pytest tests/test_mcp_tool.py tests/test_mcp_api.py tests/test_mcp_agent_service.py tests/test_agent_prompts.py tests/test_agent_service.py -q`
-    passed with 125 tests and 5 PyMuPDF deprecation warnings.
-  - `npm run test:e2e -- tests/e2e/paper-notes-smoke.spec.js -g "MCP settings"`
-    passed with 2 Playwright smoke tests.
-  - `git diff --check` passed.
+  Streamable HTTP fixtures, tool registration, reconnect/keepalive handling,
+  artifact materialization, timeout/error handling, and AgentService tool
+  visibility.
+- Recent full-suite checks passed with backend/unit coverage, Playwright smoke
+  coverage, frontend syntax checks, and `git diff --check`.
 
 Useful full checks:
 
