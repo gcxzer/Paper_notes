@@ -585,12 +585,23 @@ elements.pdfInput.addEventListener("change", async (event) => {
     showMessageDialog({
       eyebrow: "Import PDF",
       title: "Could not import this PDF",
-      body: "Please start the local server with uv run python main.py, then open http://localhost:4173."
+      body: importPdfErrorMessage(error)
     });
     console.error(error);
   }
   elements.pdfInput.value = "";
 });
+
+function importPdfErrorMessage(error) {
+  const message = normalizeText(error?.message || "");
+  if (message && !/failed to fetch|load failed|networkerror/i.test(message)) {
+    return message;
+  }
+  if (window.location.protocol === "file:") {
+    return "Open Paper Notes from http://127.0.0.1:4173 before importing PDFs.";
+  }
+  return "Paper Notes could not reach the running server. If you are using Docker, check `docker compose logs -f` and keep the app open at http://127.0.0.1:4173.";
+}
 
 elements.importUrlForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
