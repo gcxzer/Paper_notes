@@ -23,59 +23,7 @@ git clone https://github.com/gcxzer/Paper_notes.git
 cd Paper_notes
 ```
 
-## [Recommend] Docker Quick Start
-
-Requirements:
-
-- Docker
-
-Before the first Docker start, create the bind-mounted runtime paths:
-
-```bash
-mkdir -p resources .paper-notes tmp
-test -f notes.json || printf '{\n  "categories": [\n    {"id": "all", "name": "All Notes", "parentId": null, "order": 0, "system": true},\n    {"id": "uncategorized", "name": "Uncategorized", "parentId": null, "order": 1, "system": true}\n  ],\n  "notes": []\n}\n' > notes.json
-```
-
-Docker automatically loads `.env` and `.env.local` when they exist.
-
-Start:
-
-```bash
-PAPER_NOTES_UID="$(id -u)" PAPER_NOTES_GID="$(id -g)" docker compose up --build -d
-```
-
-Open `http://127.0.0.1:4173`.
-
-After pulling new code:
-
-```bash
-git pull
-PAPER_NOTES_UID="$(id -u)" PAPER_NOTES_GID="$(id -g)" docker compose up --build -d
-```
-
-Local data stays in:
-
-- `resources/`: imported PDFs, editable HTML notes, annotations, and caches
-- `.paper-notes/`: local settings, sessions, logs, media, memory, and auth state
-- `notes.json`: library metadata
-- `tmp/`: local runtime logs and temporary output
-
-Reset all local runtime data:
-
-```bash
-docker compose down
-rm -rf resources .paper-notes tmp
-rm -f notes.json
-```
-
-Common Docker issues:
-
-- Port `4173` already in use: stop the existing local Paper Notes process or change the published port in `docker-compose.yml`.
-- Missing bind-mount paths: create `resources/`, `.paper-notes/`, `tmp/`, and `notes.json` before the first `docker compose up`; `notes.json` must be a file, not a directory.
-- Docker cannot open arbitrary host desktop files. Put files you want Paper Notes to use under `.paper-notes/media/uploads`.
-- Container starts but the browser cannot connect: confirm Docker is running, then check `docker compose logs -f`.
-
-## Local Runtime Alternative
+## Local Runtime
 
 Requirements:
 

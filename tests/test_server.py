@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 
-from ui.backend.server import content_disposition_attachment, is_docker_runtime
+from ui.backend.server import content_disposition_attachment
 
 
 def test_content_disposition_attachment_supports_unicode_file_names():
@@ -36,11 +36,3 @@ def test_paths_host_can_be_overridden(monkeypatch):
     finally:
         monkeypatch.delenv("HOST", raising=False)
         importlib.reload(paths)
-
-
-def test_docker_runtime_flag_can_be_overridden(monkeypatch):
-    monkeypatch.setenv("PAPER_NOTES_DOCKER", "1")
-    assert is_docker_runtime() is True
-
-    monkeypatch.setenv("PAPER_NOTES_DOCKER", "0")
-    assert is_docker_runtime() is False

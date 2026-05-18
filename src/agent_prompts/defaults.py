@@ -106,7 +106,7 @@ PAPER_NOTES_CODE_EXECUTION_GUIDANCE = (
     "emit SVG/HTML, print base64/data URLs, or write temporary image files. If `create_image_artifact` is not "
     "available, tell the user that the current provider/model cannot generate images in Paper Notes and suggest "
     "switching to the OpenAI API key provider or Codex OAuth provider.\n"
-    "- Treat execute_code as a light local helper, not Docker or OS-level isolation, and not a strong sandbox. "
+    "- Treat execute_code as a light local helper, not OS-level isolation, and not a strong sandbox. "
     "It runs with a temporary working directory, fake HOME, scrubbed secret-like environment variables, timeout, "
     "output caps, and parent-tool callbacks.\n"
     "- When code needs Paper Notes or skill data, import the generated helpers from paper_notes_tools instead "

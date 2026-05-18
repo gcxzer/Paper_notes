@@ -136,7 +136,7 @@ def test_prompt_includes_code_execution_boundaries_when_tool_available():
 
     assert "# Code execution" in prompt
     assert "bounded Python work" in prompt
-    assert "not Docker or OS-level isolation" in prompt
+    assert "not OS-level isolation" in prompt
     assert "Paper Notes content, or other durable state" in prompt
     assert "dedicated artifact tool" in prompt
     assert "Never use execute_code as a fallback for generated image requests" in prompt

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import queue
 import re
 import threading
 import time
 from uuid import uuid4
 from http import HTTPStatus
-from pathlib import Path
 from typing import Any, Callable
 
 from agent_runtime import AgentEvent
@@ -41,13 +39,6 @@ _RUN_COORDINATOR = AgentRunCoordinator()
 _DEBUG_RUN_STORE = DebugRunStore()
 _BACKGROUND_RUN_STORE = BackgroundChatRunStore()
 _SANDBOX_MEDIA_LINK_RE = re.compile(r"sandbox:(/api/media/[A-Za-z0-9._~/%+-]+)", re.IGNORECASE)
-_DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE = (
-    "Docker mode cannot read arbitrary host desktop files from inside the container. "
-    "Move or copy the file into a Paper Notes bind-mounted folder such as "
-    ".paper-notes/media/uploads, then add it from there."
-)
-
-
 def get_agent_service() -> AgentService:
     global _SERVICE
     with _SERVICE_LOCK:
@@ -223,16 +214,6 @@ def handle_chat_request(
             "model_provider_api",
             public_message,
         ) from error
-    except IndexError as error:
-        if _is_docker_runtime() and attachments:
-            _fail_progress(progress, request_id, _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE)
-            _debug_finish_error(debug, debug_request_id, "json", "docker_host_file_unavailable", _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE, body=body)
-            raise AgentAPIError(
-                HTTPStatus.CONFLICT,
-                "docker_host_file_unavailable",
-                _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE,
-            ) from error
-        raise
     except ValueError as error:
         _fail_progress(progress, request_id, str(error))
         _debug_finish_error(debug, debug_request_id, "json", "invalid_request", str(error), body=body)
@@ -403,24 +384,7 @@ def upload_chat_attachment(body: Any, *, service: AgentService | None = None) ->
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_attachment", str(error)) from error
     except ValueError as error:
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_attachment", str(error)) from error
-    except IndexError as error:
-        if _is_docker_runtime():
-            raise AgentAPIError(
-                HTTPStatus.CONFLICT,
-                "docker_host_file_unavailable",
-                _DOCKER_LOCAL_FILE_ATTACHMENT_MESSAGE,
-            ) from error
-        raise
     return {"artifact": artifact.to_dict()}
-
-
-def _is_docker_runtime() -> bool:
-    value = os.environ.get("PAPER_NOTES_DOCKER", "").strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    return Path("/.dockerenv").exists()
 
 
 def cancel_chat_request(

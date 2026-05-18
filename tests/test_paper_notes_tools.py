@@ -499,14 +499,14 @@ def test_write_note_section_preserves_local_file_links(tmp_path):
     result = registry.dispatch("write_note", {"action": "write_section",
         "note_id": "note-1",
         "heading": "Local Link",
-        "html": '<p><a href="file:///Users/xzhu/Documents/AWS/notes/docker/00-index.md">00-index.md</a></p>',
+        "html": '<p><a href="file:///Users/xzhu/Documents/AWS/notes/project/00-index.md">00-index.md</a></p>',
     })
     payload = json.loads(result.content)
     saved_html = html_path.read_text(encoding="utf-8")
 
     assert result.is_error is False
     assert payload["success"] is True
-    assert '<a href="file:///Users/xzhu/Documents/AWS/notes/docker/00-index.md">00-index.md</a>' in saved_html
+    assert '<a href="file:///Users/xzhu/Documents/AWS/notes/project/00-index.md">00-index.md</a>' in saved_html
 
 
 def test_write_note_section_allows_arbitrary_safe_links(tmp_path):
@@ -516,7 +516,7 @@ def test_write_note_section_allows_arbitrary_safe_links(tmp_path):
         "note_id": "note-1",
         "heading": "Links",
         "html": (
-            '<p><a href="obsidian://open?vault=Notes&file=Docker(01)">Obsidian</a></p>'
+            '<p><a href="obsidian://open?vault=Notes&file=Project(01)">Obsidian</a></p>'
             '<p><a href="https://example.com/path(foo)">URL with parentheses</a></p>'
             '<p><a href="vbscript:msgbox(1)">Unsafe</a></p>'
         ),
@@ -526,7 +526,7 @@ def test_write_note_section_allows_arbitrary_safe_links(tmp_path):
 
     assert result.is_error is False
     assert payload["success"] is True
-    assert 'href="obsidian://open?vault=Notes&amp;file=Docker(01)"' in saved_html
+    assert 'href="obsidian://open?vault=Notes&amp;file=Project(01)"' in saved_html
     assert 'href="https://example.com/path(foo)"' in saved_html
     assert "vbscript:" not in saved_html
 

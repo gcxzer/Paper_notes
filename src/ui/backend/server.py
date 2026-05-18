@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import os
 import re
 import subprocess
 import sys
@@ -96,12 +95,6 @@ MIME_TYPES = {
     ".svg": "image/svg+xml",
 }
 
-DOCKER_LOCAL_FILE_OPEN_MESSAGE = (
-    "Docker mode cannot open files in the host desktop. Put the file under "
-    ".paper-notes/media/uploads, then use that Paper Notes media path from the app."
-)
-
-
 def content_disposition_attachment(file_name: str) -> str:
     display_name = Path(normalize_text(file_name) or "download").name or "download"
     fallback = re.sub(r'[^A-Za-z0-9_. -]+', "-", display_name).strip(". ")
@@ -109,16 +102,6 @@ def content_disposition_attachment(file_name: str) -> str:
     fallback = fallback.replace('"', "")
     encoded = quote(display_name, safe="")
     return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
-
-
-def is_docker_runtime() -> bool:
-    value = os.environ.get("PAPER_NOTES_DOCKER", "").strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    return Path("/.dockerenv").exists()
-
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
     server_version = "PaperNotesPython/1.2.1"
@@ -220,9 +203,6 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/scratchpads":
             self._run_api_handler(self.handle_read_scratchpads)
-            return
-        if parsed.path == "/api/runtime":
-            self._run_api_handler(self.handle_get_runtime)
             return
         if parsed.path == "/api/settings/ai":
             self._run_api_handler(self.handle_get_ai_settings)
@@ -528,15 +508,6 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
     def handle_get_model_providers(self) -> None:
         self.send_json(HTTPStatus.OK, get_model_providers())
 
-    def handle_get_runtime(self) -> None:
-        self.send_json(
-            HTTPStatus.OK,
-            {
-                "docker": is_docker_runtime(),
-                "dockerLocalFileMessage": DOCKER_LOCAL_FILE_OPEN_MESSAGE,
-            },
-        )
-
     def handle_open_local_file(self) -> None:
         if self.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":
             raise AgentAPIError(HTTPStatus.FORBIDDEN, "missing_local_action_header", "Local file open requests require a trusted reader header.")
@@ -554,8 +525,6 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if not target.is_absolute():
             raise AgentAPIError(HTTPStatus.BAD_REQUEST, "absolute_path_required", "Local file links must use an absolute path.")
         target = target.resolve()
-        if is_docker_runtime():
-            raise AgentAPIError(HTTPStatus.CONFLICT, "docker_local_file_open_unavailable", DOCKER_LOCAL_FILE_OPEN_MESSAGE)
         if not target.exists():
             raise AgentAPIError(HTTPStatus.NOT_FOUND, "file_not_found", f"File not found: {target}")
         try:

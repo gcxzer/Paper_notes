@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
 from tools.mcp import (
@@ -31,7 +29,7 @@ def get_mcp_settings(
             agent_service = None
     manager = getattr(agent_service, "mcp_manager", None)
     statuses = manager.statuses() if manager is not None else {}
-    return _with_docker_runtime_warnings(public_mcp_settings(settings, statuses=statuses, settings_path=settings_path))
+    return public_mcp_settings(settings, statuses=statuses, settings_path=settings_path)
 
 
 def update_mcp_settings(
@@ -43,7 +41,7 @@ def update_mcp_settings(
     settings = normalize_mcp_settings_update(body, current=current)
     write_mcp_settings(settings, settings_path)
     _reset_agent_service()
-    return _with_docker_runtime_warnings(public_mcp_settings(read_mcp_settings(settings_path), settings_path=settings_path))
+    return public_mcp_settings(read_mcp_settings(settings_path), settings_path=settings_path)
 
 
 def connect_mcp_server(
@@ -97,16 +95,12 @@ def connect_mcp_server(
     payload_settings = read_mcp_settings(settings_path) if persist else settings
     payload = public_mcp_settings(payload_settings, statuses=statuses, settings_path=settings_path)
     payload["serverId"] = server_id
-    return _with_docker_runtime_warnings(payload)
+    return payload
 
 
 def test_mcp_server(body: Any) -> dict[str, Any]:
     server = normalize_mcp_server_config(body, strict=True)
-    payload = probe_mcp_server(server)
-    warnings = _docker_runtime_warnings_for_server(server)
-    if warnings:
-        payload["runtimeWarnings"] = warnings
-    return payload
+    return probe_mcp_server(server)
 
 
 def reconnect_mcp_server(
@@ -168,45 +162,6 @@ def _reset_agent_service() -> None:
     from ui.backend.agent_api import set_agent_service
 
     set_agent_service(None)
-
-
-def _with_docker_runtime_warnings(payload: dict[str, Any]) -> dict[str, Any]:
-    if not _is_docker_runtime():
-        return payload
-    servers = payload.get("servers")
-    if not isinstance(servers, list):
-        return payload
-    for server in servers:
-        if not isinstance(server, dict):
-            continue
-        warnings = _docker_runtime_warnings_for_server(server)
-        if warnings:
-            server["runtimeWarnings"] = warnings
-    return payload
-
-
-def _docker_runtime_warnings_for_server(server: dict[str, Any]) -> list[dict[str, str]]:
-    if not _is_docker_runtime():
-        return []
-    if str(server.get("transport") or "").lower() != "stdio":
-        return []
-    return [{
-        "code": "docker_stdio_runs_in_container",
-        "severity": "warning",
-        "message": (
-            "Docker mode runs stdio MCP commands inside the Paper Notes container, not on the host. "
-            "Use HTTP MCP when possible, or install the stdio command and mount any needed paths inside the container."
-        ),
-    }]
-
-
-def _is_docker_runtime() -> bool:
-    value = os.environ.get("PAPER_NOTES_DOCKER", "").strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    return Path("/.dockerenv").exists()
 
 
 __all__ = [

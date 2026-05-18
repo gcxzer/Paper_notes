@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "docker-file-upload-allowed-v1";
+const READER_SCRIPT_VERSION = "file-upload-refresh-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-default-off-v1",

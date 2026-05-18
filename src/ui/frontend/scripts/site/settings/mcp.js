@@ -466,7 +466,6 @@ function renderMcpRuntimeWarnings(warnings = []) {
     <section class="mcp-section">
       <div class="mcp-section-title">
         <strong>Runtime note</strong>
-        <span>Docker</span>
       </div>
       ${items.map((warning) => `<p class="mcp-status-note is-warning">${escapeHtml(warning.message)}</p>`).join("")}
     </section>

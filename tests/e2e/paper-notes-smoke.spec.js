@@ -2625,58 +2625,6 @@ test("reader attachment uploads show tray progress and can be removed", async ({
   await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 });
 
-test("reader allows file picker uploads in docker mode", async ({ page }) => {
-  await openFixtureReader(page);
-  const askInput = page.getByPlaceholder("Ask anything");
-  if (!(await askInput.isVisible())) {
-    await page.getByRole("button", { name: "Ask" }).click();
-  }
-
-  const uploads = [];
-  await page.route("**/api/runtime", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        docker: true,
-        dockerLocalFileMessage: "Docker mode cannot open files in the host desktop. Put the file under .paper-notes/media/uploads.",
-      }),
-    });
-  });
-  await page.route("**/api/chat/attachments", async (route) => {
-    uploads.push(route.request().postDataJSON());
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        artifact: {
-          id: "file_upload_docker",
-          kind: "text",
-          source: "uploaded",
-          mimeType: "text/x-python",
-          fileName: "hooks.py",
-          size: 15,
-          url: "/api/media/file_upload_docker",
-          downloadUrl: "/api/media/file_upload_docker/download",
-        },
-      }),
-    });
-  });
-
-  await page.locator("#readerAttachmentInput").setInputFiles({
-    name: "hooks.py",
-    mimeType: "text/x-python",
-    buffer: Buffer.from("print('hello')\n"),
-  });
-
-  await expect(page.locator("#readerChatError")).toBeHidden();
-  await expect(page.locator("#readerAttachmentTray")).toContainText("hooks.py");
-  expect(uploads).toHaveLength(1);
-  expect(uploads[0]).toMatchObject({
-    fileName: "hooks.py",
-    mimeType: "text/x-python",
-    metadata: { source: "reader_upload" },
-  });
-});
-
 test("reader ask tools add the current PDF page as an attachment", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);

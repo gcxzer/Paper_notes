@@ -594,16 +594,13 @@ elements.pdfInput.addEventListener("change", async (event) => {
 
 function importPdfErrorMessage(error) {
   const message = normalizeText(error?.message || "");
-  if (/permission denied/i.test(message) && /\/app\/\.notes_/i.test(message)) {
-    return "Docker cannot write notes.json yet. Pull the latest code, then restart with `PAPER_NOTES_UID=\"$(id -u)\" PAPER_NOTES_GID=\"$(id -g)\" docker compose up --build -d` and try the import again.";
-  }
   if (message && !/failed to fetch|load failed|networkerror/i.test(message)) {
     return message;
   }
   if (window.location.protocol === "file:") {
     return "Open Paper Notes from http://127.0.0.1:4173 before importing PDFs.";
   }
-  return "Paper Notes could not reach the running server. If you are using Docker, check `docker compose logs -f` and keep the app open at http://127.0.0.1:4173.";
+  return "Paper Notes could not reach the running server. Keep the app open at http://127.0.0.1:4173 and try again.";
 }
 
 elements.importUrlForm?.addEventListener("submit", async (event) => {

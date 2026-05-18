@@ -9,21 +9,7 @@ Updated: 2026-05-18
 - Add a subagent system
 - Consider splitting large backend API modules once their route groups
   stabilize.
-- Consider a stronger sandbox backend for Code Execution, such as Docker or
-  another isolated execution backend.
-
-## Release 1.2.1
-
-- Added Docker Compose deployment support with a project `Dockerfile`,
-  `.dockerignore`, host-mounted runtime data, and a startup entrypoint that
-  initializes required local paths plus a minimal `notes.json`.
-- Added `HOST` environment-variable support so the app keeps its local
-  `127.0.0.1` default outside Docker while binding to `0.0.0.0` inside
-  containers.
-- Added Compose health checks and documented clone, first run, update, cleanup,
-  and local-runtime fallback flows in `README.md`.
-- Verified image build, Compose startup, HTTP reachability, healthy container
-  status, and restart persistence for mounted local data.
+- Consider a stronger isolated backend for Code Execution.
 
 ## Release 1.2.0
 
@@ -58,8 +44,8 @@ Updated: 2026-05-18
 
 Paper Notes is now a local research workspace with a PDF reader, editable HTML
 notes, a paper library, and an agent-backed Ask panel. The app runs from a local
-Python server, can be installed as a local background service or run with Docker
-Compose, and keeps user data on disk instead of relying on a hosted service.
+Python server, can be installed as a local background service, and keeps user
+data on disk instead of relying on a hosted service.
 
 Current user-facing capabilities include:
 
@@ -233,9 +219,6 @@ Recent focused verification:
 - Provider-native web search support is complete for the supported providers,
   and image-generation support now follows the current provider matrix with
   enforced runtime and UI routing.
-- Docker deployment support now passes image build, Compose startup,
-  health-check, HTTP reachability, and restart-persistence checks for mounted
-  local data.
 - Focused MCP coverage passes for settings persistence/redaction, stdio and
   Streamable HTTP fixtures, tool registration, reconnect/keepalive handling,
   artifact materialization, timeout/error handling, and AgentService tool

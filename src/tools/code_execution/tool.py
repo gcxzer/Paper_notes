@@ -108,8 +108,8 @@ def build_execute_code_description(available_inner_tools: Iterable[str] | None =
     else:
         tool_text = "No parent Paper Notes tools are available in this request."
     return (
-        "Run Python code in a temporary local directory. This is a light sandbox, not a Docker "
-        "or OS-level isolation boundary: do not use it for untrusted code. The child process "
+        "Run Python code in a temporary local directory. This is a light sandbox, not an "
+        "OS-level isolation boundary: do not use it for untrusted code. The child process "
         "gets a fake HOME, scrubbed secret-like environment variables, UTF-8 Python settings, "
         "a 120 second timeout, capped stdout/stderr, and a 25-call limit for parent tool RPC. "
         "Do not use this tool to create generated files/images or write Paper Notes media files; "
