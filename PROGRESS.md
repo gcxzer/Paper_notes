@@ -4,12 +4,13 @@ Updated: 2026-05-18
 
 ## Remaining Follow-Ups
 
-- Cron
+- slash command
 - Improve memory management and retrieval quality, dreaming.
 - Add a subagent system
+- Consider a stronger isolated backend for Code Execution.
 - Consider splitting large backend API modules once their route groups
   stabilize.
-- Consider a stronger isolated backend for Code Execution.
+- Cron/channal
 
 ## Release 1.2.0
 
