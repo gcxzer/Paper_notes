@@ -1,0 +1,22 @@
+services:
+  paper-notes:
+    build:
+      context: .
+    container_name: paper-notes
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:4173/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4173"
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./resources:/app/resources
+      - ./.paper-notes:/app/.paper-notes
+      - ./notes.json:/app/notes.json
+      - ./tmp:/app/tmp
+    restart: unless-stopped

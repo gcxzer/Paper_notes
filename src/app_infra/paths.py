@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DIR = PROJECT_ROOT / "src" / "ui" / "frontend"
 ASSETS_DIR = PROJECT_ROOT / "assets"
 
-HOST = "127.0.0.1"
+HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "4173"))
 MAX_BODY_SIZE = 200 * 1024 * 1024
 

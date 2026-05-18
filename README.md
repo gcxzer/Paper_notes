@@ -97,6 +97,90 @@ The local server is required because the browser cannot write PDFs, HTML notes,
 annotations, generated media, sessions, settings, or `notes.json` updates when
 `index.html` is opened directly.
 
+## Docker Compose
+
+Paper Notes can also run as a local Docker Compose app.
+
+Use either the local background service or Docker Compose for a given checkout.
+Do not run both at the same time, or they will compete for port `4173`.
+
+Requirements:
+
+- Docker Desktop or Docker Engine with the Compose plugin
+- The repository checked out locally so Docker can mount your paper data
+
+Before the first Docker start, create the bind-mounted runtime paths:
+
+```bash
+mkdir -p resources .paper-notes tmp
+test -f notes.json || printf '{\n  "categories": [\n    {"id": "all", "name": "All Notes", "parentId": null, "order": 0, "system": true},\n    {"id": "uncategorized", "name": "Uncategorized", "parentId": null, "order": 1, "system": true}\n  ],\n  "notes": []\n}\n' > notes.json
+```
+
+Build and start:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://127.0.0.1:4173
+```
+
+Stop the app:
+
+```bash
+docker compose down
+```
+
+Restart the app without rebuilding:
+
+```bash
+docker compose restart
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+```
+
+The Compose setup keeps your local data on the host:
+
+- `resources/`: imported PDFs, editable HTML notes, annotations, and caches
+- `.paper-notes/`: local settings, sessions, logs, media, memory, and auth state
+- `notes.json`: library metadata
+- `tmp/`: local runtime logs and temporary output
+
+To update after pulling new code:
+
+```bash
+docker compose up --build
+```
+
+To stop the container but keep your data:
+
+```bash
+docker compose down
+```
+
+To stop the container and remove the persisted local data for a fresh start:
+
+```bash
+docker compose down
+rm -rf resources .paper-notes tmp
+rm -f notes.json
+```
+
+Common Docker issues:
+
+- A local autostart service is still running: stop it with `scripts/uninstall-autostart.sh` or unload the `com.paper-notes.local` LaunchAgent before starting Docker.
+- Port `4173` already in use: stop the existing local Paper Notes process or change the published port in `docker-compose.yml`.
+- Missing bind-mount paths: create `resources/`, `.paper-notes/`, `tmp/`, and `notes.json` before the first `docker compose up`.
+- Permission errors on mounted folders: make sure your local user can read and write the repository runtime files.
+- Container starts but the browser cannot connect: confirm Docker is running and that the service log says Paper Notes is listening on port `4173`.
+
 To remove the background service:
 
 ```bash
