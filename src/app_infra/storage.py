@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import errno
 import tempfile
 import threading
 from pathlib import Path
@@ -23,8 +24,36 @@ def _lock_for(path: Path) -> threading.Lock:
 def atomic_replace(tmp_path: str | Path, target: str | Path) -> str:
     target_str = str(target)
     real_path = os.path.realpath(target_str) if os.path.islink(target_str) else target_str
-    os.replace(str(tmp_path), real_path)
+    try:
+        os.replace(str(tmp_path), real_path)
+    except OSError as error:
+        if error.errno not in {errno.EBUSY, errno.EXDEV}:
+            raise
+        _replace_bind_mount_file(tmp_path, real_path)
     return real_path
+
+
+def _replace_bind_mount_file(tmp_path: str | Path, target: str | Path) -> None:
+    tmp = Path(tmp_path)
+    target_path = Path(target)
+    with tmp.open("rb") as source:
+        fd = os.open(str(target_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as destination:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    destination.write(chunk)
+                destination.flush()
+                os.fsync(destination.fileno())
+        except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+    os.unlink(tmp)
 
 
 def atomic_write_text(path: str | Path, text: str, *, encoding: str = "utf-8") -> None:
