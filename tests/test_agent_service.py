@@ -352,7 +352,7 @@ def test_service_adds_ephemeral_attachment_context_with_extracted_text(tmp_path)
     assert "```md" in attachment_context["content"]
 
 
-def test_service_exposes_generated_file_tool_only_when_requested(tmp_path):
+def test_service_exposes_generated_file_tool_by_default_and_keeps_frontend_format_preference(tmp_path):
     provider = FakeProvider([
         ModelResponse(content="Plain answer."),
         ModelResponse(content="File answer."),
@@ -372,10 +372,37 @@ def test_service_exposes_generated_file_tool_only_when_requested(tmp_path):
 
     first_tools = [tool.get("function", {}).get("name") for tool in provider.requests[0].tools]
     second_tools = [tool.get("function", {}).get("name") for tool in provider.requests[1].tools]
-    assert "create_file_artifact" not in first_tools
+    assert "create_file_artifact" in first_tools
     assert "create_file_artifact" in second_tools
+    assert "_paper_notes_file_generation" not in provider.requests[0].request_options
     assert provider.requests[1].request_options["_paper_notes_file_generation"]["format"] == "markdown"
-    assert "Create a downloadable file" in provider.requests[1].instructions
+    assert "frontend file generation mode" in provider.requests[1].instructions
+
+
+def test_service_generated_file_tool_respects_disabled_tools_and_write_mode(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(content="Disabled by name."),
+        ModelResponse(content="Disabled by write mode."),
+    ])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        default_model="test-model",
+    )
+
+    service.run(AgentServiceRequest(
+        message="Hello",
+        disabled_tools=["create_file_artifact"],
+    ))
+    service.run(AgentServiceRequest(
+        message="Hello",
+        write_tool_mode="readonly",
+    ))
+
+    first_tools = {tool.get("function", {}).get("name") for tool in provider.requests[0].tools}
+    second_tools = {tool.get("function", {}).get("name") for tool in provider.requests[1].tools}
+    assert "create_file_artifact" not in first_tools
+    assert "create_file_artifact" not in second_tools
 
 
 def test_service_generated_file_tool_artifact_is_returned_and_persisted(tmp_path):
@@ -415,6 +442,100 @@ def test_service_generated_file_tool_artifact_is_returned_and_persisted(tmp_path
     assert service.media_store.read_bytes(result.artifacts[0]["id"]).decode("utf-8").startswith("# Summary")
 
 
+def test_service_generated_file_revisions_return_latest_artifact(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(
+            content="",
+            tool_calls=[ToolCall(
+                id="call_file_1",
+                name="create_file_artifact",
+                arguments=json.dumps({
+                    "file_name": "summary.md",
+                    "mime_type": "text/markdown",
+                    "content": "# Summary\nFirst draft.",
+                }),
+            )],
+            finish_reason="tool_calls",
+        ),
+        ModelResponse(
+            content="",
+            tool_calls=[ToolCall(
+                id="call_file_2",
+                name="create_file_artifact",
+                arguments=json.dumps({
+                    "file_name": "summary.md",
+                    "mime_type": "text/markdown",
+                    "content": "# Summary\nRevised draft.",
+                }),
+            )],
+            finish_reason="tool_calls",
+        ),
+        ModelResponse(content="Created the revised markdown file."),
+    ])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        default_model="test-model",
+    )
+
+    result = service.run(AgentServiceRequest(
+        message="Create a markdown file.",
+        file_generation={"enabled": True, "format": "markdown"},
+    ))
+
+    assert len(service.media_store._load_manifest()) == 2
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0]["metadata"]["requestedFileName"] == "summary.md"
+    assert service.media_store.read_bytes(result.artifacts[0]["id"]).decode("utf-8").endswith("Revised draft.")
+    persisted = store.require_session(result.session_id).messages
+    assert len(persisted[-1]["artifacts"]) == 1
+    assert persisted[-1]["artifacts"][0]["id"] == result.artifacts[0]["id"]
+
+
+def test_service_generated_file_keeps_distinct_requested_files(tmp_path):
+    provider = FakeProvider([
+        ModelResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="call_file_1",
+                    name="create_file_artifact",
+                    arguments=json.dumps({
+                        "file_name": "summary.md",
+                        "mime_type": "text/markdown",
+                        "content": "# Summary\n",
+                    }),
+                ),
+                ToolCall(
+                    id="call_file_2",
+                    name="create_file_artifact",
+                    arguments=json.dumps({
+                        "file_name": "methods.md",
+                        "mime_type": "text/markdown",
+                        "content": "# Methods\n",
+                    }),
+                ),
+            ],
+            finish_reason="tool_calls",
+        ),
+        ModelResponse(content="Created both markdown files."),
+    ])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        default_model="test-model",
+    )
+
+    result = service.run(AgentServiceRequest(
+        message="Create two markdown files.",
+        file_generation={"enabled": True, "format": "markdown"},
+    ))
+
+    assert [artifact["metadata"]["requestedFileName"] for artifact in result.artifacts] == ["summary.md", "methods.md"]
+    assert [artifact["fileName"] for artifact in result.artifacts] == ["summary.md", "methods.md"]
+
+
 def test_service_generated_file_tool_uses_requested_format_over_model_args(tmp_path):
     provider = FakeProvider([
         ModelResponse(
@@ -448,10 +569,12 @@ def test_service_generated_file_tool_uses_requested_format_over_model_args(tmp_p
     assert result.artifacts[0]["mimeType"] == "text/markdown"
 
 
-def test_service_exposes_generated_image_tool_only_when_requested(tmp_path):
+def test_service_exposes_generated_image_tool_by_model_capability(tmp_path):
     provider = FakeProvider([
         ModelResponse(content="Plain answer."),
         ModelResponse(content="Image answer."),
+        ModelResponse(content="Image answer with preference."),
+        ModelResponse(content="Codex image answer."),
     ])
     store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
     service = AgentService(
@@ -463,16 +586,55 @@ def test_service_exposes_generated_image_tool_only_when_requested(tmp_path):
     service.run(AgentServiceRequest(message="Just chat."))
     service.run(AgentServiceRequest(
         message="Generate an image.",
+        provider="openai",
+        model="gpt-5.5",
+    ))
+    service.run(AgentServiceRequest(
+        message="Generate an image.",
+        provider="openai",
+        model="gpt-5.5",
         image_generation={"enabled": True, "size": "1024x1024", "quality": "medium", "format": "png"},
+    ))
+    service.run(AgentServiceRequest(
+        message="Generate an image.",
+        provider="codex-oauth",
+        model="gpt-5.5",
     ))
 
     first_tools = [tool.get("function", {}).get("name") for tool in provider.requests[0].tools]
     second_tools = [tool.get("function", {}).get("name") for tool in provider.requests[1].tools]
+    third_tools = [tool.get("function", {}).get("name") for tool in provider.requests[2].tools]
+    fourth_tools = [tool.get("function", {}).get("name") for tool in provider.requests[3].tools]
     assert CREATE_IMAGE_ARTIFACT_TOOL not in first_tools
     assert CREATE_IMAGE_ARTIFACT_TOOL in second_tools
+    assert CREATE_IMAGE_ARTIFACT_TOOL in third_tools
+    assert CREATE_IMAGE_ARTIFACT_TOOL in fourth_tools
     assert not any(tool.get("type") == "image_generation" for tool in provider.requests[1].tools)
-    assert provider.requests[1].request_options["_paper_notes_image_generation"]["quality"] == "medium"
-    assert "create a downloadable image" in provider.requests[1].instructions
+    assert "_paper_notes_image_generation" not in provider.requests[1].request_options
+    assert provider.requests[2].request_options["_paper_notes_image_generation"]["quality"] == "medium"
+    assert "frontend image generation mode" in provider.requests[2].instructions
+
+
+def test_service_deepseek_image_requests_get_unavailable_guidance_not_code_fallback(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Unsupported.")])
+    service = AgentService(
+        model_provider=provider,
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        default_model="deepseek-v4-flash",
+    )
+
+    service.run(AgentServiceRequest(
+        message="Generate an image.",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+    ))
+
+    tool_names = {tool.get("function", {}).get("name") for tool in provider.requests[0].tools}
+    assert "execute_code" in tool_names
+    assert CREATE_IMAGE_ARTIFACT_TOOL not in tool_names
+    assert "current provider/model cannot generate images" in provider.requests[0].instructions
+    assert "Do not substitute execute_code" in provider.requests[0].instructions
+    assert "OpenAI API key provider or Codex OAuth provider" in provider.requests[0].instructions
 
 
 def test_service_generated_image_tool_artifact_is_returned_and_persisted(tmp_path):
@@ -749,6 +911,52 @@ def test_service_context_status_falls_back_to_persisted_run_trace_usage(tmp_path
     assert status.usage_request_id == "req_123"
 
 
+def test_service_preflight_does_not_compress_only_because_of_encrypted_reasoning_blob(tmp_path):
+    provider = FakeProvider([ModelResponse(content="Fresh answer.")])
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions")
+    session = store.create_session(title="Reasoning replay", provider="codex-oauth", model="gpt-5.3-codex-spark")
+    for index in range(5):
+        store.append_message(session.metadata.session_id, {"role": "user", "content": f"old user {index}"})
+        store.append_message(session.metadata.session_id, {
+            "role": "assistant",
+            "content": "short fallback content",
+            "codex_reasoning_items": [{
+                "type": "reasoning",
+                "encrypted_content": "x" * 200_000,
+                "summary": [],
+            }],
+            "codex_message_items": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "short replay"}],
+            }],
+        })
+    service = AgentService(
+        model_provider=provider,
+        session_store=store,
+        tool_registry=ToolRegistry(),
+        context_compressor=hermes_test_compressor(ContextCompressionConfig(
+            max_estimated_tokens=20_000,
+            min_messages=4,
+            protect_first_n=1,
+            protect_last_n=2,
+            tail_token_budget=16,
+        )),
+        default_model="gpt-5.3-codex-spark",
+    )
+
+    result = service.run(AgentServiceRequest(
+        message="latest task",
+        session_id=session.metadata.session_id,
+        provider="codex-oauth",
+        model="gpt-5.3-codex-spark",
+    ))
+
+    assert result.completed is True
+    assert not any(event.type == "context_compressed" for event in result.events)
+    assert not any(str(message.get("content", "")).startswith(SUMMARY_PREFIX) for message in provider.requests[0].messages)
+
+
 def test_service_context_status_persists_latest_input_usage_from_tool_loop(tmp_path):
     provider = FakeProvider([
         ModelResponse(
@@ -1004,6 +1212,14 @@ def test_service_compresses_model_visible_context_without_replacing_transcript(t
     assert any(str(message.get("content", "")).startswith(SUMMARY_PREFIX) for message in model_messages)
     assert [event.type for event in events[:2]] == ["context_compressing", "context_compressed"]
     assert [event.type for event in result.events[:2]] == ["context_compressing", "context_compressed"]
+    assert events[0].data["threshold_tokens"] == 1
+    assert events[0].data["message_estimated_tokens"] > 0
+    assert events[0].data["instruction_estimated_tokens"] > 0
+    assert events[0].data["tool_schema_estimated_tokens"] == 0
+    assert events[1].data["threshold_tokens"] == 1
+    assert events[1].data["message_estimated_tokens"] == events[0].data["message_estimated_tokens"]
+    assert events[1].data["instruction_estimated_tokens"] == events[0].data["instruction_estimated_tokens"]
+    assert events[1].data["tool_schema_estimated_tokens"] == events[0].data["tool_schema_estimated_tokens"]
     persisted = store.require_session(session.metadata.session_id).messages
     checkpoint = service.compression_checkpoint_store.load(session.metadata.session_id)
     assert checkpoint is not None
@@ -1053,6 +1269,9 @@ def test_service_preflight_compression_includes_tool_schema_tokens(tmp_path):
 
     assert result.completed is True
     assert any(event.type == "context_compressed" for event in result.events)
+    compressing = next(event for event in result.events if event.type == "context_compressing")
+    assert compressing.data["threshold_tokens"] == 500
+    assert compressing.data["tool_schema_estimated_tokens"] > 2_000
     assert any(str(message.get("content", "")).startswith(SUMMARY_PREFIX) for message in provider.requests[0].messages)
 
 
@@ -1469,6 +1688,7 @@ def test_service_execute_code_description_lists_visible_readonly_tools_only(tmp_
     )
     description = execute_code_tool["function"]["description"]
     assert "search_notes" in description
+    assert "dedicated artifact tools" in description
     assert "write_note" not in description
     assert "web_search" not in description
 
@@ -1688,6 +1908,9 @@ def test_service_can_execute_paper_note_write_tool(tmp_path):
     assert tool_payload["success"] is True
     persisted = service.session_store.require_session(result.session_id)
     assert persisted.messages[-1]["toolActivity"][0]["name"] == "write_note"
+    assert persisted.messages[-1]["toolActivity"][0]["heading"] == "Agent Notes"
+    assert persisted.messages[-1]["toolActivity"][0]["position"] == "append"
+    assert persisted.messages[-1]["toolActivity"][0]["addedHeadings"] == ["Agent Notes"]
     assert persisted.messages[-1]["toolActivity"][0]["changedFiles"][0]["path"] == "Paper-html/note-1.html"
     assert '<h2 id="agent-notes">Agent Notes</h2>' in html_path.read_text(encoding="utf-8")
 

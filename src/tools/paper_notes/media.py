@@ -194,6 +194,7 @@ def write_note_from_paper_image(
         "note_id": note_id,
         "heading": heading,
         "position": position,
+        "added_headings": preview.get("added_headings") or [],
         "message": "Analyzed paper image and updated the note section.",
         "image": image_payload,
         "analysis": _limit_text(analysis_text, 4_000),

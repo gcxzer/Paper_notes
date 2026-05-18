@@ -235,6 +235,20 @@
   text-align: center;
 }
 
+.ask-context-estimate {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.ask-context-estimate-detail {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .ask-context-grid {
   display: grid;
   grid-template-columns: minmax(86px, auto) minmax(0, 1fr);

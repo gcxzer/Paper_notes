@@ -6,6 +6,7 @@ from agent_prompts.context import AgentPromptContext, build_context_section
 from agent_prompts.defaults import (
     PAPER_NOTES_AGENT_IDENTITY,
     PAPER_NOTES_CODE_EXECUTION_GUIDANCE,
+    PAPER_NOTES_GENERATED_ARTIFACT_GUIDANCE,
     PAPER_NOTES_MEMORY_GUIDANCE,
     PAPER_NOTES_MCP_GUIDANCE,
     PAPER_NOTES_NO_TOOL_GUIDANCE,
@@ -79,6 +80,9 @@ def _build_tool_guidance(
     for tool_name in sorted(tool_names):
         guidance = TOOL_GUIDANCE_BY_NAME.get(tool_name, f"Use {tool_name} only when it directly helps answer the user.")
         lines.append(f"- {tool_name}: {guidance}")
+
+    if "create_file_artifact" in tool_names or "create_image_artifact" in tool_names or "execute_code" in tool_names:
+        lines.extend(["", PAPER_NOTES_GENERATED_ARTIFACT_GUIDANCE])
 
     if "search_notes" in tool_names:
         lines.extend(["", PAPER_NOTES_SEARCH_QUERY_GUIDANCE])

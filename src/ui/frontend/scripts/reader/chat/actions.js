@@ -123,7 +123,10 @@ function handleReaderChatMessageAction(event) {
   if (codeCopyButton) {
     const code = decodeURIComponent(codeCopyButton.dataset.codeCopy || "");
     copyTextToClipboard(code)
-      .then(() => showCodeCopyFeedback(codeCopyButton))
+      .then(() => {
+        setReaderChatError("");
+        showCodeCopyFeedback(codeCopyButton);
+      })
       .catch((error) => {
         setReaderChatError("Could not copy code.");
         console.warn("Failed to copy code block.", error);
@@ -135,7 +138,10 @@ function handleReaderChatMessageAction(event) {
     const index = Number(copyButton.dataset.userMessageCopy);
     const message = normalizeChatMessage(readerState.chatMessages[index]);
     copyTextToClipboard(message.text)
-      .then(() => showCopyFeedback(copyButton))
+      .then(() => {
+        setReaderChatError("");
+        showCopyFeedback(copyButton);
+      })
       .catch((error) => {
         setReaderChatError("Could not copy message.");
         console.warn("Failed to copy chat message.", error);
@@ -157,8 +163,19 @@ function handleReaderChatMessageAction(event) {
     const summary = runSummaryToggle.closest(".ask-run-summary");
     const body = summary?.querySelector("[data-run-summary-body]");
     const expanded = runSummaryToggle.getAttribute("aria-expanded") === "true";
-    runSummaryToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
-    if (body) body.hidden = expanded;
+    const nextExpanded = !expanded;
+    const summaryKey = normalizeText(summary?.dataset.runSummaryKey);
+    if (summaryKey) {
+      const nextOpen = { ...(readerState.runSummaryOpen || {}) };
+      if (nextExpanded) {
+        nextOpen[summaryKey] = true;
+      } else {
+        delete nextOpen[summaryKey];
+      }
+      readerState.runSummaryOpen = nextOpen;
+    }
+    runSummaryToggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+    if (body) body.hidden = !nextExpanded;
     return;
   }
   const debugButton = event.target.closest("[data-debug-run-open]");

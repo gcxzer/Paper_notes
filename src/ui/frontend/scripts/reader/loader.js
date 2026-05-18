@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "inline-progress-v5";
+const READER_SCRIPT_VERSION = "progress-text-sheen-v17";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=floating-pad-v1",

@@ -217,6 +217,16 @@ def test_media_store_preserves_upload_display_name_when_storage_name_collides(tm
     assert second.metadata["storageFileName"].startswith("README-att_")
 
 
+def test_media_store_preserves_unicode_upload_file_name(tmp_path):
+    store = MediaStore(tmp_path / ".paper-notes" / "media")
+
+    artifact = store.create_upload("data:text/plain;base64,SGVsbG8=", file_name="朱旋-阅读3-课前打卡.txt", scope="session-1")
+
+    assert artifact.file_name == "朱旋-阅读3-课前打卡.txt"
+    assert artifact.metadata["storageFileName"] == "朱旋-阅读3-课前打卡.txt"
+    assert store.path_for(artifact.id).name == "朱旋-阅读3-课前打卡.txt"
+
+
 @pytest.mark.parametrize(
     ("mime_type", "file_name", "kind"),
     [

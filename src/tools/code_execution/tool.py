@@ -112,6 +112,11 @@ def build_execute_code_description(available_inner_tools: Iterable[str] | None =
         "or OS-level isolation boundary: do not use it for untrusted code. The child process "
         "gets a fake HOME, scrubbed secret-like environment variables, UTF-8 Python settings, "
         "a 120 second timeout, capped stdout/stderr, and a 25-call limit for parent tool RPC. "
+        "Do not use this tool to create generated files/images or write Paper Notes media files; "
+        "use dedicated artifact tools when available. If an image artifact tool is not available, "
+        "tell the user image generation is unavailable for the current provider/model; do not draw "
+        "images with Python, emit SVG/HTML, print base64/data URLs, or write temporary image files. "
+        "Suggest switching to the OpenAI API key provider or Codex OAuth provider for image generation. "
         "When available, import parent-tool helpers from paper_notes_tools. Available inner tools: "
         f"{tool_text}."
     )

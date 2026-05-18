@@ -665,7 +665,10 @@ function renderChatToolActivity(toolActivity, { showActions = true, activityScop
           : false;
         const showView = toolActivityChangesHtmlNote(item);
         const viewNoteId = normalizeText(item.noteId) || (showView ? currentChatNoteId() : "");
+        const viewHeading = toolActivityViewHeading(item);
+        const viewAddedHeadings = toolActivityAddedHeadings(item);
         const previewKey = toolActivityPreviewKey(item, activityScope, itemIndex);
+        const previewSnapshotIds = toolActivitySnapshotIds(item);
         return `
         <div class="ask-tool-activity-item" data-tool-activity-id="${escapeHtml(toolActivityStateKey(item))}">
           <div class="ask-tool-activity-copy">
@@ -675,13 +678,21 @@ function renderChatToolActivity(toolActivity, { showActions = true, activityScop
           ${showActions ? `
             <div class="ask-tool-activity-actions">
               ${showView && viewNoteId ? `
-                <button class="ask-tool-action" type="button" data-tool-view-note="${escapeHtml(viewNoteId)}">View</button>
-              ` : ""}
-              ${showView && item.snapshotId ? `
                 <button
                   class="ask-tool-action"
                   type="button"
-                  data-tool-preview="${escapeHtml(item.snapshotId)}"
+                  data-tool-view-note="${escapeHtml(viewNoteId)}"
+                  data-tool-view-heading="${escapeHtml(viewHeading)}"
+                  data-tool-view-position="${escapeHtml(item.position)}"
+                  data-tool-view-added-headings="${escapeHtml(JSON.stringify(viewAddedHeadings))}"
+                >View</button>
+              ` : ""}
+              ${showView && previewSnapshotIds.length ? `
+                <button
+                  class="ask-tool-action"
+                  type="button"
+                  data-tool-preview="${escapeHtml(previewSnapshotIds[previewSnapshotIds.length - 1])}"
+                  data-tool-preview-snapshots="${escapeHtml(previewSnapshotIds.join(","))}"
                   data-tool-preview-key="${escapeHtml(previewKey)}"
                   data-tool-session-id="${escapeHtml(item.sessionId)}"
                   ${readerState.toolDiffActionId === previewKey ? "disabled" : ""}
@@ -752,7 +763,7 @@ function intermediateToolActivityKey(item) {
 function toolActivityPreviewKey(item, activityScope, itemIndex) {
   return [
     normalizeText(activityScope) || "activity",
-    normalizeText(item?.snapshotId) || toolActivityStateKey(item) || "snapshot",
+    toolActivityStateKey(item) || normalizeText(item?.snapshotId) || "snapshot",
     String(Math.max(0, Number(itemIndex) || 0))
   ].join(":");
 }
@@ -794,6 +805,17 @@ function isAnnotationDeleteActivity(item) {
 
 function toolActivityChangedFileKey(item) {
   return (item.changedFiles || []).map((file) => normalizeText(file.path)).sort().join("|");
+}
+
+function toolActivityAddedHeadings(item) {
+  return (Array.isArray(item?.addedHeadings) ? item.addedHeadings : [])
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function toolActivityViewHeading(item) {
+  const addedHeadings = toolActivityAddedHeadings(item);
+  return addedHeadings[addedHeadings.length - 1] || normalizeText(item?.heading);
 }
 
 function mergeToolActivityChangedFiles(left, right) {
@@ -872,21 +894,53 @@ function toolActivitySummary(item) {
 
 function renderToolActivityDiff(item, previewKey = "") {
   if (!readerState.toolDiffOpen?.[previewKey]) return "";
-  const diff = normalizeToolDiff(readerState.toolDiffs[item.snapshotId]);
-  if (!diff || !diff.files.length) return "";
+  const snapshotIds = toolActivitySnapshotIds(item);
+  const diffs = snapshotIds
+    .map((snapshotId) => normalizeToolDiff(readerState.toolDiffs[snapshotId]))
+    .filter((diff) => diff?.files?.length);
+  if (!diffs.length) return "";
+  const showStepLabels = diffs.length > 1;
   return `
-    <div class="ask-tool-diff" data-tool-diff="${escapeHtml(item.snapshotId)}">
-      ${diff.files.map((file) => `
-        <div class="ask-tool-diff-file">
+    <div class="ask-tool-diff" data-tool-diff="${escapeHtml(snapshotIds.join(","))}">
+      ${diffs.map((diff, diffIndex) => diff.files.map((file, fileIndex) => {
+        const changeKey = toolDiffChangeKey(previewKey, diff, diffIndex, file, fileIndex);
+        const collapsed = Boolean(readerState.toolDiffCollapsed?.[changeKey]);
+        const changeLabel = showStepLabels ? `Change ${diffIndex + 1}` : "Change";
+        return `
+        <div class="ask-tool-diff-file${collapsed ? " is-collapsed" : ""}" data-tool-diff-change="${escapeHtml(changeKey)}">
           <div class="ask-tool-diff-header">
-            <strong>${escapeHtml(file.path)}</strong>
+            <div class="ask-tool-diff-heading">
+              <button
+                class="ask-tool-diff-collapse"
+                type="button"
+                data-tool-diff-collapse="${escapeHtml(changeKey)}"
+                aria-expanded="${collapsed ? "false" : "true"}"
+                aria-label="${escapeHtml(collapsed ? `Expand ${changeLabel}` : `Collapse ${changeLabel}`)}"
+              >
+                <span class="ask-tool-diff-chevron" aria-hidden="true"></span>
+              </button>
+              <strong>
+                ${escapeHtml(file.path)}
+                ${showStepLabels ? `<span class="ask-tool-diff-step-count">Change ${escapeHtml(diffIndex + 1)} / ${escapeHtml(diffs.length)}</span>` : ""}
+              </strong>
+            </div>
             ${renderToolDiffSummary(file.diff)}
           </div>
-          ${renderToolDiffPreview(file.diff, file.path)}
+          ${collapsed ? "" : renderToolDiffPreview(file.diff, file.path)}
         </div>
-      `).join("")}
+      `;
+      }).join("")).join("")}
     </div>
   `;
+}
+
+function toolDiffChangeKey(previewKey, diff, diffIndex, file, fileIndex) {
+  return [
+    normalizeText(previewKey),
+    normalizeText(diff?.snapshotId) || `diff-${diffIndex}`,
+    normalizeText(file?.path) || `file-${fileIndex}`,
+    String(fileIndex)
+  ].join("|");
 }
 
 function parseToolDiffLines(diffText) {
@@ -924,16 +978,16 @@ function renderToolDiffSummary(diffText) {
   return `<span class="ask-tool-diff-stats">${parts.join(`<span class="ask-tool-diff-stat-separator">·</span>`) || "No rendered changes"}</span>`;
 }
 
-function renderToolDiffPreview(diffText, filePath = "") {
+function renderToolDiffPreview(diffText) {
   if (!diffText) return `<p>No text diff available.</p>`;
   return `
     <div class="ask-tool-diff-viewer" role="table" aria-label="Preview diff">
-      ${renderToolDiffRows(diffText, filePath)}
+      ${renderToolDiffRows(diffText)}
     </div>
   `;
 }
 
-function renderToolDiffRows(diffText, filePath = "") {
+function renderToolDiffRows(diffText) {
   const lines = String(diffText || "").split(/\r?\n/);
   let oldLine = 0;
   let newLine = 0;
@@ -945,7 +999,7 @@ function renderToolDiffRows(diffText, filePath = "") {
     if (hunk) {
       oldLine = Number(hunk[1]) || 0;
       newLine = Number(hunk[2]) || 0;
-      hasReliableLineNumbers = toolDiffHunkHasReliableLineNumbers(rawLine, filePath, oldLine, newLine);
+      hasReliableLineNumbers = true;
       const trailingContent = normalizeText(hunk[3]);
       if (!trailingContent) {
         rows.push(`
@@ -986,15 +1040,6 @@ function renderToolDiffRows(diffText, filePath = "") {
     if (newLine) newLine += 1;
   });
   return rows.join("") || `<p>No text diff available.</p>`;
-}
-
-function toolDiffHunkHasReliableLineNumbers(rawLine, filePath, oldLine, newLine) {
-  if (oldLine > 1 || newLine > 1) return true;
-  const path = normalizeText(filePath);
-  const line = normalizeText(rawLine);
-  if (!path || !line) return false;
-  const fileName = path.split(/[\\/]/).pop();
-  return Boolean(fileName && line.includes(fileName) && (oldLine > 1 || newLine > 1));
 }
 
 function renderToolDiffRow(kind, oldLine, newLine, marker, content) {
@@ -1064,7 +1109,9 @@ function renderChatProgress() {
   if (!isChatSessionPending()) return "";
   const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: true });
   const pendingApproval = pendingApprovalFromProgress(progress);
-  const rowsHtml = progressInlineRows(progress).map(renderProgressInlineRow).join("");
+  const rows = progressInlineRows(progress);
+  const activeToolIndex = lastProgressToolRowIndex(rows);
+  const rowsHtml = rows.map((row, index) => renderProgressInlineRow(row, { active: index === activeToolIndex })).join("");
   const approvalHtml = pendingApproval ? renderProgressApprovalMessage(pendingApproval) : "";
   return `${compactionMarkerHtml}${rowsHtml}${approvalHtml}`;
 }
@@ -1103,6 +1150,13 @@ function progressInlineRows(progress) {
   }).filter(Boolean);
 }
 
+function lastProgressToolRowIndex(rows) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (progressInlineType(rows[index]?.type) === "tool") return index;
+  }
+  return -1;
+}
+
 function progressInlineType(type) {
   const normalized = normalizeText(type);
   if (isStatusProgressType(normalized)) return "status";
@@ -1133,13 +1187,16 @@ function isStatusProgressType(type) {
   ].includes(normalizeText(type));
 }
 
-function renderProgressInlineRow(row) {
+function renderProgressInlineRow(row, { active = false } = {}) {
+  const detail = escapeHtml(row.detail);
+  const type = progressInlineType(row.type);
+  const activeClass = active && type === "tool" ? " is-active" : "";
   return `
-    <div class="ask-message ask-message-assistant ask-message-progress-inline" role="status" aria-live="polite">
+    <div class="ask-message ask-message-assistant ask-message-progress-inline${activeClass}" role="status" aria-live="polite">
       <div class="ask-message-stack">
-        <div class="ask-progress-inline">
-          <span class="ask-progress-inline-type">${escapeHtml(workTraceItemLabel(row.type))}</span>
-          <span class="ask-progress-inline-text">${escapeHtml(row.detail)}</span>
+        <div class="ask-progress-inline${activeClass}">
+          <span class="ask-progress-inline-type">${escapeHtml(workTraceItemLabel(type))}</span>
+          <span class="ask-progress-inline-text" data-progress-text="${detail}">${detail}</span>
         </div>
       </div>
     </div>
@@ -1198,16 +1255,18 @@ function renderRunTraceSummary(trace, workTrace = null, classPrefix = "ask") {
   if (!normalized) return "";
   const duration = normalized.durationMs ? formatRunTraceDuration(normalized.durationMs) : "a moment";
   const workItems = runSummaryWorkItems(normalized, workTrace);
+  const summaryKey = runSummaryStateKey(normalized);
+  const expanded = Boolean(summaryKey && readerState.runSummaryOpen?.[summaryKey]);
   return `
-    <div class="${classPrefix}-run-summary">
+    <div class="${classPrefix}-run-summary" data-run-summary-key="${escapeHtml(summaryKey)}">
       <div class="${classPrefix}-run-summary-row">
-        <button class="${classPrefix}-run-summary-toggle" type="button" data-run-summary-toggle aria-expanded="false">
+        <button class="${classPrefix}-run-summary-toggle" type="button" data-run-summary-toggle aria-expanded="${expanded ? "true" : "false"}">
           <span>Worked for ${escapeHtml(duration)}</span>
           <span class="${classPrefix}-run-summary-chevron" aria-hidden="true"></span>
         </button>
         ${normalized.requestId ? `<button class="${classPrefix}-run-summary-debug" type="button" data-debug-run-open="${escapeHtml(normalized.requestId)}">Debug</button>` : ""}
       </div>
-      <div class="${classPrefix}-run-summary-body" data-run-summary-body hidden>
+      <div class="${classPrefix}-run-summary-body" data-run-summary-body${expanded ? "" : " hidden"}>
         ${workItems.length ? `
           <ol class="${classPrefix}-run-summary-events">
             ${workItems.map((item) => `
@@ -1223,15 +1282,33 @@ function renderRunTraceSummary(trace, workTrace = null, classPrefix = "ask") {
   `;
 }
 
+function runSummaryStateKey(trace) {
+  const normalized = normalizeRunTrace(trace);
+  if (!normalized) return "";
+  return normalizeText(normalized.requestId)
+    || [
+      normalized.startedAt,
+      normalized.finishedAt,
+      normalized.durationMs,
+      normalized.status,
+    ].map((part) => normalizeText(part)).join("|");
+}
+
 function runSummaryWorkItems(trace, workTrace = null) {
+  const startItem = startingRunStatusItem(trace);
   const workTraceItems = (normalizeWorkTrace(workTrace)?.items || [])
     .filter((item) => !isHiddenRunTraceMessage(item.type, item.text));
   const items = [
+    ...(startItem ? [startItem] : []),
     ...workTraceItems,
     ...runTraceVisibleWorkItems(trace, { includeToolEvents: !workTraceItems.length }),
   ];
   const compacted = sortTraceItemsChronologically(compactWorkTraceItems(items));
-  return compacted.length ? compacted : fallbackRunStatusItems(trace);
+  const terminalItem = terminalRunStatusItem(trace);
+  if (!compacted.length) return fallbackRunStatusItems(trace);
+  return terminalItem && !hasEquivalentWorkTraceItem(compacted, terminalItem)
+    ? [...compacted, terminalItem]
+    : compacted;
 }
 
 function runTraceVisibleWorkItems(trace, { includeToolEvents = true } = {}) {
@@ -1291,16 +1368,33 @@ function fallbackRunStatusItems(trace) {
       source: "runtime",
     });
   }
-  const terminalText = terminalRunStatusText(normalized.status, normalized.error);
-  if (terminalText) {
-    items.push({
-      type: "status",
-      text: terminalText,
-      at: normalized.finishedAt,
-      source: "runtime",
-    });
-  }
+  const terminalItem = terminalRunStatusItem(normalized);
+  if (terminalItem) items.push(terminalItem);
   return sortTraceItemsChronologically(compactWorkTraceItems(items));
+}
+
+function startingRunStatusItem(trace) {
+  const normalized = normalizeRunTrace(trace);
+  if (!normalized?.startedAt) return null;
+  return {
+    type: "status",
+    text: "Starting agent run.",
+    at: normalized.startedAt,
+    source: "runtime",
+  };
+}
+
+function terminalRunStatusItem(trace) {
+  const normalized = normalizeRunTrace(trace);
+  if (!normalized) return null;
+  const terminalText = terminalRunStatusText(normalized.status, normalized.error);
+  if (!terminalText) return null;
+  return {
+    type: "status",
+    text: terminalText,
+    at: normalized.finishedAt,
+    source: "runtime",
+  };
 }
 
 function terminalRunStatusText(status, error = "") {
@@ -1325,6 +1419,15 @@ function isHiddenRunTraceMessage(type, text) {
     "Model provider returned a response.",
     "Receiving model response.",
   ].includes(normalizedText);
+}
+
+function hasEquivalentWorkTraceItem(items, candidate) {
+  const candidateType = normalizeText(candidate?.type);
+  const candidateText = sanitizeChatProgressDetail(candidate?.text);
+  return (items || []).some((item) => (
+    normalizeText(item?.type) === candidateType
+    && sanitizeChatProgressDetail(item?.text) === candidateText
+  ));
 }
 
 function workTraceItemLabel(type) {
@@ -1733,8 +1836,91 @@ async function refreshCurrentNoteAfterToolUndo() {
   await refreshAnnotationsFromServer({ preserveOpenEditor: true, statusText: "" });
 }
 
-async function viewToolActivityNote(noteId) {
-  const targetNoteId = normalizeText(noteId);
+function parseToolActivityAddedHeadings(value) {
+  try {
+    const parsed = JSON.parse(normalizeText(value) || "[]");
+    return (Array.isArray(parsed) ? parsed : []).map(normalizeText).filter(Boolean);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function normalizeToolActivityViewTarget(target) {
+  if (target && typeof target === "object") {
+    const addedHeadings = (Array.isArray(target.addedHeadings) ? target.addedHeadings : [])
+      .map(normalizeText)
+      .filter(Boolean);
+    return {
+      noteId: normalizeText(target.noteId || target.note_id),
+      heading: normalizeText(target.heading),
+      position: normalizeText(target.position),
+      addedHeadings
+    };
+  }
+  return {
+    noteId: normalizeText(target),
+    heading: "",
+    position: "",
+    addedHeadings: []
+  };
+}
+
+function noteHeadingVisibleText(heading) {
+  if (!heading) return "";
+  const clone = heading.cloneNode(true);
+  clone.querySelectorAll("button, .note-heading-toggle").forEach((node) => node.remove());
+  return normalizeText(clone.textContent || heading.textContent).toLowerCase();
+}
+
+function findNoteHeadingByText(text, { prefer = "first" } = {}) {
+  const target = normalizeText(text).toLowerCase();
+  if (!target || !elements.notePage) return null;
+  const matches = Array.from(elements.notePage.querySelectorAll("h1, h2, h3, h4"))
+    .filter((heading) => noteHeadingVisibleText(heading) === target);
+  if (!matches.length) return null;
+  return prefer === "last" ? matches[matches.length - 1] : matches[0];
+}
+
+function scrollNotePaneToElement(element, behavior = "smooth") {
+  const pane = elements.notePane;
+  if (!pane || !element) return false;
+  const paneBox = pane.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  const anchorOffset = typeof noteScrollAnchorOffset === "function"
+    ? noteScrollAnchorOffset()
+    : Math.round(Math.min(Math.max(pane.clientHeight * 0.16, 56), 150));
+  const maxScroll = Math.max(0, pane.scrollHeight - pane.clientHeight);
+  const targetTop = pane.scrollTop + rect.top - paneBox.top - anchorOffset;
+  pane.scrollTo({
+    top: Math.min(Math.max(targetTop, 0), maxScroll),
+    behavior
+  });
+  return true;
+}
+
+function scrollNotePaneToToolActivityTarget(target) {
+  const addedHeadings = (Array.isArray(target.addedHeadings) ? target.addedHeadings : [])
+    .map(normalizeText)
+    .filter(Boolean);
+  const heading = addedHeadings[addedHeadings.length - 1] || normalizeText(target.heading);
+  const position = normalizeText(target.position);
+  const prefer = addedHeadings.length && position !== "prepend" ? "last" : "first";
+  const headingElement = findNoteHeadingByText(heading, { prefer });
+  if (headingElement && scrollNotePaneToElement(headingElement, "smooth")) return true;
+  if (position === "append" && elements.notePane) {
+    elements.notePane.scrollTo({
+      top: Math.max(0, elements.notePane.scrollHeight - elements.notePane.clientHeight),
+      behavior: "smooth"
+    });
+    return false;
+  }
+  elements.notePane?.scrollTo({ top: 0, behavior: "smooth" });
+  return false;
+}
+
+async function viewToolActivityNote(target) {
+  const viewTarget = normalizeToolActivityViewTarget(target);
+  const targetNoteId = viewTarget.noteId;
   if (!targetNoteId) return;
   if (targetNoteId && targetNoteId !== currentChatNoteId()) {
     setReaderChatError("Open that note from the library to view the change.");
@@ -1742,14 +1928,17 @@ async function viewToolActivityNote(noteId) {
   }
   await refreshCurrentNoteAfterToolUndo();
   setHtmlPaneVisible(true);
-  elements.notePane?.scrollTo({ top: 0, behavior: "smooth" });
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  scrollNotePaneToToolActivityTarget(viewTarget);
 }
 
-async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSessionId(), previewKey = "" } = {}) {
-  const targetSnapshotId = normalizeText(snapshotId);
+async function previewReaderToolSnapshotDiff(snapshotIds, { sessionId = getChatSessionId(), previewKey = "" } = {}) {
+  const targetSnapshotIds = Array.isArray(snapshotIds)
+    ? [...new Set(snapshotIds.map(normalizeText).filter(Boolean))]
+    : normalizeToolToggleSnapshotIds(snapshotIds);
   const targetSessionId = normalizeText(sessionId);
-  const targetPreviewKey = normalizeText(previewKey) || targetSnapshotId;
-  if (!targetSnapshotId || !targetSessionId) return null;
+  const targetPreviewKey = normalizeText(previewKey) || targetSnapshotIds.join("|");
+  if (!targetSnapshotIds.length || !targetSessionId) return null;
   if (readerState.toolDiffOpen?.[targetPreviewKey]) {
     const nextOpen = { ...(readerState.toolDiffOpen || {}) };
     delete nextOpen[targetPreviewKey];
@@ -1757,25 +1946,31 @@ async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSe
     renderReaderChatMessages({ preserveScrollTop: true });
     return null;
   }
-  if (readerState.toolDiffs[targetSnapshotId]) {
+  const missingSnapshotIds = targetSnapshotIds.filter((snapshotId) => !readerState.toolDiffs[snapshotId]);
+  if (!missingSnapshotIds.length) {
     readerState.toolDiffOpen = {
       ...(readerState.toolDiffOpen || {}),
       [targetPreviewKey]: true
     };
     renderReaderChatMessages({ preserveScrollTop: true });
-    return normalizeToolDiff(readerState.toolDiffs[targetSnapshotId]);
+    return targetSnapshotIds.map((snapshotId) => normalizeToolDiff(readerState.toolDiffs[snapshotId])).filter(Boolean);
   }
   readerState.toolDiffActionId = targetPreviewKey;
   renderReaderChatMessages({ preserveScrollTop: true });
   try {
-    const payload = await fetchAgentJson(
-      `/api/chat/tool-snapshot-diff?sessionId=${encodeURIComponent(targetSessionId)}&snapshotId=${encodeURIComponent(targetSnapshotId)}&maxChars=18000`
-    );
-    const diff = normalizeToolDiff(payload);
-    if (diff) {
+    const diffs = (await Promise.all(missingSnapshotIds.map(async (snapshotId) => {
+      const payload = await fetchAgentJson(
+        `/api/chat/tool-snapshot-diff?sessionId=${encodeURIComponent(targetSessionId)}&snapshotId=${encodeURIComponent(snapshotId)}&maxChars=18000`
+      );
+      return normalizeToolDiff(payload);
+    }))).filter(Boolean);
+    if (diffs.length) {
+      const nextDiffs = { ...(readerState.toolDiffs || {}) };
+      diffs.forEach((diff) => {
+        nextDiffs[diff.snapshotId] = diff;
+      });
       readerState.toolDiffs = {
-        ...readerState.toolDiffs,
-        [targetSnapshotId]: diff
+        ...nextDiffs
       };
       readerState.toolDiffOpen = {
         ...(readerState.toolDiffOpen || {}),
@@ -1783,7 +1978,7 @@ async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSe
       };
     }
     renderReaderChatMessages({ preserveScrollTop: true });
-    return diff;
+    return targetSnapshotIds.map((snapshotId) => normalizeToolDiff(readerState.toolDiffs[snapshotId])).filter(Boolean);
   } catch (error) {
     setReaderChatError(error.message || GENERIC_AGENT_ERROR);
     return null;
@@ -1793,21 +1988,49 @@ async function previewReaderToolSnapshotDiff(snapshotId, { sessionId = getChatSe
   }
 }
 
+function toggleToolDiffChangeCollapsed(changeKey) {
+  const key = normalizeText(changeKey);
+  if (!key) return;
+  const nextCollapsed = { ...(readerState.toolDiffCollapsed || {}) };
+  if (nextCollapsed[key]) {
+    delete nextCollapsed[key];
+  } else {
+    nextCollapsed[key] = true;
+  }
+  readerState.toolDiffCollapsed = nextCollapsed;
+  renderReaderChatMessages({ preserveScrollTop: true });
+}
+
 async function handleToolActivityClick(event) {
+  const diffCollapseButton = event.target.closest("[data-tool-diff-collapse]");
+  if (diffCollapseButton) {
+    event.preventDefault();
+    toggleToolDiffChangeCollapsed(diffCollapseButton.dataset.toolDiffCollapse);
+    return;
+  }
+
   const viewButton = event.target.closest("[data-tool-view-note]");
   if (viewButton) {
     event.preventDefault();
-    await viewToolActivityNote(viewButton.dataset.toolViewNote);
+    await viewToolActivityNote({
+      noteId: viewButton.dataset.toolViewNote,
+      heading: viewButton.dataset.toolViewHeading,
+      position: viewButton.dataset.toolViewPosition,
+      addedHeadings: parseToolActivityAddedHeadings(viewButton.dataset.toolViewAddedHeadings)
+    });
     return;
   }
 
   const previewButton = event.target.closest("[data-tool-preview]");
   if (previewButton) {
     event.preventDefault();
-    await previewReaderToolSnapshotDiff(previewButton.dataset.toolPreview, {
+    await previewReaderToolSnapshotDiff(
+      previewButton.dataset.toolPreviewSnapshots || previewButton.dataset.toolPreview,
+      {
       sessionId: normalizeText(previewButton.dataset.toolSessionId) || getChatSessionId(),
       previewKey: normalizeText(previewButton.dataset.toolPreviewKey)
-    });
+      }
+    );
     return;
   }
 

@@ -1385,6 +1385,7 @@ def _tool_result_data(tool_result: ToolResult) -> dict[str, Any]:
             "summary",
             "heading",
             "position",
+            "added_headings",
             "path",
         ):
             if key in payload:
@@ -1414,13 +1415,39 @@ def _extend_artifacts(target: list[dict[str, Any]], artifacts: list[dict[str, An
     if not artifacts:
         return
     seen = {str(item.get("id") or "") for item in target if isinstance(item, dict)}
+    revision_indexes: dict[str, int] = {}
+    for index, item in enumerate(target):
+        if not isinstance(item, dict):
+            continue
+        revision_key = _artifact_revision_key(item)
+        if revision_key:
+            revision_indexes[revision_key] = index
     for artifact in artifacts:
         artifact_id = str(artifact.get("id") or "")
         if artifact_id and artifact_id in seen:
             continue
+        revision_key = _artifact_revision_key(artifact)
+        if revision_key and revision_key in revision_indexes:
+            target[revision_indexes[revision_key]] = artifact
+            if artifact_id:
+                seen.add(artifact_id)
+            continue
         target.append(artifact)
         if artifact_id:
             seen.add(artifact_id)
+        if revision_key:
+            revision_indexes[revision_key] = len(target) - 1
+
+
+def _artifact_revision_key(artifact: dict[str, Any]) -> str:
+    metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
+    if metadata.get("createdBy") != "create_file_artifact":
+        return ""
+    requested_file_name = str(metadata.get("requestedFileName") or "").strip()
+    if not requested_file_name:
+        return ""
+    mime_type = str(artifact.get("mimeType") or artifact.get("mime_type") or "").strip().lower()
+    return f"create_file_artifact\0{mime_type}\0{requested_file_name}"
 
 
 def _json_object_payload(content: str) -> dict[str, Any]:

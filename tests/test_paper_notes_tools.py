@@ -282,6 +282,8 @@ def test_validate_and_preview_note_html_do_not_write(tmp_path):
     assert preview.is_error is False
     preview_payload = json.loads(preview.content)
     assert preview_payload["changed"] is True
+    assert preview_payload["heading"] == "Takeaways"
+    assert preview_payload["position"] == "append"
     assert preview_payload["added_headings"] == ["Takeaways"]
     assert html_path.read_text(encoding="utf-8") == before
 
@@ -387,6 +389,110 @@ def test_write_note_section_sanitizes_html_and_appends(tmp_path):
     assert '<a href="https://example.com" title="source">safe link</a>' in saved_html
 
 
+def test_write_note_section_formats_note_body_blocks(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "append_to_section",
+        "note_id": "note-1",
+        "heading": "Findings",
+        "html": "<ul><li>One</li><li>Two</li></ul>",
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert (
+        "<h2>Findings</h2>\n"
+        "<p>Old findings.</p>\n"
+        "<ul>\n"
+        "  <li>One</li>\n"
+        "  <li>Two</li>\n"
+        "</ul>"
+    ) in saved_html
+
+
+def test_write_note_exposes_and_applies_prepend_position(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+    write_tool = registry.get("write_note")
+
+    result = registry.dispatch("write_note", {
+        "action": "append_to_section",
+        "note_id": "note-1",
+        "heading": "Line Number Top Test",
+        "html": "<p>This section tests line 1 diffs.</p>",
+        "position": "prepend",
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert write_tool is not None
+    assert write_tool.parameters["properties"]["position"]["enum"] == [
+        "append",
+        "prepend",
+        "after_heading",
+        "replace_heading",
+    ]
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert payload["heading"] == "Line Number Top Test"
+    assert payload["position"] == "prepend"
+    assert payload["added_headings"] == ["Line Number Top Test"]
+    assert saved_html.index("<h2 id=\"line-number-top-test\">Line Number Top Test</h2>") < saved_html.index("<h2>Background</h2>")
+
+
+def test_write_note_section_preserves_note_body_base_indentation(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+    html_path.write_text(
+        "<html><body>\n"
+        "      <section class=\"note-body\">\n"
+        "<h2>Background</h2>\n"
+        "<p>Old background.</p>\n"
+        "<h2>Findings</h2>\n"
+        "<p>Old findings.</p>\n"
+        "      </section>\n"
+        "</body></html>",
+        encoding="utf-8",
+    )
+
+    result = registry.dispatch("write_note", {"action": "append_to_section",
+        "note_id": "note-1",
+        "heading": "Findings",
+        "html": "<ul><li>One</li><li>Two</li></ul>",
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert "\n        <h2>Background</h2>" in saved_html
+    assert (
+        "\n        <h2>Findings</h2>\n"
+        "        <p>Old findings.</p>\n"
+        "        <ul>\n"
+        "          <li>One</li>\n"
+        "          <li>Two</li>\n"
+        "        </ul>\n"
+        "      </section>"
+    ) in saved_html
+
+
+def test_write_note_section_preserves_preformatted_code_indentation(tmp_path):
+    registry, _, html_path = _paper_note_fixture(tmp_path)
+
+    result = registry.dispatch("write_note", {"action": "write_section",
+        "note_id": "note-1",
+        "heading": "Code",
+        "html": "<pre><code>def answer():\n    return 42</code></pre>",
+    })
+    payload = json.loads(result.content)
+    saved_html = html_path.read_text(encoding="utf-8")
+
+    assert result.is_error is False
+    assert payload["success"] is True
+    assert "<pre><code>def answer():\n    return 42</code></pre>" in saved_html
+
+
 def test_write_note_section_preserves_local_file_links(tmp_path):
     registry, _, html_path = _paper_note_fixture(tmp_path)
 
@@ -459,7 +565,8 @@ def test_write_note_section_preserves_project_video_sources(tmp_path):
 
     assert result.is_error is False
     assert payload["success"] is True
-    assert '<video src="/resources/media/demo.mp4" poster="/resources/media/poster.png" controls preload="metadata"></video>' in saved_html
+    assert '<video src="/resources/media/demo.mp4" poster="/resources/media/poster.png" controls preload="metadata">' in saved_html
+    assert "</video>" in saved_html
 
 
 def test_write_note_section_converts_markdown_blockquote_lines(tmp_path):
@@ -480,7 +587,7 @@ def test_write_note_section_converts_markdown_blockquote_lines(tmp_path):
 
     assert result.is_error is False
     assert payload["success"] is True
-    assert "<blockquote><p>first quoted line\nsecond quoted line</p></blockquote>" in saved_html
+    assert "<blockquote>\n  <p>first quoted line\n  second quoted line</p>\n</blockquote>" in saved_html
     assert "&gt; first quoted line" not in saved_html
     assert "<p>2 &gt; 1 should stay plain text.</p>" in saved_html
 

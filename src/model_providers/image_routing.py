@@ -56,7 +56,7 @@ def image_generation_unsupported_message(provider: object, model: object = "") -
     model_label = f" ({model_name})" if model_name else ""
     return (
         f"{_provider_label(provider_name)}{model_label} is not configured for image generation in Paper Notes. "
-        "Switch to the OpenAI API key provider to generate or edit images."
+        "Switch to the OpenAI API key provider or Codex OAuth provider to generate or edit images."
     )
 
 

@@ -22,7 +22,7 @@ def create_paper_note_html(
     safe_file_name = html.escape(file_name, quote=True)
     note_body = render_note_outline(outline or [])
     return f"""<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -431,6 +431,7 @@ function clearCurrentReaderChatSession() {
   readerState.toolSnapshots = [];
   readerState.toolDiffs = {};
   readerState.toolDiffOpen = {};
+  readerState.toolDiffCollapsed = {};
   readerState.toolSnapshotConflicts = {};
   setCurrentChatSessionId("");
   renderReaderChatMessages();
@@ -454,6 +455,7 @@ async function loadReaderChatSession(sessionId, { closeMenu = true, refreshList 
     readerState.chatEditingText = "";
     readerState.toolDiffs = {};
     readerState.toolDiffOpen = {};
+    readerState.toolDiffCollapsed = {};
     setCurrentChatSessionId(session?.id || payload.session?.id || nextSessionId);
     setReaderChatError("");
     resumeActiveChatRunForCurrentSession();
@@ -485,6 +487,7 @@ async function createReaderChatSession() {
   readerState.chatMessages = [];
   readerState.toolDiffs = {};
   readerState.toolDiffOpen = {};
+  readerState.toolDiffCollapsed = {};
   setCurrentChatSessionId("");
   setReaderChatError("");
   renderReaderChatMessages();

@@ -31,6 +31,58 @@ function createRequestId(prefix = "reader-chat") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function copyTextWithSelectionFallback(value) {
+  const textarea = document.createElement("textarea");
+  const activeElement = document.activeElement;
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  textarea.style.width = "1px";
+  textarea.style.height = "1px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+    if (activeElement && typeof activeElement.focus === "function") {
+      try {
+        activeElement.focus({ preventScroll: true });
+      } catch (_error) {
+        activeElement.focus();
+      }
+    }
+  }
+  if (!copied) throw new Error("Clipboard copy failed.");
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return;
+  let clipboardError = null;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (error) {
+      clipboardError = error;
+    }
+  }
+  try {
+    copyTextWithSelectionFallback(value);
+  } catch (error) {
+    if (clipboardError && typeof error === "object" && error) {
+      error.cause = clipboardError;
+    }
+    throw error;
+  }
+}
+
 const copyFeedbackTimers = new WeakMap();
 
 function showCopyFeedback(button) {
@@ -230,6 +282,13 @@ function normalizeToolActivity(rawItems) {
       sessionId: normalizeText(raw.sessionId),
       noteId: normalizeText(raw.noteId || raw.note_id),
       snapshotId: normalizeText(raw.snapshotId),
+      heading: normalizeText(raw.heading),
+      position: normalizeText(raw.position),
+      addedHeadings: (Array.isArray(raw.addedHeadings)
+        ? raw.addedHeadings
+        : Array.isArray(raw.added_headings) ? raw.added_headings : [])
+        .map(normalizeText)
+        .filter(Boolean),
       undoable: Boolean(raw.undoable),
       writeMode: normalizeWriteToolMode(raw.writeMode || raw.write_mode),
       message: normalizeText(raw.message),

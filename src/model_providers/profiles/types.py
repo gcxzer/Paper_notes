@@ -8,6 +8,7 @@ class ModelCapabilities:
     supports_tools: bool = True
     supports_vision: bool = False
     supports_image_generation: bool = False
+    supports_image_artifact_generation: bool = False
     supports_web_search: bool = False
     supports_reasoning_off: bool = True
     context_window: int = 0
@@ -18,6 +19,7 @@ class ModelCapabilities:
             "supportsTools": self.supports_tools,
             "supportsVision": self.supports_vision,
             "supportsImageGeneration": self.supports_image_generation,
+            "supportsImageArtifactGeneration": self.supports_image_artifact_generation,
             "supportsWebSearch": self.supports_web_search,
             "supportsReasoningOff": self.supports_reasoning_off,
             "contextWindow": self.context_window,

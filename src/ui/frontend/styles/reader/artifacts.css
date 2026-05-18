@@ -148,12 +148,19 @@
 }
 
 .ask-progress-inline {
+  --ask-progress-sheen-color: #c74424;
+  --ask-progress-sheen-glow: rgba(199, 68, 36, 0.46);
   display: flex;
   align-items: baseline;
   gap: 10px;
   max-width: min(900px, 100%);
   color: var(--muted-strong);
   line-height: 1.45;
+}
+
+html[data-theme="dark"] .ask-progress-inline {
+  --ask-progress-sheen-color: #ffbf57;
+  --ask-progress-sheen-glow: rgba(255, 191, 87, 0.58);
 }
 
 .ask-progress-inline-type {
@@ -171,8 +178,51 @@
 }
 
 .ask-progress-inline-text {
+  position: relative;
+  display: inline-block;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
+  color: var(--muted-strong);
   overflow-wrap: anywhere;
+}
+
+@supports ((mask-image: linear-gradient(#000, #000)) or (-webkit-mask-image: linear-gradient(#000, #000))) {
+  .ask-progress-inline.is-active .ask-progress-inline-text::after {
+    position: absolute;
+    inset: 0;
+    content: attr(data-progress-text);
+    pointer-events: none;
+    color: color-mix(in srgb, var(--ask-progress-sheen-color) 90%, var(--text));
+    text-shadow: 0 0 0.16em var(--ask-progress-sheen-glow), 0 0 0.72em var(--ask-progress-sheen-glow);
+    -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
+    mask-image: linear-gradient(100deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
+    -webkit-mask-size: 190% 100%;
+    mask-size: 190% 100%;
+    -webkit-mask-position: 150% 0;
+    mask-position: 150% 0;
+    animation: ask-progress-text-sheen 5s linear infinite;
+  }
+}
+
+@keyframes ask-progress-text-sheen {
+  0% {
+    -webkit-mask-position: 150% 0;
+    mask-position: 150% 0;
+  }
+
+  100% {
+    -webkit-mask-position: -150% 0;
+    mask-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-progress-inline.is-active .ask-progress-inline-text::after {
+    content: none;
+    background: none;
+    animation: none;
+  }
 }
 
 .ask-inline-approval,
@@ -431,12 +481,59 @@
   font-size: 0.72rem;
 }
 
+.ask-tool-diff-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ask-tool-diff-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-alt);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ask-tool-diff-collapse:hover,
+.ask-tool-diff-collapse:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.ask-tool-diff-chevron {
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.14s ease;
+}
+
+.ask-tool-diff-collapse[aria-expanded="true"] .ask-tool-diff-chevron {
+  transform: rotate(225deg);
+}
+
 .ask-tool-diff-header strong,
 .ask-tool-diff-stats {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ask-tool-diff-step-count {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .ask-tool-diff-stats {

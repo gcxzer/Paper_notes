@@ -231,6 +231,9 @@ def test_tool_activity_deduplicates_single_and_list_snapshot_payloads():
             {
                 "name": "execute_code",
                 "message": "Tool completed: write_note",
+                "heading": "New Section",
+                "position": "append",
+                "added_headings": ["New Section"],
                 "snapshot": dict(snapshot),
                 "snapshots": [dict(snapshot)],
             },
@@ -240,6 +243,9 @@ def test_tool_activity_deduplicates_single_and_list_snapshot_payloads():
     assert len(activity) == 1
     assert activity[0]["name"] == "write_note"
     assert activity[0]["snapshotId"] == "snap-1"
+    assert activity[0]["heading"] == "New Section"
+    assert activity[0]["position"] == "append"
+    assert activity[0]["addedHeadings"] == ["New Section"]
 
 
 def test_serialize_chat_result_places_deepseek_reasoning_in_work_trace(tmp_path):
@@ -1650,7 +1656,11 @@ def test_active_chat_request_can_be_soft_cancelled(tmp_path):
 
     assert results["chat"]["cancelled"] is True
     assert results["chat"]["error"] == "cancelled"
-    assert [message["text"] for message in results["chat"]["messages"]] == ["First"]
+    assert [message["text"] for message in results["chat"]["messages"]] == ["First", "Agent run cancelled."]
+    assert results["chat"]["messages"][-1]["runTrace"]["status"] == "cancelled"
+    reloaded = get_chat_session({"id": [session["id"]]}, service=service)["session"]
+    assert [message["text"] for message in reloaded["messages"]] == ["First", "Agent run cancelled."]
+    assert reloaded["messages"][-1]["runTrace"]["status"] == "cancelled"
     assert progress_store.get("req-active")["status"] == "cancelled"
 
 

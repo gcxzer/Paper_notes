@@ -572,11 +572,15 @@ def _safe_segment(value: str) -> str:
     return cleaned or "default"
 
 
+_UNSAFE_FILE_NAME_CHARS_RE = re.compile(r'[\x00-\x1f\x7f\\/:*?"<>|#%{}^~\[\]`]+')
+
+
 def _safe_file_name(value: str, *, fallback: str, extension: str) -> str:
     name = Path(normalize_text(value)).name if value else fallback
     if not name:
         name = fallback
-    name = re.sub(r"[^A-Za-z0-9_. -]+", "-", name).strip(". ")
+    name = _UNSAFE_FILE_NAME_CHARS_RE.sub("", name)
+    name = re.sub(r"\s+", " ", name).strip(". ")
     if not Path(name).suffix:
         name = f"{name}{extension}"
     return name or fallback

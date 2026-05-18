@@ -32,6 +32,40 @@ _NOTE_BODY_RE = re.compile(
 )
 _HEADING_RE = re.compile(r"(?is)<h([2-4])\b[^>]*>(.*?)</h\1>")
 _HEADING_WITH_ATTRS_RE = re.compile(r"(?is)<h([2-4])([^>]*)>(.*?)</h\1>")
+_NOTE_BODY_LINE_START_TAGS = (
+    "h2",
+    "h3",
+    "h4",
+    "p",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "figure",
+    "figcaption",
+    "img",
+    "video",
+    "source",
+)
+_NOTE_BODY_CONTAINER_TAGS = {
+    "ul",
+    "ol",
+    "blockquote",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "figure",
+    "video",
+}
+
+
 def _validate_html_document(document: str) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     match = _note_body_match(document)
@@ -446,8 +480,78 @@ def _heading_level_for(body: str, heading: str) -> int:
 
 def _join_fragments(*fragments: str) -> str:
     return "\n\n".join(fragment.strip() for fragment in fragments if fragment and fragment.strip())
-def _with_surrounding_newlines(body: str) -> str:
-    return f"\n{body.strip()}\n" if body.strip() else ""
+
+
+def _strip_surrounding_blank_lines(value: str) -> str:
+    lines = str(value or "").splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _note_body_container_indent(document: str, match: re.Match[str]) -> str:
+    line_start = document.rfind("\n", 0, match.start()) + 1
+    opening_line = document[line_start:match.start()]
+    return re.match(r"[ \t]*", opening_line).group(0)
+
+
+def _note_body_child_indent(document: str, match: re.Match[str]) -> str:
+    for line in match.group("body").splitlines():
+        if not line.strip():
+            continue
+        existing_indent = re.match(r"[ \t]*", line).group(0)
+        if existing_indent:
+            return existing_indent
+        break
+    opening_indent = _note_body_container_indent(document, match)
+    return f"{opening_indent}  " if opening_indent else ""
+
+
+def _format_note_body_html(body: str, *, base_indent: str = "") -> str:
+    value = _strip_surrounding_blank_lines(body)
+    if not value:
+        return ""
+
+    preserved: dict[str, str] = {}
+
+    def preserve_pre(match: re.Match[str]) -> str:
+        token = f"@@PAPER_NOTES_PRE_BLOCK_{len(preserved)}@@"
+        preserved[token] = match.group(0).strip()
+        return f"\n{token}\n"
+
+    value = re.sub(r"(?is)<pre\b.*?</pre>", preserve_pre, value)
+    line_start_tags = "|".join(re.escape(tag) for tag in _NOTE_BODY_LINE_START_TAGS)
+    container_tags = "|".join(re.escape(tag) for tag in sorted(_NOTE_BODY_CONTAINER_TAGS))
+    value = re.sub(rf"\s*(<(?:(?:{line_start_tags})\b)[^>]*>)", r"\n\1", value, flags=re.IGNORECASE)
+    value = re.sub(rf"\s*(</(?:{container_tags})>)", r"\n\1", value, flags=re.IGNORECASE)
+
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    formatted: list[str] = []
+    indent = 0
+    closing_re = re.compile(rf"^</(?:{container_tags})>$", re.IGNORECASE)
+    opening_re = re.compile(rf"^<({container_tags})\b[^>]*>$", re.IGNORECASE)
+    for line in lines:
+        if closing_re.match(line):
+            indent = max(0, indent - 1)
+        prefix = f"{base_indent}{'  ' * indent}"
+        if line in preserved:
+            formatted.append(f"{prefix}{preserved[line]}")
+        else:
+            formatted.append(f"{prefix}{line}")
+        opening = opening_re.match(line)
+        if opening and not re.search(rf"</{re.escape(opening.group(1))}>$", line, re.IGNORECASE):
+            indent += 1
+    return "\n".join(formatted)
+
+
+def _with_surrounding_newlines(body: str, *, trailing_indent: str = "") -> str:
+    value = _strip_surrounding_blank_lines(body)
+    return f"\n{value}\n{trailing_indent}" if value else ""
 def _strip_html(value: str) -> str:
     return re.sub(r"<[^>]+>", "", html_lib.unescape(value or ""))
 def _ensure_heading_ids(fragment: str) -> str:
@@ -755,12 +859,14 @@ def preview_note_diff(
     next_body, changed = _apply_body_update(current_body, fragment=fragment, heading=heading, position=position)
     if not changed:
         return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
+    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
     before_headings = _collect_headings(current_body)
     after_headings = _collect_headings(next_body)
     return {
         "success": True,
         "changed": next_body != current_body,
         "note_id": note["id"],
+        "heading": heading,
         "position": position,
         "path": str(html_path),
         "before": {
@@ -819,26 +925,36 @@ def write_note_section(
     if not fragment:
         return tool_error("empty_html", "html must contain safe note content.", note_id=note["id"])
 
+    before_headings = _collect_headings(current_body)
     before = {
-        "section_count": len(_collect_headings(current_body)),
+        "section_count": len(before_headings),
         "body_chars": len(current_body),
     }
     next_body, changed = _apply_body_update(current_body, fragment=fragment, heading=heading, position=position)
     if not changed:
         return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
+    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
+    after_headings = _collect_headings(next_body)
 
-    next_document = document[:match.start("body")] + _with_surrounding_newlines(next_body) + document[match.end("body"):]
+    next_document = (
+        document[:match.start("body")]
+        + _with_surrounding_newlines(next_body, trailing_indent=_note_body_container_indent(document, match))
+        + document[match.end("body"):]
+    )
     atomic_write_text(html_path, next_document)
     return {
         "success": True,
         "changed": next_document != document,
         "note_id": note["id"],
+        "heading": heading,
+        "position": position,
+        "added_headings": _added_heading_names(before_headings, after_headings),
         "message": f"Updated HTML note section using {position}.",
-        "section_count": len(_collect_headings(next_body)),
+        "section_count": len(after_headings),
         "html_chars": len(next_document),
         "before": before,
         "after": {
-            "section_count": len(_collect_headings(next_body)),
+            "section_count": len(after_headings),
             "body_chars": len(next_body),
         },
     }
@@ -897,8 +1013,13 @@ def delete_note_section(
     next_body, changed = _delete_heading_section(current_body, heading)
     if not changed:
         return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
+    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
 
-    next_document = document[:match.start("body")] + _with_surrounding_newlines(next_body) + document[match.end("body"):]
+    next_document = (
+        document[:match.start("body")]
+        + _with_surrounding_newlines(next_body, trailing_indent=_note_body_container_indent(document, match))
+        + document[match.end("body"):]
+    )
     atomic_write_text(html_path, next_document)
     return {
         "success": True,
@@ -975,14 +1096,20 @@ def insert_note_image(
     )
     if not changed:
         return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
+    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
 
-    next_document = document[:match.start("body")] + _with_surrounding_newlines(next_body) + document[match.end("body"):]
+    next_document = (
+        document[:match.start("body")]
+        + _with_surrounding_newlines(next_body, trailing_indent=_note_body_container_indent(document, match))
+        + document[match.end("body"):]
+    )
     atomic_write_text(html_path, next_document)
     return {
         "success": True,
         "changed": next_document != document,
         "note_id": note["id"],
         "heading": heading,
+        "position": position,
         "artifact_id": artifact_id,
         "message": "Inserted image into HTML note.",
         "image": artifact,

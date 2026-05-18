@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from ui.backend.agent_api import (
     AgentAPIError,
@@ -95,6 +96,15 @@ MIME_TYPES = {
 }
 
 
+def content_disposition_attachment(file_name: str) -> str:
+    display_name = Path(normalize_text(file_name) or "download").name or "download"
+    fallback = re.sub(r'[^A-Za-z0-9_. -]+', "-", display_name).strip(". ")
+    fallback = re.sub(r"-{2,}", "-", fallback) or "download"
+    fallback = fallback.replace('"', "")
+    encoded = quote(display_name, safe="")
+    return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+
+
 class PaperNotesHandler(BaseHTTPRequestHandler):
     server_version = "PaperNotesPython/1.2.1"
 
@@ -133,8 +143,7 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         if download:
-            safe_name = file_name.replace('"', "") or "image"
-            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+            self.send_header("Content-Disposition", content_disposition_attachment(file_name))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)

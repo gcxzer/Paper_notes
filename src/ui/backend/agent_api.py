@@ -900,12 +900,27 @@ def _tool_activity_from_events(events: list[AgentEvent], *, session_id: str) -> 
                 continue
             snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
             note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
+            added_headings = (
+                data.get("added_headings")
+                or data.get("addedHeadings")
+                or snapshot_arguments.get("added_headings")
+                or snapshot_arguments.get("addedHeadings")
+                or []
+            )
+            if not isinstance(added_headings, list):
+                added_headings = []
+            added_headings = [str(heading).strip() for heading in added_headings if str(heading).strip()]
+            heading = data.get("heading") or snapshot_arguments.get("heading") or (added_headings[-1] if added_headings else "")
+            position = data.get("position") or snapshot_arguments.get("position") or ""
             activities.append({
                 "type": "tool_result",
                 "name": snapshot.get("toolName") or data.get("name") or "tool",
                 "sessionId": session_id,
                 "noteId": note_id or "",
                 "snapshotId": snapshot.get("snapshotId") or "",
+                "heading": heading or "",
+                "position": position or "",
+                "addedHeadings": added_headings,
                 "changedFiles": changed_files,
                 "undoable": bool(snapshot.get("undoable")),
                 "writeMode": data.get("write_mode") or data.get("writeMode") or "",

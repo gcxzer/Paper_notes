@@ -22,6 +22,7 @@ from tools.paper_notes.notes import (
     search_library,
     update_note_metadata,
     validate_note_html,
+    write_note_section,
 )
 from tools.paper_notes.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
 from tools.paper_notes.schemas import (
@@ -150,7 +151,8 @@ def _register_paper_notes_facade_tools(
         name="write_note",
         description=(
             "Modify note HTML sections or note metadata. Use action=append_to_section for normal additions, "
-            "write_section only when replacing/overwriting a section, delete_section, or update_metadata. "
+            "optionally with position=prepend for the top of the note. Use write_section only when "
+            "replacing/overwriting a section, delete_section, or update_metadata. "
             "This tool does not manage annotations or images."
         ),
         parameters=write_note_parameters(),
@@ -363,10 +365,20 @@ def write_note(
 ) -> dict[str, Any]:
     action = normalize_text(args.get("action")).lower()
     if action == "append_to_section":
-        result = append_note_section(args, library_path=library_path, html_dir=html_dir, media_store=media_store)
+        result = write_note_section(
+            {**args, "position": normalize_text(args.get("position") or "append").lower()},
+            library_path=library_path,
+            html_dir=html_dir,
+            media_store=media_store,
+        )
         return _with_html_validation(result, library_path=library_path, html_dir=html_dir)
     if action == "write_section":
-        result = replace_note_section(args, library_path=library_path, html_dir=html_dir, media_store=media_store)
+        position = normalize_text(args.get("position")).lower()
+        result = (
+            write_note_section({**args, "position": position}, library_path=library_path, html_dir=html_dir, media_store=media_store)
+            if position
+            else replace_note_section(args, library_path=library_path, html_dir=html_dir, media_store=media_store)
+        )
         if result.get("code") == "heading_not_found":
             result = append_note_section(args, library_path=library_path, html_dir=html_dir, media_store=media_store)
         return _with_html_validation(result, library_path=library_path, html_dir=html_dir)

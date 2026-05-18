@@ -8,6 +8,7 @@ OPENAI_CAPABILITIES = ModelCapabilities(
     supports_tools=True,
     supports_vision=True,
     supports_image_generation=True,
+    supports_image_artifact_generation=True,
     supports_web_search=True,
     image_input_mode="native",
 )
@@ -16,6 +17,7 @@ CODEX_CAPABILITIES = ModelCapabilities(
     supports_tools=True,
     supports_vision=True,
     supports_image_generation=False,
+    supports_image_artifact_generation=True,
     supports_web_search=True,
     image_input_mode="native",
 )
@@ -82,6 +84,7 @@ CODEX_PROFILE = ModelProviderProfile(
                 supports_tools=True,
                 supports_vision=False,
                 supports_image_generation=False,
+                supports_image_artifact_generation=False,
                 supports_web_search=False,
                 supports_reasoning_off=False,
                 image_input_mode="unsupported",

@@ -57,11 +57,24 @@ function createDebugPanel(config) {
     return `${time} · ${run.status}`;
   }
 
-  function debugRunSummary(run) {
+  function debugRunModelSummary(run) {
     const model = [run.provider, run.model].filter(Boolean).join(" / ") || "No model";
     const thinkMode = debugRunThinkSummary(run);
-    const duration = run.durationMs ? formatRunTraceDuration(run.durationMs) : "";
-    return [model, thinkMode, run.transport, duration].filter(Boolean).join(" · ");
+    return [model, thinkMode].filter(Boolean).join(" · ");
+  }
+
+  function debugRunDurationSummary(run) {
+    return run.durationMs ? formatRunTraceDuration(run.durationMs) : "";
+  }
+
+  function debugRunSummary(run) {
+    return [debugRunModelSummary(run), debugRunDurationSummary(run)].filter(Boolean).join(" · ");
+  }
+
+  function debugRunListPreview(run) {
+    const preview = normalizeText(run?.errorPreview);
+    if (!preview || preview === normalizeText(run?.status)) return "";
+    return preview;
   }
 
   function debugRunThinkSummary(run) {
@@ -146,11 +159,12 @@ function createDebugPanel(config) {
           const run = normalizeDebugRun(rawRun);
           if (!run) return "";
           const active = panelState.activeDebugRun?.requestId === run.requestId;
+          const preview = debugRunListPreview(run);
           return `
             <button class="debug-run-row${active ? " is-active" : ""}" type="button" data-debug-run-id="${escapeHtml(run.requestId)}">
               <strong>${escapeHtml(debugRunTitle(run))}</strong>
               <span>${escapeHtml(debugRunSummary(run))}</span>
-              ${run.errorPreview ? `<small>${escapeHtml(run.errorPreview)}</small>` : ""}
+              ${preview ? `<small>${escapeHtml(preview)}</small>` : ""}
             </button>
           `;
         }).join("");
@@ -179,6 +193,7 @@ function createDebugPanel(config) {
     const run = normalizeDebugRun(rawRun);
     if (!run) return `<p class="debug-empty">Select a run to inspect its events.</p>`;
     const error = run.error ? JSON.stringify(run.error, null, 2) : "";
+    const duration = debugRunDurationSummary(run);
     const debugEvents = run.events.filter((event) => normalizeText(event?.type) !== "work_trace_delta");
     const events = debugEvents.length
       ? debugEvents.map((event) => {
@@ -197,9 +212,10 @@ function createDebugPanel(config) {
     return `
       <section class="debug-detail-section">
         <h4>${escapeHtml(run.requestId || "Debug run")}</h4>
-        <p>${escapeHtml(debugRunSummary(run))}</p>
         <dl class="debug-kv">
+          <dt>Model</dt><dd>${escapeHtml(debugRunModelSummary(run))}</dd>
           <dt>Status</dt><dd>${escapeHtml(run.status)}</dd>
+          ${duration ? `<dt>Duration</dt><dd>${escapeHtml(duration)}</dd>` : ""}
           <dt>Session</dt><dd>${escapeHtml(run.sessionId || "none")}</dd>
           <dt>Note</dt><dd>${escapeHtml(run.noteId || "none")}</dd>
           <dt>Transcript</dt><dd>${escapeHtml(run.transcriptPath || "not recorded")}</dd>

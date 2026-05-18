@@ -40,7 +40,7 @@ from model_providers import (
     normalize_model_provider_name,
     resolve_model_provider,
 )
-from model_providers.profiles import get_provider_profile
+from model_providers.profiles import capabilities_for_provider_model, get_provider_profile
 from tools.catalog import ToolCatalog, ToolCatalogSnapshot, ToolSelection
 from tools.code_execution import TOOL_NAME as EXECUTE_CODE_TOOL
 from tools.code_execution import register_code_execution_tool
@@ -62,6 +62,7 @@ from tools.web_search import register_web_search_tool
 
 MODEL_VISIBLE_ROLES = {"user", "assistant", "tool", "system", "developer"}
 CUSTOM_WEB_SEARCH_TOOL = "web_search"
+_RUNTIME_GENERATION_TOOL_HIDE_MODES = {"readonly", "block", "halt", "disabled"}
 logger = logging.getLogger(__name__)
 
 
@@ -421,7 +422,12 @@ class AgentService:
         session = self.session_store.append_message(session.metadata.session_id, user_message)
 
         tool_snapshot = self._tool_catalog_snapshot(request)
-        tools = self._tools_for_request(request, tool_snapshot=tool_snapshot)
+        tools = self._tools_for_request(
+            request,
+            tool_snapshot=tool_snapshot,
+            provider_name=selection.provider_name,
+            model=selection.model,
+        )
         tool_selection_events = _tool_selection_warning_events(tool_snapshot)
         for event in tool_selection_events:
             _emit_service_event(event, request.event_sink)
@@ -481,7 +487,11 @@ class AgentService:
                 session_id_provider=self._current_tool_session_id,
                 request_id=request.request_id,
                 write_mode=request.write_tool_mode,
-                disabled_tools=sorted({*request.disabled_tools, *tool_snapshot.disabled_tools, *tool_snapshot.hidden_tools}),
+                disabled_tools=sorted({
+                    *(request.disabled_tools or []),
+                    *tool_snapshot.disabled_tools,
+                    *tool_snapshot.hidden_tools,
+                }),
                 tool_write_modes=tool_snapshot.tool_write_modes,
                 event_sink=request.event_sink,
                 control=request.control,
@@ -520,6 +530,9 @@ class AgentService:
         all_pre_events = [*tool_selection_events, *pre_events, *retry_events]
         if all_pre_events:
             run_result.events = [*all_pre_events, *run_result.events]
+        model_input_count = len(model_messages)
+        if run_result.cancelled:
+            _ensure_cancelled_turn_message(run_result.messages, model_input_count)
         _attach_tool_activity(
             run_result.messages,
             run_result.events,
@@ -543,7 +556,7 @@ class AgentService:
         persisted_session = self._persist_run_messages(
             session,
             run_result,
-            model_input_count=len(model_messages),
+            model_input_count=model_input_count,
             compressed_input=compressed_input,
         )
         persisted_session = self._persist_actual_context_usage(
@@ -785,7 +798,7 @@ class AgentService:
         return self._tool_catalog_snapshot(request).model_tools
 
     def _tool_catalog_snapshot(self, request: AgentServiceRequest) -> ToolCatalogSnapshot:
-        disabled_tools = request.disabled_tools
+        disabled_tools = list(request.disabled_tools or [])
         if _native_web_search_requested(request.request_options):
             disabled_tools = [*disabled_tools, CUSTOM_WEB_SEARCH_TOOL]
         return self._tool_catalog_snapshot_for_selection(
@@ -803,16 +816,47 @@ class AgentService:
         request: AgentServiceRequest,
         *,
         tool_snapshot: ToolCatalogSnapshot | None = None,
+        provider_name: str = "",
+        model: str = "",
     ) -> list[dict[str, Any]]:
         tools = (tool_snapshot.model_tools if tool_snapshot is not None else self._tool_schemas(request))
-        image_generation = _normalize_image_generation_config(request.image_generation)
-        file_generation = _normalize_file_generation_config(request.file_generation)
         next_tools = list(tools)
-        if file_generation.get("enabled") and not _has_function_tool(next_tools, CREATE_FILE_ARTIFACT_TOOL):
+        if self._runtime_generation_tool_allowed(request, tool_snapshot, CREATE_FILE_ARTIFACT_TOOL):
             next_tools.extend(self.tool_registry.get_definitions({CREATE_FILE_ARTIFACT_TOOL}, quiet=True))
-        if image_generation.get("enabled") and not _has_function_tool(next_tools, CREATE_IMAGE_ARTIFACT_TOOL):
+        if (
+            capabilities_for_provider_model(provider_name, model).supports_image_artifact_generation
+            and self._runtime_generation_tool_allowed(request, tool_snapshot, CREATE_IMAGE_ARTIFACT_TOOL)
+        ):
             next_tools.extend(self.tool_registry.get_definitions({CREATE_IMAGE_ARTIFACT_TOOL}, quiet=True))
         return self._with_dynamic_execute_code_description(next_tools)
+
+    def _runtime_generation_tool_allowed(
+        self,
+        request: AgentServiceRequest,
+        tool_snapshot: ToolCatalogSnapshot | None,
+        tool_name: str,
+    ) -> bool:
+        if not request.enable_tools:
+            return False
+        disabled_toolsets = {str(name or "").strip() for name in (request.disabled_toolsets or [])}
+        if "generated_artifacts" in disabled_toolsets:
+            return False
+        disabled_tools = {str(name or "").strip() for name in (request.disabled_tools or [])}
+        if str(tool_name or "").strip() in disabled_tools:
+            return False
+        if tool_snapshot is not None and (
+            tool_name in tool_snapshot.disabled_tools or tool_name in tool_snapshot.hidden_tools
+        ):
+            return False
+        definition = self.tool_registry.get(tool_name)
+        if definition is None or not self.tool_registry.is_available(tool_name):
+            return False
+        tool_write_modes = request.tool_write_modes if isinstance(request.tool_write_modes, dict) else {}
+        tool_mode = str(tool_write_modes.get(tool_name) or "").strip().lower()
+        write_mode = str(request.write_tool_mode or "").strip().lower()
+        if (tool_mode or write_mode) in _RUNTIME_GENERATION_TOOL_HIDE_MODES and definition.risk != "read":
+            return False
+        return not _has_function_tool(tool_snapshot.model_tools if tool_snapshot is not None else [], tool_name)
 
     def _with_dynamic_execute_code_description(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         visible_tool_names = _tool_names_from_model_tools(tools)
@@ -1056,6 +1100,9 @@ class AgentService:
         for pass_index in range(1, max(1, max_passes) + 1):
             current_for_compression = _ensure_raw_transcript_indexes(current)
             before_message_tokens = estimate_messages_tokens_rough(current_for_compression)
+            before_request_message_tokens = estimate_messages_tokens_rough([*(ephemeral_messages or []), *current_for_compression])
+            instruction_tokens = estimate_tokens_rough(instructions)
+            tool_schema_tokens = estimate_request_tokens_rough([], tools=tools)
             before_request_tokens = estimate_request_tokens_rough(
                 [*(ephemeral_messages or []), *current_for_compression],
                 instructions=instructions,
@@ -1075,8 +1122,12 @@ class AgentService:
                         "pass": pass_index,
                         "attempt": attempt,
                         "context_length": context_length,
+                        "threshold_tokens": threshold,
                         "before_message_count": before_message_count,
                         "before_estimated_tokens": before_request_tokens,
+                        "message_estimated_tokens": before_request_message_tokens,
+                        "instruction_estimated_tokens": instruction_tokens,
+                        "tool_schema_estimated_tokens": tool_schema_tokens,
                     },
                 )
                 _emit_service_event(start_event, request.event_sink)
@@ -1104,8 +1155,12 @@ class AgentService:
                 pass_index=pass_index,
                 attempt=attempt,
                 context_length=context_length,
+                threshold_tokens=threshold,
                 before_request_tokens=before_request_tokens,
                 after_request_tokens=after_request_tokens,
+                message_estimated_tokens=before_request_message_tokens,
+                instruction_estimated_tokens=instruction_tokens,
+                tool_schema_estimated_tokens=tool_schema_tokens,
             )
             _emit_service_event(event, request.event_sink)
             events.append(event)
@@ -1716,6 +1771,18 @@ def _attach_run_trace(
             return
 
 
+def _ensure_cancelled_turn_message(messages: list[dict[str, Any]], model_input_count: int) -> None:
+    generated_messages = messages[max(0, model_input_count):]
+    if any(_is_visible_assistant_message(message) for message in generated_messages):
+        return
+    messages.append({
+        "role": "assistant",
+        "content": "Agent run cancelled.",
+        "finish_reason": "cancelled",
+        "metadata": {"cancelled": True},
+    })
+
+
 def _attach_work_trace(
     messages: list[dict[str, Any]],
     events: list[AgentEvent],
@@ -2007,12 +2074,27 @@ def _tool_activity_from_events(events: list[AgentEvent], *, session_id: str) -> 
                 continue
             snapshot_arguments = snapshot.get("arguments") if isinstance(snapshot.get("arguments"), dict) else {}
             note_id = data.get("note_id") or snapshot_arguments.get("note_id") or snapshot_arguments.get("id")
+            added_headings = (
+                data.get("added_headings")
+                or data.get("addedHeadings")
+                or snapshot_arguments.get("added_headings")
+                or snapshot_arguments.get("addedHeadings")
+                or []
+            )
+            if not isinstance(added_headings, list):
+                added_headings = []
+            added_headings = [str(heading).strip() for heading in added_headings if str(heading).strip()]
+            heading = data.get("heading") or snapshot_arguments.get("heading") or (added_headings[-1] if added_headings else "")
+            position = data.get("position") or snapshot_arguments.get("position") or ""
             activities.append({
                 "type": "tool_result",
                 "name": snapshot.get("toolName") or data.get("name") or "tool",
                 "sessionId": session_id,
                 "noteId": note_id or "",
                 "snapshotId": snapshot.get("snapshotId") or "",
+                "heading": heading or "",
+                "position": position or "",
+                "addedHeadings": added_headings,
                 "changedFiles": changed_files,
                 "undoable": bool(snapshot.get("undoable")),
                 "writeMode": data.get("write_mode") or data.get("writeMode") or "",
@@ -2031,17 +2113,25 @@ def _compression_event(
     pass_index: int,
     attempt: int | None,
     context_length: int,
+    threshold_tokens: int,
     before_request_tokens: int,
     after_request_tokens: int,
+    message_estimated_tokens: int,
+    instruction_estimated_tokens: int,
+    tool_schema_estimated_tokens: int,
 ) -> AgentEvent:
     data = {
         "reason": reason,
         "pass": pass_index,
         "context_length": context_length,
+        "threshold_tokens": threshold_tokens,
         "before_message_count": result.stats.before_message_count,
         "after_message_count": result.stats.after_message_count,
         "before_estimated_tokens": before_request_tokens,
         "after_estimated_tokens": after_request_tokens,
+        "message_estimated_tokens": message_estimated_tokens,
+        "instruction_estimated_tokens": instruction_estimated_tokens,
+        "tool_schema_estimated_tokens": tool_schema_estimated_tokens,
         "message_before_estimated_tokens": result.stats.before_estimated_tokens,
         "message_after_estimated_tokens": result.stats.after_estimated_tokens,
         "pruned_tool_results": result.stats.pruned_tool_results,
@@ -2338,8 +2428,9 @@ def _generation_mode_instructions(request: AgentServiceRequest) -> str:
     image_generation = _normalize_image_generation_config(request.image_generation)
     if image_generation.get("enabled"):
         instructions.append(
-            "The user explicitly enabled image generation for this turn. If the request asks for an image, "
-            f"create a downloadable image by calling `{CREATE_IMAGE_ARTIFACT_TOOL}` with `prompt`, `mode`, "
+            "The frontend image generation mode is selected for this turn. Treat it as a strong preference "
+            "to create a downloadable image if the user request is compatible. Call "
+            f"`{CREATE_IMAGE_ARTIFACT_TOOL}` with `prompt`, `mode`, "
             "and optional `input_artifact_ids`; do not only describe the image. After the tool succeeds, "
             "briefly describe the result and mention the artifact id if useful, but do not write raw download "
             "URLs or sandbox: links; the UI will attach the generated artifact card."
@@ -2348,7 +2439,8 @@ def _generation_mode_instructions(request: AgentServiceRequest) -> str:
     if file_generation.get("enabled"):
         mime_type = _mime_for_file_generation_format(str(file_generation.get("format") or "markdown"))
         instructions.append(
-            "The user explicitly enabled file creation for this turn. Create a downloadable file by calling "
+            "The frontend file generation mode is selected for this turn. Treat it as a strong preference "
+            "to create a downloadable file if the user request is compatible. Call "
             f"`{CREATE_FILE_ARTIFACT_TOOL}` with `file_name`, `mime_type`, and `content`; prefer "
             f"`{mime_type}` unless the user asks for a different allowed text format. Do not only paste the "
             "file contents in chat. After the tool succeeds, briefly describe the file and mention the artifact "

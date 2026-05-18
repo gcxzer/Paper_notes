@@ -359,6 +359,7 @@ async function loadReaderToolSnapshots({ silent = false } = {}) {
     readerState.toolSnapshots = [];
     readerState.toolDiffs = {};
     readerState.toolDiffOpen = {};
+    readerState.toolDiffCollapsed = {};
     readerState.toolSnapshotsLoading = false;
     readerState.toolSnapshotStatus = "";
     readerState.toolSnapshotStatusLevel = "";

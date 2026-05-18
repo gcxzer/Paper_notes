@@ -19,7 +19,10 @@ PAPER_NOTES_RESPONSE_GUIDANCE = (
 PAPER_NOTES_NO_TOOL_GUIDANCE = (
     "# Retrieval tools unavailable\n"
     "No Paper Notes retrieval tools are currently available in this run. Answer only from the provided "
-    "conversation and page context. Do not claim that you searched the local library or annotations."
+    "conversation and page context. Do not claim that you searched the local library or annotations. "
+    "If the user asks for a generated/downloadable image or file and no matching artifact tool is available, "
+    "say that this provider/model cannot create that artifact in Paper Notes. For image generation, suggest "
+    "switching to the OpenAI API key provider or Codex OAuth provider."
 )
 
 PAPER_NOTES_TOOL_GUIDANCE = (
@@ -97,11 +100,27 @@ PAPER_NOTES_CODE_EXECUTION_GUIDANCE = (
     "small data transforms, parsing, or combining read-only Paper Notes results.\n"
     "- Do not use execute_code to modify durable state: generated artifacts, persistent memory, todos, settings, "
     "local project files, Paper Notes content, or other durable state.\n"
+    "- When the user needs a generated file or image and a dedicated artifact tool is available, use that tool "
+    "instead of creating files with execute_code.\n"
+    "- Never use execute_code as a fallback for generated image requests: do not draw images with Python, "
+    "emit SVG/HTML, print base64/data URLs, or write temporary image files. If `create_image_artifact` is not "
+    "available, tell the user that the current provider/model cannot generate images in Paper Notes and suggest "
+    "switching to the OpenAI API key provider or Codex OAuth provider.\n"
     "- Treat execute_code as a light local helper, not Docker or OS-level isolation, and not a strong sandbox. "
     "It runs with a temporary working directory, fake HOME, scrubbed secret-like environment variables, timeout, "
     "output caps, and parent-tool callbacks.\n"
     "- When code needs Paper Notes or skill data, import the generated helpers from paper_notes_tools instead "
     "of guessing local paths or calling unavailable tools."
+)
+
+PAPER_NOTES_GENERATED_ARTIFACT_GUIDANCE = (
+    "# Generated artifacts\n"
+    "- Use `create_file_artifact` for generated/downloadable text files when it is available.\n"
+    "- Use `create_image_artifact` for generated/downloadable images or image edits when it is available.\n"
+    "- If `create_image_artifact` is not listed in the available tools and the user asks to generate or edit an "
+    "image, explain that the current provider/model cannot generate images in Paper Notes. Do not substitute "
+    "execute_code, SVG/HTML, Markdown image tags, base64/data URLs, or local/temp files for image generation. "
+    "Suggest switching to the OpenAI API key provider or Codex OAuth provider."
 )
 
 PROVIDER_NATIVE_WEB_SEARCH_GUIDANCE = (
@@ -135,8 +154,10 @@ TOOL_GUIDANCE_BY_NAME = {
     "write_note": (
         "Use write_note only for note HTML sections and metadata. For normal additions or follow-up content, "
         "default to action append_to_section; do not replace existing section content unless the user explicitly "
-        "asks to replace, overwrite, rewrite, or remove the old content. Use action write_section only for that "
-        "explicit replacement/overwrite case, delete_section for deletion, or update_metadata for metadata. "
+        "asks to replace, overwrite, rewrite, or remove the old content. When the user asks to add content at "
+        "the top/start/beginning of the note, use action append_to_section with position prepend. Use action "
+        "write_section only for that explicit replacement/overwrite case, delete_section for deletion, or "
+        "update_metadata for metadata. "
         "Preserve existing heading levels; do not change h2/h3/h4 hierarchy unless the user explicitly asks."
     ),
     "manage_annotations": (
@@ -178,7 +199,13 @@ TOOL_GUIDANCE_BY_NAME = {
     "execute_code": (
         "Use execute_code for bounded local Python calculations or small data-processing tasks when code materially "
         "improves correctness. Do not use it to modify Paper Notes content. It is a light local execution environment, "
-        "not a strong sandbox."
+        "not a strong sandbox. Do not use it to generate, encode, display, or save images."
+    ),
+    "create_file_artifact": (
+        "Use create_file_artifact when the user asks for a generated, saved, exported, or downloadable text file."
+    ),
+    "create_image_artifact": (
+        "Use create_image_artifact when the user asks for a generated/downloadable image or image edit."
     ),
     "web_search": (
         "Use web_search for current external web facts, source attribution, and information outside the local "

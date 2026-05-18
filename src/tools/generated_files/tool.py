@@ -40,7 +40,7 @@ def register_generated_file_tool(
                 session_id=session_id_provider() if session_id_provider is not None else "",
                 provider=provider_name_provider() if provider_name_provider is not None else "",
                 model=model_provider() if model_provider is not None else "",
-                metadata={"createdBy": TOOL_NAME},
+                metadata={"createdBy": TOOL_NAME, "requestedFileName": file_name},
             )
         except MediaStoreError as exc:
             return {"success": False, "error": str(exc), "code": "artifact_create_failed"}
@@ -56,8 +56,8 @@ def register_generated_file_tool(
     registry.register(ToolDefinition(
         name=TOOL_NAME,
         description=(
-            "Create a downloadable text file artifact for the user. Use this only when the user "
-            "explicitly asks for a generated file in this turn."
+            "Create a downloadable text file artifact for the user when they ask for a generated, saved, "
+            "exported, or downloadable text file. Use this instead of code execution or local file writes."
         ),
         parameters={
             "type": "object",
@@ -82,7 +82,7 @@ def register_generated_file_tool(
         handler=handler,
         toolset=TOOLSET,
         read_only=False,
-        mutating=False,
+        mutating=True,
         risk="write",
         kind="external",
         result_max_chars=4000,

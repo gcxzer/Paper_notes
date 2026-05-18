@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 
@@ -12,8 +13,13 @@ from typing import Any
 CHARS_PER_TOKEN = 4
 IMAGE_TOKEN_ESTIMATE = 1_600
 IMAGE_CHAR_EQUIVALENT = IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN
+ENCRYPTED_REASONING_ITEM_TOKEN_ESTIMATE = 64
+ENCRYPTED_REASONING_ITEM_CHAR_EQUIVALENT = ENCRYPTED_REASONING_ITEM_TOKEN_ESTIMATE * CHARS_PER_TOKEN
+REQUEST_TOKEN_ESTIMATE_MULTIPLIER = 1.06
 _NON_MODEL_VISIBLE_MESSAGE_KEYS = {
     "artifacts",
+    "created_at",
+    "finish_reason",
     "metadata",
     "provider_data",
     "runTrace",
@@ -26,7 +32,8 @@ def estimate_tokens_rough(text: Any) -> int:
     rendered = str(text or "")
     if not rendered:
         return 0
-    return (len(rendered) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+    char_equivalent = _text_char_equivalent(rendered)
+    return (char_equivalent + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
 
 
 def estimate_messages_tokens_rough(messages: list[dict[str, Any]]) -> int:
@@ -52,7 +59,7 @@ def estimate_request_tokens_rough(
         except (TypeError, ValueError):
             rendered_tools = str(tools)
         total += estimate_tokens_rough(rendered_tools)
-    return total
+    return max(0, math.ceil(total * REQUEST_TOKEN_ESTIMATE_MULTIPLIER))
 
 
 def estimate_message_chars(message: dict[str, Any]) -> int:
@@ -60,20 +67,28 @@ def estimate_message_chars(message: dict[str, Any]) -> int:
         return len(str(message))
 
     shadow: dict[str, Any] = {}
-    attachment_budget = 0
+    extra_char_budget = 0
+    has_replayed_codex_message_items = _has_replayed_codex_message_items(message)
     for key, value in message.items():
         if key in _NON_MODEL_VISIBLE_MESSAGE_KEYS:
             continue
         if key == "_anthropic_content_blocks":
             continue
         if key == "content":
+            if has_replayed_codex_message_items and str(message.get("role") or "") == "assistant":
+                continue
             shadow[key] = _content_for_char_estimate(value)
         elif key == "attachments":
             shadow[key] = _attachments_for_char_estimate(value)
-            attachment_budget += _attachments_text_char_budget(value)
+            extra_char_budget += _attachments_text_char_budget(value)
+        elif key == "codex_reasoning_items":
+            shadow[key] = _codex_reasoning_items_for_char_estimate(value)
+            extra_char_budget += _encrypted_reasoning_items_char_budget(value)
+        elif key == "codex_message_items":
+            shadow[key] = _codex_message_items_for_char_estimate(value)
         else:
             shadow[key] = value
-    return len(str(shadow)) + attachment_budget
+    return _text_char_equivalent(str(shadow)) + extra_char_budget
 
 
 def count_image_tokens(message: dict[str, Any], cost_per_image: int) -> int:
@@ -212,8 +227,117 @@ def _attachments_text_char_budget(attachments: Any) -> int:
     return total
 
 
+def _codex_reasoning_items_for_char_estimate(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+
+    cleaned: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        summary = _reasoning_summary_for_char_estimate(item.get("summary"))
+        if not isinstance(item.get("encrypted_content"), str) or not item.get("encrypted_content"):
+            if summary:
+                cleaned.append({"type": "reasoning", "summary": summary})
+            continue
+        cleaned.append({
+            "type": "reasoning",
+            "encrypted_content": "[encrypted]",
+            "summary": summary,
+        })
+    return cleaned
+
+
+def _encrypted_reasoning_items_char_budget(items: Any) -> int:
+    if not isinstance(items, list):
+        return 0
+    return sum(
+        ENCRYPTED_REASONING_ITEM_CHAR_EQUIVALENT
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("encrypted_content"), str) and item.get("encrypted_content")
+    )
+
+
+def _reasoning_summary_for_char_estimate(summary: Any) -> list[dict[str, str]]:
+    if not isinstance(summary, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    for part in summary:
+        if not isinstance(part, dict):
+            continue
+        text = str(part.get("text") or "")
+        if text:
+            cleaned.append({"type": str(part.get("type") or "summary_text"), "text": text})
+    return cleaned
+
+
+def _codex_message_items_for_char_estimate(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    cleaned = []
+    for item in items:
+        normalized = _normalize_codex_message_item_for_char_estimate(item)
+        if normalized is not None:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def _has_replayed_codex_message_items(message: dict[str, Any]) -> bool:
+    if not isinstance(message, dict):
+        return False
+    return bool(_codex_message_items_for_char_estimate(message.get("codex_message_items")))
+
+
+def _normalize_codex_message_item_for_char_estimate(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    if item.get("type") != "message" or item.get("role") != "assistant":
+        return None
+    content = item.get("content")
+    if not isinstance(content, list):
+        return None
+    normalized_content: list[dict[str, str]] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        part_type = str(part.get("type") or "").strip()
+        if part_type not in {"output_text", "text"}:
+            continue
+        text = str(part.get("text") or "")
+        normalized_content.append({"type": "output_text", "text": text})
+    if not normalized_content:
+        return None
+    return {
+        "type": "message",
+        "role": "assistant",
+        "content": normalized_content,
+    }
+
+
 def _is_image_part(part: Any) -> bool:
     return isinstance(part, dict) and part.get("type") in {"image", "image_url", "input_image"}
+
+
+def _text_char_equivalent(text: str) -> int:
+    total = 0
+    for char in text:
+        total += CHARS_PER_TOKEN if _is_cjk_char(char) else 1
+    return total
+
+
+def _is_cjk_char(char: str) -> bool:
+    code = ord(char)
+    return (
+        0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xF900 <= code <= 0xFAFF
+        or 0x20000 <= code <= 0x2A6DF
+        or 0x2A700 <= code <= 0x2B73F
+        or 0x2B740 <= code <= 0x2B81F
+        or 0x2B820 <= code <= 0x2CEAF
+        or 0x3040 <= code <= 0x30FF
+        or 0xAC00 <= code <= 0xD7AF
+    )
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

@@ -505,7 +505,7 @@ function appendProgressStatusWorkTrace(progress, text) {
   if (!detail) return normalized;
   const trace = mergeProgressWorkTrace(normalized.workTrace, {
     status: normalized.status,
-    items: [{ type: "status", text: detail, source: "system" }]
+    items: [{ type: "status", text: detail, at: new Date().toISOString(), source: "system" }]
   }, normalized.status) || { status: normalized.status, items: [] };
   return { ...normalized, workTrace: trace };
 }
@@ -764,6 +764,17 @@ function renderReaderContextControls() {
   const providerName = providerDisplayName(status.provider || provider);
   const modelLabel = modelDisplayLabel(status.model || model, status.provider || provider, "label") || status.model || model || "Model";
   const tokenLine = `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)} context used`;
+  const estimatedLine = status.estimatedRequestTokens
+    ? `Estimated request: ${formatTokenCount(status.estimatedRequestTokens)} tokens`
+    : "Estimated request: unavailable";
+  const estimatedKnownTokens = Math.max(0, status.messageTokens + status.instructionTokens + status.toolSchemaTokens);
+  const estimatedOverheadTokens = Math.max(0, status.estimatedRequestTokens - estimatedKnownTokens);
+  const estimatedParts = [
+    status.messageTokens ? `Messages ${formatTokenCount(status.messageTokens)}` : "",
+    status.instructionTokens ? `Instructions ${formatTokenCount(status.instructionTokens)}` : "",
+    status.toolSchemaTokens ? `Tools ${formatTokenCount(status.toolSchemaTokens)}` : "",
+    estimatedOverheadTokens ? `Overhead ${formatTokenCount(estimatedOverheadTokens)}` : ""
+  ].filter(Boolean).join(" · ");
   const sessionId = getChatSessionId();
   const canCompact = Boolean(sessionId && status.compactionEnabled && !readerState.contextCompacting);
   const compressedLine = status.compressionCount
@@ -781,7 +792,7 @@ function renderReaderContextControls() {
     elements.readerContextButton.classList.toggle("is-loading", readerState.contextStatusLoading);
     elements.readerContextButton.classList.remove("is-warning");
     elements.readerContextButton.classList.remove("is-full");
-    elements.readerContextButton.title = `${percent}% full · ${tokenLine}`;
+    elements.readerContextButton.title = `${percent}% full · ${tokenLine} · ${estimatedLine}`;
     elements.readerContextButton.setAttribute("aria-expanded", String(readerState.contextPopoverOpen));
   }
 
@@ -792,10 +803,12 @@ function renderReaderContextControls() {
     <div class="ask-context-title">Context window</div>
     <div class="ask-context-percent">${escapeHtml(readerState.contextStatusLoading ? "Checking..." : `${percent}% full`)}</div>
     <div class="ask-context-tokens">${escapeHtml(tokenLine)}</div>
+    <div class="ask-context-estimate">${escapeHtml(estimatedLine)}</div>
+    ${estimatedParts ? `<div class="ask-context-estimate-detail">${escapeHtml(estimatedParts)}</div>` : ""}
     <div class="ask-context-model">${escapeHtml(`${providerName} · ${modelLabel}`)}</div>
     <div class="ask-context-grid">
       <span>Messages</span><strong>${escapeHtml(String(status.messageCount))}</strong>
-      <span class="ask-context-help" tabindex="0" aria-label="Summary shows whether a compacted conversation summary is available for this session." data-tooltip="A compacted memory of earlier chat that the model can use after context compaction.">Summary</span><strong>${escapeHtml(status.summaryAvailable ? "available" : "not yet")}</strong>
+      <span class="ask-context-help" tabindex="0" aria-label="Shows whether earlier chat has been summarized for this session." data-tooltip="When a chat gets long, earlier messages can be summarized so the model can keep using them. This shows whether that summary exists.">Summary</span><strong>${escapeHtml(status.summaryAvailable ? "available" : "not yet")}</strong>
       <span>Compactions</span><strong>${escapeHtml(compressedLine)}</strong>
     </div>
     ${warningText ? `<div class="ask-context-warning">${escapeHtml(warningText).replace(/\n/g, "<br>")}</div>` : ""}

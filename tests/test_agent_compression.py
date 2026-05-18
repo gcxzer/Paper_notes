@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from context_compression import (
     DEFAULT_FALLBACK_CONTEXT_LENGTH,
@@ -12,6 +13,7 @@ from context_compression import (
     build_context_summary_prompt,
     estimate_messages_tokens_rough,
     estimate_request_tokens_rough,
+    estimate_tokens_rough,
     prune_old_tool_results,
     resolve_context_length_for_model,
     truncate_tool_call_args_json,
@@ -40,10 +42,19 @@ def test_rough_token_estimator_counts_short_text_and_images():
     assert estimate_messages_tokens_rough(messages) >= 1_600
 
 
+def test_rough_token_estimator_counts_cjk_text_more_like_tokens_than_ascii_chars():
+    english = estimate_messages_tokens_rough([{"role": "user", "content": "a" * 80}])
+    chinese = estimate_messages_tokens_rough([{"role": "user", "content": "测试" * 40}])
+
+    assert chinese > english * 2
+
+
 def test_rough_token_estimator_ignores_non_model_visible_message_fields():
     plain = {"role": "assistant", "content": "Done."}
     noisy = {
         **plain,
+        "created_at": "x" * 20_000,
+        "finish_reason": "stop",
         "metadata": {"raw": "x" * 20_000},
         "runTrace": {"events": [{"data": "y" * 20_000}]},
         "workTrace": {"items": [{"text": "z" * 20_000}]},
@@ -53,6 +64,76 @@ def test_rough_token_estimator_ignores_non_model_visible_message_fields():
     }
 
     assert estimate_messages_tokens_rough([noisy]) == estimate_messages_tokens_rough([plain])
+
+
+def test_rough_token_estimator_does_not_count_encrypted_reasoning_blob_length():
+    short = {
+        "role": "assistant",
+        "content": "",
+        "codex_reasoning_items": [{
+            "type": "reasoning",
+            "encrypted_content": "short",
+            "summary": [],
+        }],
+    }
+    long = {
+        **short,
+        "codex_reasoning_items": [{
+            "type": "reasoning",
+            "encrypted_content": "x" * 200_000,
+            "summary": [],
+        }],
+    }
+
+    assert estimate_messages_tokens_rough([long]) == estimate_messages_tokens_rough([short])
+
+
+def test_rough_token_estimator_counts_encrypted_reasoning_items_and_summary():
+    one_item = {
+        "role": "assistant",
+        "content": "",
+        "codex_reasoning_items": [{
+            "type": "reasoning",
+            "encrypted_content": "opaque",
+            "summary": [],
+        }],
+    }
+    three_items = {
+        "role": "assistant",
+        "content": "",
+        "codex_reasoning_items": [
+            {"type": "reasoning", "encrypted_content": "a", "summary": []},
+            {"type": "reasoning", "encrypted_content": "b", "summary": []},
+            {"type": "reasoning", "encrypted_content": "c", "summary": []},
+        ],
+    }
+    with_summary = {
+        "role": "assistant",
+        "content": "",
+        "codex_reasoning_items": [{
+            "type": "reasoning",
+            "encrypted_content": "opaque",
+            "summary": [{"type": "summary_text", "text": "important reasoning summary " * 50}],
+        }],
+    }
+
+    assert estimate_messages_tokens_rough([three_items]) > estimate_messages_tokens_rough([one_item]) + 100
+    assert estimate_messages_tokens_rough([with_summary]) > estimate_messages_tokens_rough([one_item]) + 100
+
+
+def test_rough_token_estimator_uses_codex_message_replay_without_double_counting_content():
+    replayed = {
+        "role": "assistant",
+        "content": "x" * 20_000,
+        "codex_message_items": [{
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "short replay"}],
+        }],
+    }
+    plain = {"role": "assistant", "content": "x" * 20_000}
+
+    assert estimate_messages_tokens_rough([replayed]) < estimate_messages_tokens_rough([plain]) // 10
 
 
 def test_rough_token_estimator_tolerates_invalid_attachment_metadata():
@@ -82,15 +163,29 @@ def test_request_token_estimator_includes_instructions_and_tools():
     assert with_request_context > plain + 400
 
 
+def test_request_token_estimator_applies_small_request_buffer():
+    messages = [{"role": "user", "content": "short"}]
+    instructions = "system prompt"
+    tools = [{"type": "function", "function": {"name": "lookup", "description": "Lookup facts."}}]
+
+    expected = (
+        estimate_messages_tokens_rough(messages)
+        + estimate_tokens_rough(instructions)
+        + estimate_tokens_rough(json.dumps(tools, ensure_ascii=False, sort_keys=True))
+    )
+
+    assert estimate_request_tokens_rough(messages, instructions=instructions, tools=tools) == math.ceil(expected * 1.06)
+
+
 def test_compression_defaults_use_project_thresholds():
     config = ContextCompressionConfig()
 
     assert config.context_length == DEFAULT_FALLBACK_CONTEXT_LENGTH
     assert config.protect_first_n == 3
     assert config.protect_last_n == 3
-    assert config.resolved_threshold_tokens() == 230_400
-    assert config.resolved_threshold_tokens(context_length=272_000) == 244_800
-    assert config.resolved_tail_token_budget(context_length=272_000) == 48_960
+    assert config.resolved_threshold_tokens() == 204_800
+    assert config.resolved_threshold_tokens(context_length=272_000) == 217_600
+    assert config.resolved_tail_token_budget(context_length=272_000) == 43_520
     assert config.minimum_context_length == MINIMUM_CONTEXT_LENGTH
     assert config.summary_min_tokens == 2_000
     assert config.summary_tokens_ceiling == 12_000

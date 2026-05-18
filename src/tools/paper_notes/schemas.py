@@ -83,6 +83,15 @@ def write_note_parameters() -> dict[str, Any]:
             "note_id": {"type": "string", "description": "The note id to modify."},
             "heading": {"type": "string", "description": "Section heading for HTML section changes."},
             "html": {"type": "string", "description": "Safe HTML fragment for section writes."},
+            "position": {
+                "type": "string",
+                "enum": ["append", "prepend", "after_heading", "replace_heading"],
+                "description": (
+                    "Optional section placement for HTML writes. Use prepend for the top of the note, "
+                    "append for the end or existing section append, after_heading to insert after heading, "
+                    "and replace_heading only for explicit replacement."
+                ),
+            },
             "summary": {"type": "string", "description": "Metadata summary update."},
             "tags": {"type": "array", "items": {"type": "string"}, "description": "Metadata tag update."},
             "venue": {"type": "string", "description": "Metadata venue update."},

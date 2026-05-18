@@ -138,8 +138,38 @@ def test_prompt_includes_code_execution_boundaries_when_tool_available():
     assert "bounded Python work" in prompt
     assert "not Docker or OS-level isolation" in prompt
     assert "Paper Notes content, or other durable state" in prompt
+    assert "dedicated artifact tool" in prompt
+    assert "Never use execute_code as a fallback for generated image requests" in prompt
+    assert "current provider/model cannot generate images" in prompt
+    assert "OpenAI API key provider or Codex OAuth provider" in prompt
     assert "Paper Notes or skill data" in prompt
     assert "paper_notes_tools" in prompt
+
+
+def test_prompt_routes_generated_images_only_to_artifact_tool_when_available():
+    prompt_without_image_tool = build_agent_instructions(
+        tools=[
+            {"type": "function", "function": {"name": "execute_code"}},
+            {"type": "function", "function": {"name": "create_file_artifact"}},
+        ],
+        model="deepseek-v4-flash",
+    )
+
+    assert "# Generated artifacts" in prompt_without_image_tool
+    assert "create_image_artifact` is not listed" in prompt_without_image_tool
+    assert "Do not substitute execute_code" in prompt_without_image_tool
+    assert "base64/data URLs" in prompt_without_image_tool
+    assert "OpenAI API key provider or Codex OAuth provider" in prompt_without_image_tool
+
+    prompt_with_image_tool = build_agent_instructions(
+        tools=[
+            {"type": "function", "function": {"name": "execute_code"}},
+            {"type": "function", "function": {"name": "create_image_artifact"}},
+        ],
+        model="gpt-5.5",
+    )
+
+    assert "Use `create_image_artifact` for generated/downloadable images" in prompt_with_image_tool
 
 
 def test_prompt_includes_mcp_untrusted_output_guidance_when_mcp_tools_available():

@@ -80,6 +80,7 @@ def test_import_pdf_generates_note_outline_from_pdf_toc(tmp_path, monkeypatch):
     html = html_path.read_text(encoding="utf-8")
 
     assert note["htmlHref"] == "resources/Paper-html/DeepSeek-V4.html"
+    assert '<html lang="en">' in html
     assert "<section class=\"note-body\">" in html
     assert "<h2>1. Introduction</h2>" in html
     assert "<h3>1.1. Contributions</h3>" in html

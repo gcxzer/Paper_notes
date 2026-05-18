@@ -1708,6 +1708,105 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   expect(consoleIssues).toEqual([]);
 });
 
+test("reader ask user message copy icon falls back when Clipboard API rejects", async ({ page }) => {
+  await openFixtureReader(page);
+  await installAgentMocks(page);
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.evaluate(() => {
+    window.__readerCopyFallbackText = "";
+    const originalExecCommand = document.execCommand.bind(document);
+    document.execCommand = (command) => {
+      if (command === "copy") {
+        window.__readerCopyFallbackText = document.activeElement?.value || "";
+        return true;
+      }
+      return originalExecCommand(command);
+    };
+    const failingClipboard = {
+      writeText: () => Promise.reject(new Error("clipboard unavailable")),
+    };
+    try {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: failingClipboard,
+      });
+    } catch (_error) {
+      Object.defineProperty(Navigator.prototype, "clipboard", {
+        configurable: true,
+        get: () => failingClipboard,
+      });
+    }
+  });
+
+  const askInput = page.getByPlaceholder("Ask anything");
+  if (!(await askInput.isVisible())) {
+    await page.getByRole("button", { name: "Ask" }).click();
+  }
+  const prompt = "复制这条用户消息";
+  await askInput.fill(prompt);
+  await page.getByRole("button", { name: "Send" }).click();
+
+  const copyButton = page.locator("[data-user-message-copy]");
+  await expect(copyButton).toHaveCount(1);
+  await page.evaluate(() => setReaderChatError("Could not copy message."));
+  await copyButton.click();
+
+  await expect(copyButton).toHaveAttribute("aria-label", "Copied");
+  await expect(page.locator("#readerChatError")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__readerCopyFallbackText)).toBe(prompt);
+  expect(pageErrors).toEqual([]);
+});
+
+test("reader debug run list hides status-duplicate cancelled preview", async ({ page }) => {
+  await openFixtureReader(page);
+  const cancelledRun = {
+    requestId: DEBUG_REQUEST_ID,
+    status: "cancelled",
+    provider: "codex-oauth",
+    model: "gpt-5.3-codex-spark",
+    transport: "json",
+    sessionId: "cancelled-session",
+    noteId: E2E_NOTE_ID,
+    startedAt: "2026-05-17T15:29:57.000Z",
+    finishedAt: "2026-05-17T15:32:16.000Z",
+    durationMs: 139000,
+    errorPreview: "cancelled",
+    metadata: { requestOptions: { reasoning: { effort: "xhigh" } } },
+    events: [],
+  };
+  await page.route("**/api/debug/runs?limit=50", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ runs: [cancelledRun] }) });
+  });
+  await page.route(`**/api/debug/runs/${DEBUG_REQUEST_ID}`, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ run: cancelledRun }) });
+  });
+
+  await page.evaluate((requestId) => openDebugDialog(requestId), DEBUG_REQUEST_ID);
+
+  const runRow = page.locator(".debug-run-row");
+  await expect(runRow).toHaveCount(1);
+  await expect(runRow.locator("strong")).toContainText("cancelled");
+  await expect(runRow.locator("span")).toContainText("codex-oauth / gpt-5.3-codex-spark");
+  await expect(runRow.locator("span")).toContainText("Think XHigh");
+  await expect(runRow.locator("span")).toContainText("2m 19s");
+  await expect(runRow.locator("span")).not.toContainText("json");
+  await expect(runRow.locator("small")).toHaveCount(0);
+
+  const debugDetail = page.locator(".debug-run-detail");
+  const detailValues = await debugDetail.locator(".debug-kv").evaluate((list) => {
+    const values = {};
+    Array.from(list.querySelectorAll("dt")).forEach((label) => {
+      values[label.textContent.trim()] = label.nextElementSibling?.textContent?.trim() || "";
+    });
+    return values;
+  });
+  expect(detailValues.Model).toBe("codex-oauth / gpt-5.3-codex-spark · Think XHigh");
+  expect(detailValues.Status).toBe("cancelled");
+  expect(detailValues.Duration).toBe("2m 19s");
+  expect(detailValues.Transport).toBeUndefined();
+});
+
 test("reader ask shows running progress as inline messages", async ({ page }) => {
   await openFixtureReader(page);
   let releaseStream;
@@ -1820,6 +1919,7 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
   await expect(askPane.getByText("Worked for")).toBeVisible();
   await askPane.getByText("Worked for").click();
+  await expect(askPane.locator(".ask-run-summary-events").getByText("Starting agent run.")).toBeVisible();
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
 });
 
@@ -1858,12 +1958,13 @@ test("reader ask send button cancels a pending request", async ({ page }) => {
   const askPane = page.locator("#askPane");
   await expect(askPane.locator(".ask-progress-card")).toHaveCount(0);
   await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
-  await expect(askPane.getByText("Agent run cancelled.")).toBeVisible();
+  await expect(askPane.locator(".ask-bubble").filter({ hasText: /^Agent run cancelled\.$/ })).toBeVisible();
   await expect(askPane.getByText("Worked for")).toBeVisible();
   await askPane.getByText("Worked for").click();
   await expect(askPane.getByText("Thinking through the paper context...")).toBeVisible();
-  await expect(askPane.locator(".ask-run-summary-events").getByText("Reading note context...").first()).toBeVisible();
-  await expect(askPane.getByText("Agent run cancelled.")).toBeVisible();
+  const summaryEvents = askPane.locator(".ask-run-summary-events");
+  await expect(summaryEvents.getByText("Reading note context...").first()).toBeVisible();
+  await expect(summaryEvents.getByText("Agent run cancelled.", { exact: true })).toBeVisible();
 });
 
 test("reader ask worked summary shows status-only run trace events", async ({ page }) => {
@@ -1890,6 +1991,67 @@ test("reader ask worked summary shows status-only run trace events", async ({ pa
   await expect(askPane.getByText("No visible work steps recorded.")).toHaveCount(0);
   await expect(askPane.locator(".ask-run-summary-events").getByText("Starting agent run.")).toBeVisible();
   await expect(askPane.locator(".ask-run-summary-events").getByText("Reading local context.")).toBeVisible();
+});
+
+test("reader ask worked summary stays expanded during progress rerenders", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Ask" });
+  if (await askToggle.isVisible()) await askToggle.click();
+  await page.evaluate(() => {
+    readerState.chatMessages = [
+      {
+        role: "assistant",
+        text: "Previous answer.",
+        runTrace: {
+          requestId: "reader-chat-previous-run",
+          startedAt: "2026-05-13T10:00:00.000Z",
+          finishedAt: "2026-05-13T10:00:06.000Z",
+          durationMs: 6000,
+          status: "completed",
+          events: [
+            { type: "starting", stage: "starting", message: "Starting agent run.", at: "2026-05-13T10:00:00.000Z", data: {} },
+            { type: "running", stage: "running", message: "Reading local context.", at: "2026-05-13T10:00:01.000Z", data: {} },
+            { type: "completed", stage: "completed", message: "Agent run completed.", at: "2026-05-13T10:00:06.000Z", data: {} },
+          ],
+        },
+      },
+      { role: "user", text: "New running request." },
+    ];
+    const runKey = chatSessionRunKey();
+    readerState.chatPendingBySession[runKey] = true;
+    readerState.chatProgressBySession[runKey] = {
+      requestId: "reader-chat-current-run",
+      status: "running",
+      stage: "tool",
+      detail: "Generating image...",
+      visibleEvents: [{ stage: "tool", detail: "Generating image...", at: "2026-05-13T10:00:08.000Z" }],
+      workTrace: {
+        status: "running",
+        items: [{ type: "tool", text: "Generating image...", at: "2026-05-13T10:00:08.000Z", source: "runtime" }],
+      },
+    };
+    syncCurrentChatRunState();
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const askPane = page.locator("#askPane");
+  const previousSummary = askPane.locator(".ask-run-summary").first();
+  await previousSummary.locator("[data-run-summary-toggle]").scrollIntoViewIfNeeded();
+  await previousSummary.locator("[data-run-summary-toggle]").click();
+  await expect(previousSummary.locator(".ask-run-summary-events").getByText("Reading local context.")).toBeVisible();
+
+  await page.evaluate(() => {
+    const runKey = chatSessionRunKey();
+    readerState.chatProgressBySession[runKey] = {
+      ...readerState.chatProgressBySession[runKey],
+      updatedAt: "2026-05-13T10:00:09.000Z",
+    };
+    syncCurrentChatRunState();
+    renderReaderChatMessages({ scrollToBottom: true });
+  });
+
+  await expect(askPane.locator(".ask-run-summary").first().locator(".ask-run-summary-events").getByText("Reading local context.")).toBeVisible();
+  await expect(askPane.locator(".ask-message-progress-inline").getByText("Generating image...")).toBeVisible();
 });
 
 test("reader ask flow renders MCP artifact cards", async ({ page }) => {
@@ -2453,13 +2615,17 @@ test("reader manual context compaction updates the popover and adds a divider", 
         provider: "openai",
         model: "gpt-5.5",
         contextLength: 128000,
-        tokensUsed: 112000,
-        actualUsageAvailable: true,
-        usageUpdatedAt: "2026-05-15T11:20:00.000Z",
+        tokensUsed: compressionCount ? 64000 : 112000,
+        estimatedRequestTokens: compressionCount ? 64000 : 118000,
+        messageTokens: compressionCount ? 30000 : 50000,
+        instructionTokens: 4000,
+        toolSchemaTokens: compressionCount ? 30000 : 64000,
+        actualUsageAvailable: !compressionCount,
+        usageUpdatedAt: compressionCount ? "" : "2026-05-15T11:20:00.000Z",
         thresholdTokens: 102400,
         thresholdPercent: 80,
-        percentFull: 88,
-        messageCount: 6,
+        percentFull: compressionCount ? 50 : 88,
+        messageCount: compressionCount ? 7 : 6,
         compactionEnabled: true,
         compressionCount,
         lastCompressedAt,
@@ -2486,6 +2652,9 @@ test("reader manual context compaction updates the popover and adds a divider", 
           contextLength: 128000,
           tokensUsed: 64000,
           estimatedRequestTokens: 64000,
+          messageTokens: 30000,
+          instructionTokens: 4000,
+          toolSchemaTokens: 30000,
           actualUsageAvailable: false,
           usageUpdatedAt: "",
           thresholdTokens: 102400,
@@ -2518,6 +2687,8 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toBeVisible();
   await expect(page.locator("#readerContextPopover")).toContainText("88% full");
   await expect(page.locator("#readerContextPopover")).toContainText("112k / 128k context used");
+  await expect(page.locator("#readerContextPopover")).toContainText("Estimated request: 118k tokens");
+  await expect(page.locator("#readerContextPopover")).toContainText("Messages 50k · Instructions 4k · Tools 64k");
   await expect(page.locator("#readerContextPopover")).not.toContainText("Threshold");
   await expect(page.locator("#readerContextButton")).not.toHaveClass(/is-warning/);
   await page.locator("#readerContextCompactFocus").fill("tags only");
@@ -2529,6 +2700,7 @@ test("reader manual context compaction updates the popover and adds a divider", 
   await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
   await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
   await expect(page.locator("#readerContextPopover")).toContainText("50% full");
+  await expect(page.locator("#readerContextPopover")).toContainText("Estimated request: 64k tokens");
   await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
   await expect(page.locator(".ask-message-divider")).not.toContainText("Earlier conversation was summarized");
   expect(compressRequest).toMatchObject({
@@ -2800,7 +2972,61 @@ test("reader chat tool activity shows view and preview with real diff line numbe
   await expect(page.locator(".ask-tool-diff-line", { hasText: "1" })).toHaveCount(0);
 });
 
-test("reader chat tool activity hides snippet-local diff line numbers", async ({ page }) => {
+test("reader chat tool activity view jumps to the changed note heading", async ({ page }) => {
+  await openFixtureReader(page);
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
+    await askToggle.click();
+  }
+
+  await page.evaluate(() => {
+    const noteId = currentChatNoteId();
+    const beforeSections = Array.from({ length: 32 }, (_, index) => (
+      `<h2>Filler ${index + 1}</h2><p>${"Long spacer text. ".repeat(16)}</p>`
+    )).join("");
+    const afterSections = Array.from({ length: 12 }, (_, index) => (
+      `<h2>Tail ${index + 1}</h2><p>${"More spacer text. ".repeat(16)}</p>`
+    )).join("");
+    elements.notePage.innerHTML = `${beforeSections}<h2 id="jump-target">Jump Target</h2><p>Changed content.</p>${afterSections}`;
+    if (typeof window.buildNoteMenu === "function") window.buildNoteMenu(elements.notePage);
+    mountReaderNoteMenu();
+    elements.notePane.scrollTop = 0;
+    window.refreshCurrentNoteAfterToolUndo = async () => {};
+    refreshCurrentNoteAfterToolUndo = window.refreshCurrentNoteAfterToolUndo;
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "已更新。",
+      toolActivity: [{
+        name: "write_note",
+        sessionId: "session-e2e",
+        snapshotId: "snapshot-view-target",
+        noteId,
+        heading: "Jump Target",
+        position: "append",
+        addedHeadings: ["Jump Target"],
+        undoable: true,
+        changedFiles: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          beforeBytes: 200,
+          afterBytes: 260
+        }],
+        message: "Updated HTML note section using append."
+      }]
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => elements.notePane.scrollTop)).toBeGreaterThan(500);
+  await expect.poll(() => page.evaluate(() => {
+    const heading = Array.from(elements.notePage.querySelectorAll("h1, h2, h3, h4"))
+      .find((node) => node.textContent.trim() === "Jump Target");
+    const paneRect = elements.notePane.getBoundingClientRect();
+    return Math.round(heading.getBoundingClientRect().top - paneRect.top);
+  })).toBeLessThan(190);
+});
+
+test("reader chat tool activity shows first-line diff line numbers", async ({ page }) => {
   await openFixtureReader(page);
   const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
   if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
@@ -2844,9 +3070,11 @@ test("reader chat tool activity hides snippet-local diff line numbers", async ({
   });
 
   await expect(page.locator(".ask-tool-activity-actions button")).toHaveText(["View", "Preview", "Undo"]);
-  await expect(page.locator(".ask-tool-diff-line", { hasText: "1" })).toHaveCount(0);
-  await expect(page.locator(".ask-tool-diff-line", { hasText: "2" })).toHaveCount(0);
-  await expect(page.locator(".ask-tool-diff-line", { hasText: "3" })).toHaveCount(0);
+  const diffRows = page.locator(".ask-tool-diff-row");
+  await expect(diffRows).toHaveCount(4);
+  await expect(diffRows.nth(1).locator(".ask-tool-diff-line")).toHaveText(["1", "1"]);
+  await expect(diffRows.nth(2).locator(".ask-tool-diff-line")).toHaveText(["2", ""]);
+  await expect(diffRows.nth(3).locator(".ask-tool-diff-line")).toHaveText(["3", "2"]);
 });
 
 test("reader chat preview expands only the clicked tool activity", async ({ page }) => {
@@ -2913,6 +3141,31 @@ test("reader chat shows only the final note edit card for repeated same-file wri
     await askToggle.click();
   }
 
+  const requestedSnapshots = [];
+  await page.route("**/api/chat/tool-snapshot-diff**", async (route) => {
+    const url = new URL(route.request().url());
+    const snapshotId = url.searchParams.get("snapshotId") || "";
+    requestedSnapshots.push(snapshotId);
+    const index = Number(snapshotId.match(/-(\d+)$/)?.[1] || 0);
+    const added = index % 2 === 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        sessionId: "session-e2e",
+        snapshotId,
+        files: [{
+          path: "resources/Paper-html/e2e-deepseek-v4.html",
+          diff: [
+            "@@ -20,2 +20,2 @@",
+            " <h2>Section</h2>",
+            added ? `+<p>Added by ${snapshotId}</p>` : `-<p>Removed by ${snapshotId}</p>`
+          ].join("\n")
+        }]
+      })
+    });
+  });
+
   const activities = Array.from({ length: 5 }, (_, index) => ({
     name: "write_note",
     sessionId: "session-e2e",
@@ -2937,6 +3190,39 @@ test("reader chat shows only the final note edit card for repeated same-file wri
   }, activities);
 
   await expect(page.locator(".ask-tool-activity-item")).toHaveCount(1);
+  await expect(page.locator(".ask-tool-activity-actions button")).toHaveText(["View", "Preview", "Undo"]);
+  await page.getByRole("button", { name: "Preview" }).click();
+  await expect(page.locator(".ask-tool-diff")).toHaveCount(1);
+  await expect(page.locator(".ask-tool-diff-file")).toHaveCount(5);
+  await expect(page.locator(".ask-tool-diff-step-count")).toHaveText([
+    "Change 1 / 5",
+    "Change 2 / 5",
+    "Change 3 / 5",
+    "Change 4 / 5",
+    "Change 5 / 5"
+  ]);
+  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
+  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(2);
+  const changeToggles = page.locator("[data-tool-diff-collapse]");
+  await expect(changeToggles).toHaveCount(5);
+  await expect(changeToggles.nth(1)).toHaveAttribute("aria-expanded", "true");
+  await changeToggles.nth(1).click();
+  await expect(page.locator(".ask-tool-diff-file").nth(1)).toHaveClass(/is-collapsed/);
+  await expect(page.locator(".ask-tool-diff-file").nth(1).locator(".ask-tool-diff-viewer")).toHaveCount(0);
+  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
+  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(1);
+  await expect(changeToggles.nth(1)).toHaveAttribute("aria-expanded", "false");
+  await changeToggles.nth(1).click();
+  await expect(page.locator(".ask-tool-diff-file").nth(1)).not.toHaveClass(/is-collapsed/);
+  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
+  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(2);
+  expect(requestedSnapshots).toEqual([
+    "snapshot-e2e-1",
+    "snapshot-e2e-2",
+    "snapshot-e2e-3",
+    "snapshot-e2e-4",
+    "snapshot-e2e-5"
+  ]);
   await expect(page.locator("[data-tool-toggle]")).toHaveAttribute("data-tool-toggle", "snapshot-e2e-5");
   await expect(page.locator("[data-tool-toggle]")).toHaveAttribute(
     "data-tool-toggle-snapshots",

@@ -109,8 +109,8 @@ def register_generated_image_tool(
     registry.register(ToolDefinition(
         name=TOOL_NAME,
         description=(
-            "Create a downloadable generated image artifact for the user. Use this only when "
-            "the user explicitly enabled image generation in this turn."
+            "Create or edit a downloadable generated image artifact for the user when they ask for an image, "
+            "diagram, visual, cover, or image edit. Use this instead of code execution or local file writes."
         ),
         parameters={
             "type": "object",
@@ -136,7 +136,7 @@ def register_generated_image_tool(
         handler=handler,
         toolset=TOOLSET,
         read_only=False,
-        mutating=False,
+        mutating=True,
         risk="write",
         kind="external",
         result_max_chars=4000,

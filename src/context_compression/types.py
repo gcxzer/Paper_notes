@@ -25,7 +25,7 @@ MINIMUM_CONTEXT_LENGTH = 64_000
 class ContextCompressionConfig:
     enabled: bool = True
     context_length: int = DEFAULT_FALLBACK_CONTEXT_LENGTH
-    threshold_percent: float = 0.90
+    threshold_percent: float = 0.80
     target_ratio: float = 0.20
     protect_first_n: int = 3
     protect_last_n: int = 3

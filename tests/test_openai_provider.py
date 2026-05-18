@@ -294,10 +294,13 @@ def test_openai_provider_profile_exposes_image_capabilities():
     assert profile is not None
     assert profile.to_public_dict()["capabilities"]["supportsVision"] is True
     assert capabilities_for_provider_model("openai", "gpt-5.5").supports_image_generation is True
+    assert capabilities_for_provider_model("openai", "gpt-5.5").supports_image_artifact_generation is True
     assert codex is not None
     assert codex.to_public_dict()["capabilities"]["supportsVision"] is True
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.5").supports_image_generation is False
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.5").supports_image_artifact_generation is True
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_vision is False
+    assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_image_artifact_generation is False
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").image_input_mode == "unsupported"
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_web_search is False
     assert capabilities_for_provider_model("codex-oauth", "gpt-5.3-codex-spark").supports_reasoning_off is False
