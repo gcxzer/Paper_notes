@@ -9,14 +9,38 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment:
       HOST: 0.0.0.0
+      PAPER_NOTES_DOCKER: "1"
       PORT: "4173"
+      PAPER_NOTES_UID: "${PAPER_NOTES_UID:-1000}"
+      PAPER_NOTES_GID: "${PAPER_NOTES_GID:-1000}"
     ports:
       - "4173:4173"
     volumes:
-      - ./resources:/app/resources
-      - ./.paper-notes:/app/.paper-notes
-      - ./notes.json:/app/notes.json
-      - ./tmp:/app/tmp
+      - type: bind
+        source: ./resources
+        target: /app/resources
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./.paper-notes
+        target: /app/.paper-notes
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./notes.json
+        target: /app/notes.json
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./tmp
+        target: /app/tmp
+        bind:
+          create_host_path: true
     restart: unless-stopped

@@ -95,6 +95,11 @@ MIME_TYPES = {
     ".svg": "image/svg+xml",
 }
 
+DOCKER_LOCAL_FILE_OPEN_MESSAGE = (
+    "Docker mode cannot open files in the host desktop. Put the file under "
+    ".paper-notes/media/uploads, then use that Paper Notes media path from the app."
+)
+
 
 def content_disposition_attachment(file_name: str) -> str:
     display_name = Path(normalize_text(file_name) or "download").name or "download"
@@ -103,6 +108,15 @@ def content_disposition_attachment(file_name: str) -> str:
     fallback = fallback.replace('"', "")
     encoded = quote(display_name, safe="")
     return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+
+
+def is_docker_runtime() -> bool:
+    value = os.environ.get("PAPER_NOTES_DOCKER", "").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return Path("/.dockerenv").exists()
 
 
 class PaperNotesHandler(BaseHTTPRequestHandler):
@@ -517,6 +531,8 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if not target.is_absolute():
             raise AgentAPIError(HTTPStatus.BAD_REQUEST, "absolute_path_required", "Local file links must use an absolute path.")
         target = target.resolve()
+        if is_docker_runtime():
+            raise AgentAPIError(HTTPStatus.CONFLICT, "docker_local_file_open_unavailable", DOCKER_LOCAL_FILE_OPEN_MESSAGE)
         if not target.exists():
             raise AgentAPIError(HTTPStatus.NOT_FOUND, "file_not_found", f"File not found: {target}")
         try:

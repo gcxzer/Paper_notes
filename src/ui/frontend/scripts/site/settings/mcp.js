@@ -34,6 +34,7 @@ function normalizeMcpServer(server) {
     ),
     includeTools: normalizeMcpFilterList(server?.includeTools ?? server?.include_tools),
     excludeTools: normalizeMcpFilterList(server?.excludeTools ?? server?.exclude_tools),
+    runtimeWarnings: normalizeMcpRuntimeWarnings(server?.runtimeWarnings || server?.runtime_warnings),
     timeoutSeconds: Number(server?.timeoutSeconds || server?.timeout_seconds) || 120,
     connectTimeoutSeconds: Number(server?.connectTimeoutSeconds || server?.connect_timeout_seconds) || 10,
     status: {
@@ -65,6 +66,18 @@ function normalizeMcpToolSummary(tool) {
     hasOutputSchema: Boolean(tool?.hasOutputSchema || tool?.has_output_schema),
     securityWarnings: normalizeMcpSecurityWarnings(tool?.securityWarnings || tool?.security_warnings)
   };
+}
+
+function normalizeMcpRuntimeWarnings(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((warning) => {
+    if (!warning || typeof warning !== "object") return null;
+    return {
+      code: normalizeText(warning.code || ""),
+      severity: normalizeText(warning.severity || ""),
+      message: normalizeText(warning.message || warning.detail || "")
+    };
+  }).filter((warning) => warning && (warning.code || warning.message));
 }
 
 function normalizeMcpSecurityWarnings(raw) {
@@ -446,6 +459,20 @@ function renderMcpStatusSection(server) {
   `;
 }
 
+function renderMcpRuntimeWarnings(warnings = []) {
+  const items = normalizeMcpRuntimeWarnings(warnings);
+  if (!items.length) return "";
+  return `
+    <section class="mcp-section">
+      <div class="mcp-section-title">
+        <strong>Runtime note</strong>
+        <span>Docker</span>
+      </div>
+      ${items.map((warning) => `<p class="mcp-status-note is-warning">${escapeHtml(warning.message)}</p>`).join("")}
+    </section>
+  `;
+}
+
 function renderMcpLogPanel(server) {
   const log = state.mcpLogResult;
   if (!log || log.serverId !== server.id || log.success === false) return "";
@@ -495,6 +522,7 @@ function renderMcpServerEditor(server) {
         <button class="toolbar-button toolbar-button-danger mcp-title-remove" type="button" data-mcp-delete="${escapeHtml(server.id)}">Delete</button>
       </div>
     </div>
+    ${renderMcpRuntimeWarnings(server.runtimeWarnings)}
     <section class="mcp-section">
       <div class="mcp-section-title">
         <strong>Basics</strong>
@@ -542,6 +570,7 @@ function renderMcpServerEditor(server) {
       </div>
     </div>
     ${renderMcpActionErrorRegion(["test", "connect"], server.id)}
+    ${test?.runtimeWarnings?.length ? renderMcpRuntimeWarnings(test.runtimeWarnings) : ""}
   `;
 }
 
@@ -898,6 +927,7 @@ async function testMcpServer(id) {
       error: normalizeText(payload?.error || ""),
       toolCount: Number(payload?.toolCount || payload?.tool_count) || 0,
       tools: Array.isArray(payload?.tools) ? payload.tools.map(normalizeMcpToolSummary) : [],
+      runtimeWarnings: normalizeMcpRuntimeWarnings(payload?.runtimeWarnings || payload?.runtime_warnings),
       securityWarnings: normalizeMcpSecurityWarnings(payload?.securityWarnings || payload?.security_warnings)
     };
     if (state.mcpTestResult.success === false) {
