@@ -9,7 +9,7 @@ import pytest
 
 from agent_memory import USER_TARGET, LocalMemoryProvider, MemoryManager
 from context_compression import SUMMARY_PREFIX, ContextCompressionConfig, ContextCompressor
-from agent_runtime.service import AgentService, AgentServiceRequest
+from agent_runtime.service import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
 from agent_sessions import AgentSessionStore, SessionNotFoundError
 from tool_safety import PaperNotesSnapshotManager, ToolApprovalManager
 from library import write_library
@@ -291,7 +291,7 @@ def test_service_persists_attachment_metadata_without_base64(tmp_path):
     result = service.run(AgentServiceRequest(message="", attachments=[{"id": artifact.id}], title="Image chat"))
 
     persisted_user = store.require_session(result.session_id).messages[0]
-    assert persisted_user["content"] == ""
+    assert persisted_user["content"] == ATTACHMENT_ONLY_MESSAGE
     assert persisted_user["attachments"][0]["id"] == artifact.id
     assert "base64" not in json.dumps(persisted_user)
     assert provider.requests[0].request_options["_write_note_media_store"] is service.media_store

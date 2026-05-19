@@ -612,3 +612,22 @@ function setReaderChatError(message = "") {
   elements.readerChatError.textContent = message ? sanitizeVisibleAgentError(message) : "";
   elements.readerChatError.hidden = !message;
 }
+
+function setReaderChatNotice(message = "", { duration = 1500 } = {}) {
+  if (!elements.readerChatNotice) return;
+  window.clearTimeout(readerState.chatNoticeTimer);
+  readerState.chatNoticeTimer = 0;
+
+  const text = String(message || "").trim();
+  elements.readerChatNotice.textContent = text;
+  elements.readerChatNotice.hidden = !text;
+  elements.readerChatNotice.classList.toggle("is-visible", Boolean(text));
+
+  if (!text || duration <= 0) return;
+  readerState.chatNoticeTimer = window.setTimeout(() => {
+    elements.readerChatNotice.textContent = "";
+    elements.readerChatNotice.hidden = true;
+    elements.readerChatNotice.classList.remove("is-visible");
+    readerState.chatNoticeTimer = 0;
+  }, duration);
+}

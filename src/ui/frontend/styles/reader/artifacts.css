@@ -640,10 +640,43 @@ html[data-theme="dark"] .ask-progress-inline {
 }
 
 .ask-composer {
+  position: relative;
   display: grid;
+  gap: 0;
   padding: 14px 18px 18px;
   border-top: 1px solid var(--line);
   background: var(--panel-alt);
+}
+
+.ask-action-toast {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 86;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: min(calc(100% - 36px), 340px);
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 54%, var(--panel));
+  color: var(--accent-strong, var(--text));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow: hidden;
+  pointer-events: none;
+  text-align: center;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ask-action-toast[hidden] {
+  display: none;
 }
 
 .ask-composer-box {

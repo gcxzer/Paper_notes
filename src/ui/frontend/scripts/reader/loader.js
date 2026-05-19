@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "progress-text-reading-v2";
+const READER_SCRIPT_VERSION = "session-action-toast-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-default-off-v1",
@@ -11,6 +11,7 @@ const READER_CLASSIC_SCRIPTS = [
   `scripts/reader/chat/tools.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/composer.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/models.js?v=${READER_SCRIPT_VERSION}`,
+  `scripts/reader/chat/projects.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/sessions.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/slash_commands.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/shared/debug-panel.js?v=${READER_SCRIPT_VERSION}`,

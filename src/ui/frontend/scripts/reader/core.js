@@ -226,6 +226,8 @@ function normalizeReaderChatSession(rawSession) {
     originNoteTitle: normalizeText(rawSession?.originNoteTitle || rawSession?.noteTitle || rawSession?.note_title || metadata.originNoteTitle || metadata.origin_note_title || metadata.noteTitle || metadata.note_title),
     currentNoteId: normalizeText(rawSession?.currentNoteId || metadata.currentNoteId || metadata.current_note_id),
     currentNoteTitle: normalizeText(rawSession?.currentNoteTitle || metadata.currentNoteTitle || metadata.current_note_title || rawSession?.noteTitle || rawSession?.note_title || metadata.noteTitle || metadata.note_title),
+    projectId: normalizeText(rawSession?.projectId || rawSession?.project_id || metadata.projectId || metadata.project_id),
+    projectName: normalizeText(rawSession?.projectName || rawSession?.project_name || metadata.projectName || metadata.project_name),
     provider: normalizeProviderName(rawSession?.provider),
     model: normalizeText(rawSession?.model),
     deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode),

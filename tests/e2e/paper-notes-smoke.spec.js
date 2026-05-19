@@ -103,6 +103,28 @@ async function installReaderFixtures(page, options = {}) {
       }),
     });
   });
+  const chatProjects = options.chatProjects || [];
+  await page.route("**/api/chat/projects", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      const project = {
+        id: payload.projectId || `project-created-${chatProjects.length + 1}`,
+        name: payload.name || "New project",
+        order: chatProjects.length,
+      };
+      chatProjects.push(project);
+      if (typeof options.onChatProjectCreate === "function") await options.onChatProjectCreate(payload, project);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ project, projects: chatProjects }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ projects: chatProjects }),
+    });
+  });
   await page.route("**/api/chat/tool-snapshots**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -242,7 +264,7 @@ async function openFixtureReader(page) {
 }
 
 async function showAskPane(page) {
-  await page.waitForFunction(() => typeof window.openChatSessionView === "function");
+  await page.waitForFunction(() => window.readerChatInitialized === true);
   if (!(await page.locator("#askPane").isVisible())) {
     await page.waitForFunction(() => typeof window.setAskPaneVisible === "function");
     await page.evaluate(() => window.setAskPaneVisible(true));
@@ -2453,6 +2475,260 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   await expect(page.getByRole("button", { name: /Move Active chat to Trash/ })).toBeVisible();
 });
 
+test("reader session popover is tall enough for longer chat lists", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const activeSessions = Array.from({ length: 10 }, (_, index) => ({
+    id: `active-session-${index + 1}`,
+    title: `Active chat ${index + 1}`,
+    noteId: "pdf-deepseek-v4-old123",
+    originNoteId: "pdf-deepseek-v4-old123",
+    lastMessagePreview: "Working",
+    updatedAt: `2026-05-15T09:${String(index).padStart(2, "0")}:00.000Z`,
+    state: "active",
+  }));
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: activeSessions }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator("#chatSessionPopover")).toBeVisible();
+  await expect(page.locator(".ask-session-row")).toHaveCount(10);
+  const popoverBox = await page.locator("#chatSessionPopover").boundingBox();
+  expect(popoverBox).not.toBeNull();
+  expect(popoverBox.height).toBeGreaterThan(580);
+  expect(popoverBox.height).toBeLessThanOrEqual(601);
+  expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual((page.viewportSize()?.height || 900) + 1);
+});
+
+test("reader ask projects filter sessions and session menu assigns a project", async ({ page }) => {
+  const assignmentCalls = [];
+  const projectMutations = [];
+  const projects = [
+    { id: "project-llm", name: "LLM Review", order: 0 },
+    { id: "project-writing", name: "Writing Project", order: 1 },
+  ];
+  const activeSessions = [
+    {
+      id: "active-session-llm",
+      title: "LLM chat",
+      lastMessagePreview: "Working",
+      updatedAt: "2026-05-15T09:00:00.000Z",
+      state: "active",
+      projectId: "project-llm",
+      projectName: "LLM Review",
+    },
+    {
+      id: "active-session-writing",
+      title: "Writing chat",
+      lastMessagePreview: "Drafting",
+      updatedAt: "2026-05-15T10:00:00.000Z",
+      state: "active",
+      projectId: "project-writing",
+      projectName: "Writing Project",
+    },
+  ];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page, { chatProjects: projects });
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: activeSessions }),
+    });
+  });
+  await page.route("**/api/chat/session/project", async (route) => {
+    const payload = route.request().postDataJSON();
+    assignmentCalls.push(payload);
+    const session = activeSessions.find((item) => item.id === payload.sessionId);
+    if (session) {
+      session.projectId = payload.projectId;
+      session.projectName = payload.projectName;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ session: { ...session, sessionId: session?.id } }),
+    });
+  });
+  await page.route("**/api/chat/project/rename", async (route) => {
+    const payload = route.request().postDataJSON();
+    projectMutations.push({ type: "rename", ...payload });
+    const project = projects.find((item) => item.id === payload.projectId);
+    if (project) project.name = payload.name;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ project, projects, updatedSessions: 0 }),
+    });
+  });
+  await page.route("**/api/chat/project/delete", async (route) => {
+    const payload = route.request().postDataJSON();
+    projectMutations.push({ type: "delete", ...payload });
+    const index = projects.findIndex((item) => item.id === payload.projectId);
+    const project = index >= 0 ? projects.splice(index, 1)[0] : null;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ deleted: true, projectId: payload.projectId, project, projects, updatedSessions: 0 }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  await expect(page.locator("#readerProjectButton")).toHaveText("");
+  await page.locator("#readerProjectButton").click();
+  await expect(page.locator("#readerProjectPopover")).toBeVisible();
+  await expect(page.locator("#readerProjectPopover")).toContainText("Projects");
+  await expect(page.locator("#readerProjectPopover")).not.toContainText("Groups");
+  await expect(page.locator("#readerProjectPopover")).not.toContainText("All projects");
+  await expect(page.locator("#readerProjectPopover")).not.toContainText("saved");
+  await expect(page.locator(".ask-project-option", { hasText: "LLM Review" })).toBeVisible();
+  await page.locator(".ask-project-row", { hasText: "LLM Review" }).hover();
+  await expect(page.locator("#readerProjectButton")).toHaveText("");
+  await expect(page.locator(".ask-project-flyout")).toBeVisible();
+  await expect(page.locator(".ask-project-flyout")).toContainText("LLM chat");
+  await expect(page.locator(".ask-project-flyout")).not.toContainText("Writing chat");
+  await expect(page.locator(".ask-project-flyout")).not.toContainText("LLM Review");
+  await expect(page.locator(".ask-project-flyout")).not.toContainText("1 session");
+  const projectFlyoutBox = await page.locator(".ask-project-flyout").boundingBox();
+  expect(projectFlyoutBox?.width).toBeGreaterThan(100);
+  expect(projectFlyoutBox?.height).toBeGreaterThan(30);
+
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator(".ask-session-row", { hasText: "LLM chat" })).toBeVisible();
+  await expect(page.locator(".ask-session-row", { hasText: "Writing chat" })).toBeVisible();
+  await expect(page.locator("#chatSessionList")).not.toContainText("No sessions in this project");
+  await expect(page.locator(".ask-session-row", { hasText: "LLM chat" }).locator(".ask-session-meta")).toContainText("LLM Review");
+
+  await page.locator(".ask-session-row", { hasText: "LLM chat" }).hover();
+  await page.getByRole("button", { name: /More actions for LLM chat/ }).click();
+  await page.getByRole("button", { name: /Choose project for LLM chat/ }).click();
+  await expect(page.locator(".ask-session-project-option", { hasText: "No project" })).toHaveCount(0);
+  await expect(page.locator(".ask-session-project-option", { hasText: "Writing Project" })).toBeVisible();
+  await page.locator(".ask-session-project-option", { hasText: "Writing Project" }).click();
+
+  await expect.poll(() => assignmentCalls).toEqual([{
+    sessionId: "active-session-llm",
+    projectId: "project-writing",
+    projectName: "Writing Project",
+  }]);
+  await expect(page.locator("#readerChatNotice")).toHaveText("Added to Writing Project");
+  await expect(page.locator("#chatSessionList")).not.toContainText("No sessions in this project");
+  await expect(page.locator(".ask-session-row", { hasText: "LLM chat" })).toBeVisible();
+  await expect(page.locator(".ask-session-row", { hasText: "Writing chat" })).toBeVisible();
+
+  await page.locator("#readerProjectButton").click();
+  await expect(page.locator("#readerProjectCreateInput")).toBeVisible();
+  await page.locator("#readerProjectCreateInput").fill("New Research");
+  await page.getByRole("button", { name: "Create project" }).click();
+  await expect.poll(() => projects.some((project) => project.name === "New Research")).toBe(true);
+  await expect(page.locator("#readerProjectButton")).toHaveText("");
+  await expect(page.locator(".ask-project-row", { hasText: "New Research" })).toBeVisible();
+
+  await page.locator(".ask-project-row", { hasText: "New Research" }).hover();
+  await page.getByRole("button", { name: /More actions for project New Research/ }).click();
+  await page.getByRole("button", { name: "Rename project New Research" }).click();
+  await page.locator(".ask-project-rename input[name='name']").fill("Renamed Research");
+  await page.getByRole("button", { name: "Save project name" }).click();
+  await expect(page.locator("#readerProjectButton")).toHaveText("");
+  await expect(page.locator(".ask-project-row", { hasText: "Renamed Research" })).toBeVisible();
+
+  await page.locator(".ask-project-row", { hasText: "Renamed Research" }).hover();
+  await page.getByRole("button", { name: /More actions for project Renamed Research/ }).click();
+  await page.getByRole("button", { name: "Delete project Renamed Research" }).click();
+  await page.getByRole("button", { name: "Confirm delete project Renamed Research" }).click();
+  await expect(page.locator("#readerProjectButton")).toHaveText("");
+  await expect(page.locator(".ask-project-row", { hasText: "Renamed Research" })).toHaveCount(0);
+  await expect.poll(() => projectMutations).toEqual([
+    { type: "rename", projectId: "project-created-3", name: "Renamed Research" },
+    { type: "delete", projectId: "project-created-3" },
+  ]);
+});
+
+test("reader project menu keeps scroll while previewing long project lists", async ({ page }) => {
+  const projects = Array.from({ length: 16 }, (_, index) => ({
+    id: `project-${index + 1}`,
+    name: `Project ${String(index + 1).padStart(2, "0")}`,
+    order: index,
+  }));
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page, { chatProjects: projects });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  await page.locator("#readerProjectButton").click();
+  await expect(page.locator("#readerProjectPopover")).toBeVisible();
+  await expect(page.locator("#readerProjectPopover")).toContainText("Projects");
+
+  const list = page.locator(".ask-project-list");
+  await expect.poll(() => list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await list.evaluate((element) => {
+    element.scrollTop = 240;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  const beforeHoverScrollTop = await list.evaluate((element) => element.scrollTop);
+  expect(beforeHoverScrollTop).toBeGreaterThan(100);
+
+  const box = await list.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box.x + 90, box.y + 90);
+  await expect(page.locator(".ask-project-flyout")).toBeVisible();
+  await page.waitForTimeout(250);
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeHoverScrollTop - 4);
+});
+
+test("reader session project picker scrolls long project lists", async ({ page }) => {
+  const projects = Array.from({ length: 18 }, (_, index) => ({
+    id: `project-${index + 1}`,
+    name: `Project ${String(index + 1).padStart(2, "0")}`,
+    order: index,
+  }));
+  const sessions = [{
+    id: "long-project-picker-session",
+    title: "Long picker chat",
+    lastMessagePreview: "Testing project picker",
+    updatedAt: "2026-05-15T09:00:00.000Z",
+    state: "active",
+    projectId: "project-1",
+    projectName: "Project 01",
+  }];
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page, { chatProjects: projects });
+  await page.route("**/api/chat/sessions**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions }),
+    });
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+
+  await showAskPane(page);
+  await page.locator("#chatSessionMenuButton").click();
+  await expect(page.locator(".ask-session-row", { hasText: "Long picker chat" })).toBeVisible();
+  await page.locator(".ask-session-row", { hasText: "Long picker chat" }).hover();
+  await page.getByRole("button", { name: /More actions for Long picker chat/ }).click();
+  await page.getByRole("button", { name: /Choose project for Long picker chat/ }).click();
+
+  const menu = page.locator(".ask-session-action-menu.ask-session-project-picker-menu");
+  const projectList = page.locator(".ask-session-project-list");
+  await expect(menu).toBeVisible();
+  await expect(projectList).toBeVisible();
+  await expect(projectList.locator(".ask-session-project-option")).toHaveCount(18);
+  await expect(page.locator(".ask-session-project-option", { hasText: "No project" })).toHaveCount(0);
+  await expect.poll(() => projectList.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await expect.poll(() => menu.evaluate((element) => {
+    const popover = document.querySelector("#chatSessionPopover");
+    return element.getBoundingClientRect().bottom <= popover.getBoundingClientRect().bottom + 1;
+  })).toBe(true);
+  await projectList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(page.locator(".ask-session-project-option", { hasText: "Project 18" })).toBeVisible();
+});
+
 test("reader restore keeps the current session list view", async ({ page }) => {
   const archiveCalls = [];
   const stateBySessionId = new Map([["archived-session-1", "archived"]]);
@@ -2601,6 +2877,7 @@ test("reader archive and trash actions run from the row menu without confirm", a
   });
   await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
   await showAskPane(page);
+  const composerBoxY = await page.locator(".ask-composer-box").evaluate((element) => element.getBoundingClientRect().y);
 
   await page.locator("#chatSessionMenuButton").click();
   await expect(page.getByText("Active chat")).toBeVisible();
@@ -2608,6 +2885,13 @@ test("reader archive and trash actions run from the row menu without confirm", a
   await page.getByRole("button", { name: /More actions for Active chat/ }).click();
   await page.getByRole("button", { name: /Archive Active chat/ }).click();
   await expect.poll(() => archiveCalls).toEqual([{ sessionId: "active-session-1", state: "archived" }]);
+  await expect(page.locator("#readerChatNotice")).toHaveText("Moved to Archive");
+  await expect.poll(() => page.locator(".ask-composer-box").evaluate((element) => element.getBoundingClientRect().y)).toBeCloseTo(composerBoxY, 0);
+  await expect.poll(async () => {
+    const toast = await page.locator("#readerChatNotice").boundingBox();
+    const composer = await page.locator("#readerChatForm").boundingBox();
+    return Math.abs((toast.x + toast.width / 2) - (composer.x + composer.width / 2));
+  }).toBeLessThan(2);
 
   archiveCalls.length = 0;
   await page.locator("#chatSessionMenuButton").click();
@@ -2617,6 +2901,9 @@ test("reader archive and trash actions run from the row menu without confirm", a
   await page.getByRole("button", { name: /More actions for Active chat/ }).click();
   await page.getByRole("button", { name: /Move Active chat to Trash/ }).click();
   await expect.poll(() => archiveCalls).toEqual([{ sessionId: "active-session-1", state: "trashed" }]);
+  await expect(page.locator("#readerChatNotice")).toHaveText("Moved to Trash");
+  await expect(page.locator("#readerChatNotice")).not.toContainText("Archive");
+  await expect(page.locator("#readerChatNotice")).toBeHidden({ timeout: 2500 });
 });
 
 test("reader permanent delete still requires confirmation", async ({ page }) => {
