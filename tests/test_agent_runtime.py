@@ -145,7 +145,10 @@ def test_runner_model_response_event_reports_provider_native_web_search():
         ModelResponse(
             content="Found current sources.",
             provider_data={
-                "web_search_calls": [{"id": "ws_1", "status": "completed"}],
+                "web_search_calls": [
+                    {"id": "ws_1", "status": "completed", "action": {"query": "paper notes"}},
+                    {"id": "ws_2", "status": "completed", "queries": ["native web search"]},
+                ],
                 "web_search_sources": [
                     {"url": "https://example.test/one"},
                     {"url": "https://example.test/two"},
@@ -160,9 +163,10 @@ def test_runner_model_response_event_reports_provider_native_web_search():
     response_event = result.events[1]
     assert response_event.type == "model_response"
     assert response_event.data["tool_call_count"] == 0
-    assert response_event.data["web_search_call_count"] == 1
+    assert response_event.data["web_search_call_count"] == 2
     assert response_event.data["web_search_source_count"] == 2
-    assert response_event.message == "Model provider returned a response with 1 web search call and 2 sources."
+    assert response_event.data["web_search_queries"] == ["paper notes", "native web search"]
+    assert response_event.message == "Model provider returned a response with 2 web search calls and 2 sources."
 
 
 def test_runner_cancels_before_provider_call():

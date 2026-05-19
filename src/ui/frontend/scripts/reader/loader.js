@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "ask-selection-boundary-v1";
+const READER_SCRIPT_VERSION = "web-search-query-trace-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-default-off-v1",

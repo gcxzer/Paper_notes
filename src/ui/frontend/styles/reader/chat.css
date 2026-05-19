@@ -677,6 +677,12 @@
   overflow-wrap: anywhere;
 }
 
+.ask-run-summary-events li > span:last-child strong,
+.ask-progress-inline-text strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .ask-run-summary-type {
   flex: 0 0 auto;
   min-width: 46px;

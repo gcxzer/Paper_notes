@@ -298,9 +298,13 @@ def _progress_event(event: AgentEvent) -> dict[str, Any]:
 def _visible_progress_event(event: AgentEvent, progress_event: dict[str, Any]) -> dict[str, Any] | None:
     event_type = _clean_text(event.type)
     data = event.data or {}
-    if event_type in {"model_request", "model_response", "model_delta", "completed"}:
+    if event_type == "model_response":
+        detail = _provider_native_web_search_detail(data)
+        if not detail:
+            return None
+    elif event_type in {"model_request", "model_delta", "completed"}:
         return None
-    if event_type in {"work_trace_delta", "work_trace_item"}:
+    elif event_type in {"work_trace_delta", "work_trace_item"}:
         detail = _clean_text(data.get("text") or event.message)
         if not detail:
             return None
@@ -366,6 +370,8 @@ def _work_trace_item(
         }
     if visible_event is None:
         return None
+    if event_type == "model_response" and _provider_native_web_search_detail(data):
+        return _work_trace_item_from_visible(visible_event, item_type="tool", source="provider", complete=True)
     if event_type in {"tool_call", "tool_result", "tool_error"}:
         name = _clean_text(data.get("name"))
         return _work_trace_item_from_visible(visible_event, item_type="skill" if _is_skill_tool(name) else "tool")
@@ -374,16 +380,25 @@ def _work_trace_item(
     return None
 
 
-def _work_trace_item_from_visible(visible_event: dict[str, Any], *, item_type: str) -> dict[str, Any] | None:
+def _work_trace_item_from_visible(
+    visible_event: dict[str, Any],
+    *,
+    item_type: str,
+    source: str = "runtime",
+    complete: bool | None = None,
+) -> dict[str, Any] | None:
     text = _clean_text(visible_event.get("detail"))
     if not text:
         return None
-    return {
+    item = {
         "type": item_type,
         "text": text,
         "at": _clean_text(visible_event.get("at")),
-        "source": "runtime",
+        "source": source,
     }
+    if complete is not None:
+        item["complete"] = bool(complete)
+    return item
 
 
 def _has_visible_event(events: list[dict[str, Any]], event: dict[str, Any]) -> bool:
@@ -417,7 +432,10 @@ def _merge_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) ->
 
 
 def _public_work_trace_item(item: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in item.items() if key != "complete"}
+    public = dict(item)
+    if not (public.get("type") == "tool" and public.get("complete") is True):
+        public.pop("complete", None)
+    return public
 
 
 def _visible_status_event(status: str, stage: str, detail: str, at: str) -> dict[str, Any] | None:
@@ -448,6 +466,9 @@ def _stage_and_detail(event: AgentEvent) -> tuple[str, str]:
     if event_type == "model_request":
         return "thinking", "Calling model provider."
     if event_type == "model_response":
+        native_web_search_detail = _provider_native_web_search_detail(data)
+        if native_web_search_detail:
+            return "tool", native_web_search_detail
         count = int(data.get("tool_call_count") or 0)
         if count:
             suffix = "s" if count != 1 else ""
@@ -494,6 +515,48 @@ def _stage_and_detail(event: AgentEvent) -> tuple[str, str]:
     if event_type == "halted":
         return "halted", "Maximum agent turns reached."
     return event_type or "working", _clean_text(event.message) or "Working..."
+
+
+def _provider_native_web_search_detail(data: dict[str, Any]) -> str:
+    call_count = _positive_int(data.get("web_search_call_count"))
+    if not call_count:
+        return ""
+    source_count = _positive_int(data.get("web_search_source_count"))
+    search_label = "search" if call_count == 1 else "searches"
+    count_text = f"{call_count} {search_label}"
+    if source_count:
+        source_label = "source" if source_count == 1 else "sources"
+        count_text = f"{count_text}, {source_count} {source_label}"
+    query_text = _web_search_query_summary(data.get("web_search_queries") or data.get("webSearchQueries"))
+    if query_text:
+        return f"Searched the web: {query_text} ({count_text})."
+    return f"Searched the web: {count_text}."
+
+
+def _web_search_query_summary(value: Any) -> str:
+    queries = value if isinstance(value, list) else []
+    parts: list[str] = []
+    for item in queries:
+        text = _clean_text(item)
+        if not text:
+            continue
+        if len(text) > 96:
+            text = f"{text[:95]}…"
+        parts.append(f'"{text}"')
+        if len(parts) >= 3:
+            break
+    if not parts:
+        return ""
+    remaining = len(queries) - len(parts)
+    return "; ".join(parts) + (f"; +{remaining} more" if remaining > 0 else "")
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
 
 
 def _status_for_event(event: AgentEvent) -> str | None:

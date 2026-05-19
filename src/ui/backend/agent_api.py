@@ -1327,6 +1327,10 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
             text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
             item_type = "status"
             item_source = "runtime"
+        elif event_type == "model_response":
+            text = _provider_native_web_search_detail(data)
+            item_type = "tool"
+            item_source = "provider"
         elif event_type in {
             "approval",
             "cancelled",
@@ -1362,6 +1366,48 @@ def _work_trace_from_run_trace(run_trace: dict[str, Any] | None) -> dict[str, An
         "status": str(run_trace.get("status") or "completed"),
         "items": items,
     }
+
+
+def _provider_native_web_search_detail(data: dict[str, Any]) -> str:
+    call_count = _positive_int(data.get("web_search_call_count"))
+    if not call_count:
+        return ""
+    source_count = _positive_int(data.get("web_search_source_count"))
+    search_label = "search" if call_count == 1 else "searches"
+    count_text = f"{call_count} {search_label}"
+    if source_count:
+        source_label = "source" if source_count == 1 else "sources"
+        count_text = f"{count_text}, {source_count} {source_label}"
+    query_text = _web_search_query_summary(data.get("web_search_queries") or data.get("webSearchQueries"))
+    if query_text:
+        return f"Searched the web: {query_text} ({count_text})."
+    return f"Searched the web: {count_text}."
+
+
+def _web_search_query_summary(value: Any) -> str:
+    queries = value if isinstance(value, list) else []
+    parts: list[str] = []
+    for item in queries:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if len(text) > 96:
+            text = f"{text[:95]}…"
+        parts.append(f'"{text}"')
+        if len(parts) >= 3:
+            break
+    if not parts:
+        return ""
+    remaining = len(queries) - len(parts)
+    return "; ".join(parts) + (f"; +{remaining} more" if remaining > 0 else "")
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
 
 
 def _merge_run_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:

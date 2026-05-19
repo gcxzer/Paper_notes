@@ -1845,6 +1845,8 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
             text = _work_trace_tool_result_detail(str(data.get("name") or "tool"), data)
         elif event_type == "tool_error":
             text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
+        elif event_type == "model_response":
+            text = _provider_native_web_search_detail(data)
         elif event_type in {"tool_approval_requested", "tool_calls_pending", "halted", "tool_halted", "cancelled"}:
             text = event.message
         else:
@@ -1853,16 +1855,64 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
         if not text:
             continue
         tool_name = str(data.get("name") or "")
-        key = ("skill" if event_type.startswith("tool_") and _is_skill_tool(tool_name) else "tool" if event_type.startswith("tool_") else "status", text)
+        if event_type == "model_response":
+            item_type = "tool"
+            source = "provider"
+        else:
+            item_type = "skill" if event_type.startswith("tool_") and _is_skill_tool(tool_name) else "tool" if event_type.startswith("tool_") else "status"
+            source = "runtime"
+        key = (item_type, text)
         if key in seen_fallback:
             continue
         seen_fallback.add(key)
         items.append({
-            "type": key[0],
+            "type": item_type,
             "text": text,
-            "source": "runtime",
+            "source": source,
         })
     return items
+
+
+def _provider_native_web_search_detail(data: dict[str, Any]) -> str:
+    call_count = _positive_int(data.get("web_search_call_count"))
+    if not call_count:
+        return ""
+    source_count = _positive_int(data.get("web_search_source_count"))
+    search_label = "search" if call_count == 1 else "searches"
+    count_text = f"{call_count} {search_label}"
+    if source_count:
+        source_label = "source" if source_count == 1 else "sources"
+        count_text = f"{count_text}, {source_count} {source_label}"
+    query_text = _web_search_query_summary(data.get("web_search_queries") or data.get("webSearchQueries"))
+    if query_text:
+        return f"Searched the web: {query_text} ({count_text})."
+    return f"Searched the web: {count_text}."
+
+
+def _web_search_query_summary(value: Any) -> str:
+    queries = value if isinstance(value, list) else []
+    parts: list[str] = []
+    for item in queries:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if len(text) > 96:
+            text = f"{text[:95]}…"
+        parts.append(f'"{text}"')
+        if len(parts) >= 3:
+            break
+    if not parts:
+        return ""
+    remaining = len(queries) - len(parts)
+    return "; ".join(parts) + (f"; +{remaining} more" if remaining > 0 else "")
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
 
 
 def _merge_native_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:

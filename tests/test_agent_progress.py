@@ -21,6 +21,34 @@ def test_progress_keeps_raw_events_but_hides_model_events_from_visible_status():
     assert snapshot["visibleDetail"] == "Starting agent run."
 
 
+def test_progress_shows_provider_native_web_search_as_tool_trace():
+    store = AgentProgressStore()
+
+    store.start("req-web")
+    snapshot = store.append("req-web", AgentEvent(
+        "model_response",
+        "Model provider returned a response with 1 web search call and 18 sources.",
+        {
+            "tool_call_count": 1,
+            "web_search_call_count": 1,
+            "web_search_source_count": 18,
+            "web_search_queries": ["Oh et al. 2024 larger models predict rare words better"],
+        },
+    ))
+
+    assert snapshot["visibleDetail"] == (
+        'Searched the web: "Oh et al. 2024 larger models predict rare words better" (1 search, 18 sources).'
+    )
+    assert snapshot["visibleEvents"][-1]["stage"] == "tool"
+    assert snapshot["workTrace"]["items"] == [{
+        "type": "tool",
+        "text": 'Searched the web: "Oh et al. 2024 larger models predict rare words better" (1 search, 18 sources).',
+        "at": snapshot["workTrace"]["items"][0]["at"],
+        "source": "provider",
+        "complete": True,
+    }]
+
+
 def test_progress_maps_skill_tools_to_user_visible_status():
     store = AgentProgressStore()
 

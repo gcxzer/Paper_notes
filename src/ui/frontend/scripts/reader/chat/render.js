@@ -58,7 +58,8 @@ function normalizeWorkTrace(rawTrace) {
       type: normalizeText(item?.type) || "summary",
       text: sanitizeChatProgressDetail(item?.text || item?.detail),
       at: normalizeText(item?.at),
-      source: normalizeText(item?.source)
+      source: normalizeText(item?.source),
+      complete: item?.complete === true
     })).filter((item) => item.text)
     : [];
   const items = sortTraceItemsChronologically(compactWorkTraceItems(rawItems));
@@ -252,6 +253,17 @@ function renderChatMarkdown(text) {
     html = html.replace(`@@CODEBLOCK${index}@@`, block);
   });
   return restoreChatMathSegments(html, mathSegments);
+}
+
+function renderTraceInlineMarkdown(text) {
+  const source = normalizeText(text);
+  if (!source) return "";
+  let html = escapeHtml(source);
+  html = html.replace(/\*\*([^*\n](?:[\s\S]*?[^*\n])?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__([^_\n](?:[\s\S]*?[^_\n])?)__/g, "<strong>$1</strong>");
+  html = html.replace(/\*\*/g, "");
+  html = html.replace(/__/g, "");
+  return html;
 }
 
 function renderChatMarkdownBlocks(html) {
@@ -1137,7 +1149,7 @@ function renderChatProgress() {
   const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: true });
   const pendingApproval = pendingApprovalFromProgress(progress);
   const rows = progressInlineRows(progress);
-  const activeToolIndex = lastProgressToolRowIndex(rows);
+  const activeToolIndex = activeProgressToolRowIndex(rows);
   const rowsHtml = rows.map((row, index) => renderProgressInlineRow(row, { active: index === activeToolIndex })).join("");
   const approvalHtml = pendingApproval ? renderProgressApprovalMessage(pendingApproval) : "";
   return `${compactionMarkerHtml}${rowsHtml}${approvalHtml}`;
@@ -1154,7 +1166,8 @@ function progressInlineRows(progress) {
     rows.push(...progress.workTrace.items.map((item) => ({
       type: normalizeText(item.type) || "status",
       detail: item.text,
-      at: item.at
+      at: item.at,
+      complete: item.complete === true
     })));
   } else if (progress.visibleEvents.length) {
     rows.push(...progress.visibleEvents.map((event) => ({
@@ -1178,15 +1191,15 @@ function progressInlineRows(progress) {
     const key = `${type}\n${detail}`;
     if (seen.has(key)) return null;
     seen.add(key);
-    return { type, detail, at: normalizeText(row.at) };
+    return { type, detail, at: normalizeText(row.at), complete: row.complete === true };
   }).filter(Boolean);
 }
 
-function lastProgressToolRowIndex(rows) {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    if (progressInlineType(rows[index]?.type) === "tool") return index;
-  }
-  return -1;
+function activeProgressToolRowIndex(rows) {
+  if (!Array.isArray(rows) || !rows.length) return -1;
+  const lastIndex = rows.length - 1;
+  const lastRow = rows[lastIndex];
+  return progressInlineType(lastRow?.type) === "tool" && lastRow?.complete !== true ? lastIndex : -1;
 }
 
 function progressInlineType(type) {
@@ -1224,7 +1237,7 @@ function renderProgressInlineRow(row, { active = false } = {}) {
   const detail = escapeHtml(detailText);
   const type = progressInlineType(row.type);
   const activeClass = active && type === "tool" ? " is-active" : "";
-  const textHtml = activeClass ? renderProgressInlineReadingText(detailText, row.at) : detail;
+  const textHtml = activeClass ? renderProgressInlineReadingText(detailText, row.at) : renderTraceInlineMarkdown(detailText);
   return `
     <div class="ask-message ask-message-assistant ask-message-progress-inline${activeClass}" role="status" aria-live="polite">
       <div class="ask-message-stack">
@@ -1321,7 +1334,7 @@ function renderRunTraceSummary(trace, workTrace = null, classPrefix = "ask") {
             ${workItems.map((item) => `
               <li>
                 <span class="${classPrefix}-run-summary-type">${escapeHtml(workTraceItemLabel(item.type))}</span>
-                <span>${escapeHtml(item.text)}</span>
+                <span>${renderTraceInlineMarkdown(item.text)}</span>
               </li>
             `).join("")}
           </ol>
@@ -1346,7 +1359,7 @@ function runSummaryStateKey(trace) {
 function runSummaryWorkItems(trace, workTrace = null) {
   const startItem = startingRunStatusItem(trace);
   const workTraceItems = (normalizeWorkTrace(workTrace)?.items || [])
-    .filter((item) => !isHiddenRunTraceMessage(item.type, item.text));
+    .filter((item) => !isHiddenRunSummaryMessage(item.type, item.text));
   const items = [
     ...(startItem ? [startItem] : []),
     ...workTraceItems,
@@ -1371,7 +1384,17 @@ function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
   const message = sanitizeChatProgressDetail(event?.message);
   const data = event?.data && typeof event.data === "object" ? event.data : {};
   const text = sanitizeChatProgressDetail(data.text || data.delta || message);
-  if (!text || isHiddenRunTraceMessage(eventType, text)) return null;
+  const nativeWebSearchText = providerNativeWebSearchText(data);
+  if (eventType === "model_response" && nativeWebSearchText) {
+    return {
+      type: "tool",
+      text: nativeWebSearchText,
+      at: event.at,
+      source: "provider",
+      complete: true,
+    };
+  }
+  if (!text || isHiddenRunSummaryMessage(eventType, text)) return null;
   if (eventType === "work_trace_item" || eventType === "work_trace_delta") {
     return {
       type: normalizeText(data.trace_type || data.traceType) || "summary",
@@ -1470,6 +1493,13 @@ function isHiddenRunTraceMessage(type, text) {
   ].includes(normalizedText);
 }
 
+function isHiddenRunSummaryMessage(type, text) {
+  const normalizedType = progressInlineType(type);
+  const normalizedText = sanitizeChatProgressDetail(text);
+  if (normalizedType === "status" && normalizedText === "Agent run started.") return true;
+  return isHiddenRunTraceMessage(type, text);
+}
+
 function hasEquivalentWorkTraceItem(items, candidate) {
   const candidateType = normalizeText(candidate?.type);
   const candidateText = sanitizeChatProgressDetail(candidate?.text);
@@ -1519,6 +1549,7 @@ function runTraceFromProgress(progress) {
     events: events.map((event) => ({
       type: normalizeText(event.type || event.stage) || "status",
       message: event.detail,
+      at: event.at,
       data: event.data || {}
     }))
   });
@@ -1550,6 +1581,7 @@ function workTraceFromProgressPayload(progress) {
       text: item.text,
       at: item.at,
       source: item.source || "runtime",
+      complete: item.complete === true,
     })));
   }
   if (normalized.visibleEvents.length) {
@@ -1570,9 +1602,41 @@ function workTraceFromProgressPayload(progress) {
   const visibleRows = rows.filter((row) => {
     const type = progressInlineType(row.type);
     const text = sanitizeChatProgressDetail(row.text);
-    return Boolean(text) && !isHiddenRunTraceMessage(type, text);
+    return Boolean(text) && !isHiddenRunSummaryMessage(type, text);
   });
   return normalizeWorkTrace({ status: normalized.status, items: visibleRows });
+}
+
+function providerNativeWebSearchText(data) {
+  const searchCount = positiveInteger(data?.web_search_call_count || data?.webSearchCallCount);
+  if (!searchCount) return "";
+  const sourceCount = positiveInteger(data?.web_search_source_count || data?.webSearchSourceCount);
+  const searchLabel = searchCount === 1 ? "search" : "searches";
+  const countText = `${searchCount} ${searchLabel}${sourceCount ? `, ${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` : ""}`;
+  const queryText = webSearchQuerySummary(data?.web_search_queries || data?.webSearchQueries);
+  return queryText
+    ? `Searched the web: ${queryText} (${countText}).`
+    : `Searched the web: ${countText}.`;
+}
+
+function webSearchQuerySummary(value) {
+  const queries = Array.isArray(value) ? value : [];
+  const parts = [];
+  for (const item of queries) {
+    let text = normalizeText(item);
+    if (!text) continue;
+    if (text.length > 96) text = `${text.slice(0, 95)}…`;
+    parts.push(`"${text}"`);
+    if (parts.length >= 3) break;
+  }
+  if (!parts.length) return "";
+  const remaining = queries.length - parts.length;
+  return `${parts.join("; ")}${remaining > 0 ? `; +${remaining} more` : ""}`;
+}
+
+function positiveInteger(value) {
+  const number = Number.parseInt(value || 0, 10);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
 }
 
 function mergeWorkTraces(first, second) {

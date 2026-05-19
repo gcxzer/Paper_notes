@@ -1195,6 +1195,7 @@ def _model_response_event(response: ModelResponse, turn: int) -> AgentEvent:
     provider_data = response.provider_data if isinstance(response.provider_data, dict) else {}
     web_search_call_count = _count_provider_items(provider_data.get("web_search_calls"))
     web_search_source_count = _count_provider_items(provider_data.get("web_search_sources"))
+    web_search_queries = _web_search_queries_from_provider_data(provider_data)
     data: dict[str, Any] = {
         "turn": turn,
         "finish_reason": response.finish_reason,
@@ -1206,6 +1207,8 @@ def _model_response_event(response: ModelResponse, turn: int) -> AgentEvent:
         data["web_search_call_count"] = web_search_call_count
     if web_search_source_count:
         data["web_search_source_count"] = web_search_source_count
+    if web_search_queries:
+        data["web_search_queries"] = web_search_queries
     if usage is not None:
         data.update({
             "input_tokens": usage.input_tokens,
@@ -1299,6 +1302,63 @@ def _with_ephemeral_messages(messages: list[dict[str, Any]], request_options: di
 
 def _count_provider_items(value: Any) -> int:
     return len(value) if isinstance(value, list) else 0
+
+
+def _web_search_queries_from_provider_data(provider_data: dict[str, Any]) -> list[str]:
+    calls = provider_data.get("web_search_calls")
+    if not isinstance(calls, list):
+        return []
+    queries: list[str] = []
+    seen: set[str] = set()
+    for call in calls:
+        _collect_web_search_queries(call, queries, seen, depth=0)
+        if len(queries) >= 6:
+            break
+    return queries
+
+
+def _collect_web_search_queries(value: Any, queries: list[str], seen: set[str], *, depth: int) -> None:
+    if depth > 4 or len(queries) >= 6:
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized_key = str(key or "").strip()
+            if normalized_key in {"query", "queries", "search_query", "searchQuery", "webSearchQueries", "web_search_queries"}:
+                _append_web_search_query(item, queries, seen)
+                if len(queries) >= 6:
+                    return
+                continue
+            _collect_web_search_queries(item, queries, seen, depth=depth + 1)
+            if len(queries) >= 6:
+                return
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_web_search_queries(item, queries, seen, depth=depth + 1)
+            if len(queries) >= 6:
+                return
+
+
+def _append_web_search_query(value: Any, queries: list[str], seen: set[str]) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _append_web_search_query(item, queries, seen)
+            if len(queries) >= 6:
+                return
+        return
+    if isinstance(value, dict):
+        _collect_web_search_queries(value, queries, seen, depth=0)
+        return
+    text = " ".join(str(value or "").split())
+    if not text:
+        return
+    if len(text) > 160:
+        text = f"{text[:159]}…"
+    key = text.casefold()
+    if key in seen:
+        return
+    seen.add(key)
+    queries.append(text)
 
 
 def _model_message_sanitized_event(result: MessageSanitizationResult) -> AgentEvent:

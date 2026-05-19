@@ -1131,6 +1131,35 @@ def test_work_trace_from_run_trace_labels_read_paper_details():
     ]
 
 
+def test_work_trace_from_run_trace_shows_provider_native_web_search():
+    work_trace = agent_api._work_trace_from_run_trace({
+        "status": "completed",
+        "events": [
+            {
+                "type": "work_trace_item",
+                "message": "Thinking before search.",
+                "data": {"text": "Thinking before search.", "trace_type": "summary", "source": "provider"},
+            },
+            {
+                "type": "model_response",
+                "message": "Model provider returned a response with 1 web search call and 18 sources.",
+                "data": {
+                    "web_search_call_count": 1,
+                    "web_search_source_count": 18,
+                    "web_search_queries": ["Oh et al. 2024 larger models predict rare words better"],
+                },
+            },
+        ],
+    })
+
+    assert work_trace is not None
+    assert [item["type"] for item in work_trace["items"]] == ["summary", "tool"]
+    assert [item["text"] for item in work_trace["items"]] == [
+        "Thinking before search.",
+        'Searched the web: "Oh et al. 2024 larger models predict rare words better" (1 search, 18 sources).',
+    ]
+
+
 def test_chat_stream_disconnect_does_not_stop_background_run(tmp_path):
     class SlowProvider(FakeProvider):
         def generate(self, request: ModelRequest) -> ModelResponse:
