@@ -207,10 +207,10 @@ html[data-theme="dark"] .details-tag-add {
 }
 
 .note-card {
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-height: 84px;
-  gap: 13px;
+  gap: 14px;
   padding: 13px 14px;
   border-color: color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: var(--radius-md);
@@ -238,18 +238,6 @@ html[data-theme="dark"] .note-card {
   box-shadow:
     inset 3px 0 0 var(--accent),
     var(--shadow-soft);
-}
-
-.note-card-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent-soft) 50%, var(--panel));
-  color: var(--accent);
 }
 
 .note-card-meta {
@@ -423,11 +411,11 @@ html[data-theme="dark"] .note-card {
   }
 
   .note-card {
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .note-card-actions-inline {
-    grid-column: 2;
+    grid-column: 1;
     justify-self: start;
   }
 

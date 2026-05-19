@@ -144,7 +144,6 @@ function renderNotes() {
     const venue = normalizeText(note.venue);
     return `
       <article class="note-card${note.id === state.selectedNoteId ? " is-selected" : ""}" data-note-id="${noteId}" draggable="true">
-        <div class="note-card-icon" aria-hidden="true">${renderIcon("file-text", "", "", 20)}</div>
         <div class="note-card-main">
           <div class="meta note-card-meta">
             <span>${renderIcon("calendar", "", "", 13)}${escapeHtml(note.date || "No date")}</span>

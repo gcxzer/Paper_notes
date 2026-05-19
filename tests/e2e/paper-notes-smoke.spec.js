@@ -250,12 +250,12 @@ async function showAskPane(page) {
   await expect(page.locator("#askPane")).toBeVisible();
 }
 
-test("library workbench row exposes icon actions without changing note actions", async ({ page }) => {
+test("library workbench row exposes note actions without leading document icon", async ({ page }) => {
   await openFixtureLibrary(page);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
   const card = page.locator(".note-card").first();
-  await expect(card.locator(".note-card-icon .ui-icon")).toBeVisible();
+  await expect(card.locator(".note-card-icon")).toHaveCount(0);
   await expect(card.getByRole("link", { name: "Open DeepSeek V4" })).toBeVisible();
 
   await card.getByRole("button", { name: "Rename DeepSeek V4" }).click();
