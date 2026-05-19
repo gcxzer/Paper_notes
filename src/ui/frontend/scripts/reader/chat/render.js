@@ -271,11 +271,12 @@ function renderChatMarkdownBlocks(html) {
     output.push(`<blockquote>${blockquote.join("<br>")}</blockquote>`);
     blockquote = [];
   };
-  const openList = (type) => {
+  const openList = (type, start = "") => {
     closeBlockquote();
     if (listType === type) return;
     closeList();
-    output.push(`<${type}>`);
+    const startAttr = type === "ol" && start ? ` start="${escapeHtml(start)}"` : "";
+    output.push(`<${type}${startAttr}>`);
     listType = type;
   };
   const closeBlocks = () => {
@@ -335,10 +336,10 @@ function renderChatMarkdownBlocks(html) {
       output.push(`<li>${unordered[1]}</li>`);
       continue;
     }
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
     if (ordered) {
-      openList("ol");
-      output.push(`<li>${ordered[1]}</li>`);
+      openList("ol", ordered[1]);
+      output.push(`<li>${ordered[2]}</li>`);
       continue;
     }
     const quote = line.match(/^\s*(?:>|&gt;)\s?(.*)$/);

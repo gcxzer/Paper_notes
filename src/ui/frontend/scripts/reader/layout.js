@@ -457,7 +457,17 @@ function commitPdfPageInput() {
     updatePdfPageControl();
     return;
   }
-  scrollToPdfPage(rawPage, "auto");
+  const targetPage = clamp(Math.round(rawPage), 1, count);
+  const returnPosition = currentPdfScrollPosition();
+  const didNavigate = scrollToPdfPage(targetPage, "auto");
+  if (
+    didNavigate
+    && returnPosition
+    && Number(returnPosition.page) !== targetPage
+    && typeof showPdfLinkBackButton === "function"
+  ) {
+    showPdfLinkBackButton(returnPosition);
+  }
 }
 
 function initializePdfPageControl() {

@@ -744,55 +744,13 @@
 }
 
 .ask-project-rename {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
-  align-items: center;
-  gap: 6px;
+  display: block;
   min-width: 0;
+}
+
+.ask-project-rename .ask-project-rename-card {
+  min-height: 42px;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel-hover) 78%, transparent);
-}
-
-.ask-project-rename label {
-  min-width: 0;
-}
-
-.ask-project-rename input {
-  width: 100%;
-  height: 32px;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--input-bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.78rem;
-  padding: 0 9px;
-}
-
-.ask-project-rename input:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 26%, transparent);
-}
-
-.ask-project-rename button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--muted-strong);
-  cursor: pointer;
-}
-
-.ask-project-rename button:hover,
-.ask-project-rename button:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-  color: var(--text);
 }
 
 .ask-project-empty-state {

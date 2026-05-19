@@ -332,26 +332,35 @@ function clearReaderSelectedPdfText({ clearNativeSelection = false } = {}) {
   renderAttachmentTray();
 }
 
-function handleReaderSelectedPdfPointerDown(event) {
+function keepSelectedPdfContextWithoutNativeSelection() {
   if (!currentReaderSelectedPdfText()) return;
+  readerState.selectedPdfRanges = [];
+  readerState.selectedPdfPointerRegion = "ask";
+  readerState.preservePdfSelectionUntil = 0;
+  renderAttachmentTray();
+}
+
+function clearNativePdfSelectionOnly({ preserveSelectedText = false } = {}) {
+  if (preserveSelectedText) keepSelectedPdfContextWithoutNativeSelection();
+  window.getSelection?.()?.removeAllRanges?.();
+  if (typeof clearPdfSelectionOverlays === "function") clearPdfSelectionOverlays();
+}
+
+function handleReaderSelectedPdfPointerDown(event) {
+  const askTarget = elements.askPane?.contains(event.target);
+  if (!currentReaderSelectedPdfText()) {
+    if (askTarget && selectedPdfPagesForChatContext().length) clearNativePdfSelectionOnly();
+    return;
+  }
   if (isSelectedTextRemoveTarget(event.target)) return;
-  if (!elements.askPane?.contains(event.target)) {
+  if (!askTarget) {
     readerState.selectedPdfPointerRegion = "outside";
     clearReaderSelectedPdfText({ clearNativeSelection: true });
     return;
   }
 
   readerState.selectedPdfPointerRegion = "ask";
-  if (isEditableAskPaneTarget(event.target)) {
-    readerState.preservePdfSelectionUntil = 0;
-    window.requestAnimationFrame(renderSavedReaderPdfSelectionOverlay);
-    return;
-  }
-  captureReaderPdfSelectionRanges();
-  readerState.preservePdfSelectionUntil = Date.now() + 700;
-  window.requestAnimationFrame(() => {
-    if (Date.now() <= readerState.preservePdfSelectionUntil) restoreReaderPdfSelectionRanges();
-  });
+  clearNativePdfSelectionOnly({ preserveSelectedText: true });
 }
 
 function shouldRestoreReaderPdfSelection() {
@@ -367,7 +376,7 @@ function refreshReaderSelectedPdfTextFromSelection() {
   if (!pages.length) {
     if (shouldRestoreReaderPdfSelection() && restoreReaderPdfSelectionRanges()) return true;
     if (readerState.selectedPdfPointerRegion === "ask" && currentReaderSelectedPdfText()) {
-      renderSavedReaderPdfSelectionOverlay();
+      if (typeof clearPdfSelectionOverlays === "function") clearPdfSelectionOverlays();
       return true;
     }
     clearReaderSelectedPdfText();

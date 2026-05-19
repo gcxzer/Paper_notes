@@ -220,6 +220,8 @@ function renderReaderNoteBody(note, collectionPath, generatedNoteBody, notePosit
   enableLocalFileLinks(elements.notePage);
   elements.notePage.removeEventListener("click", handleNoteLocalFileLinkClick);
   elements.notePage.addEventListener("click", handleNoteLocalFileLinkClick);
+  elements.notePage.removeEventListener("copy", handleRichTextCopy);
+  elements.notePage.addEventListener("copy", handleRichTextCopy);
   if (typeof window.buildNoteMenu === "function") window.buildNoteMenu(elements.notePage);
   mountReaderNoteMenu();
   finishNoteScrollRestore(notePositionToRestore);

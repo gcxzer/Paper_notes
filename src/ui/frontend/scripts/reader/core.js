@@ -83,6 +83,139 @@ async function copyTextToClipboard(text) {
   }
 }
 
+function normalizeClipboardPlainText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function elementChildIndex(element) {
+  if (!element?.parentElement) return 0;
+  return Array.from(element.parentElement.children).filter((child) => child.tagName === element.tagName).indexOf(element);
+}
+
+function listItemMarkerForCopy(item, context = null) {
+  const queuedMarker = context?.listItemMarkers?.shift?.();
+  if (queuedMarker) return queuedMarker;
+  const list = item?.parentElement;
+  if (!list || list.tagName !== "OL") return "- ";
+  const value = Number(item.getAttribute("value"));
+  if (Number.isFinite(value) && value > 0) return `${value}. `;
+  const start = Number(list.getAttribute("start"));
+  const base = Number.isFinite(start) && start > 0 ? start : 1;
+  return `${base + elementChildIndex(item)}. `;
+}
+
+function serializeCopiedListItem(item, context = null) {
+  const pieces = [];
+  item.childNodes.forEach((child) => {
+    if (child.nodeType === Node.ELEMENT_NODE && ["OL", "UL"].includes(child.tagName)) return;
+    pieces.push(serializeCopiedSelectionNode(child, context));
+  });
+  const text = normalizeClipboardPlainText(pieces.join(""));
+  return text ? `${listItemMarkerForCopy(item, context)}${text}` : "";
+}
+
+function serializeCopiedSelectionNode(node, context = null) {
+  if (!node) return "";
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+  if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return "";
+  if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    return Array.from(node.childNodes).map((child) => serializeCopiedSelectionNode(child, context)).join("");
+  }
+
+  const tag = node.tagName;
+  if (tag === "BR") return "\n";
+  if (tag === "OL" || tag === "UL") {
+    return Array.from(node.children)
+      .filter((child) => child.tagName === "LI")
+      .map((child) => serializeCopiedListItem(child, context))
+      .filter(Boolean)
+      .join("\n") + "\n";
+  }
+  if (tag === "LI") return `${serializeCopiedListItem(node, context)}\n`;
+  const text = Array.from(node.childNodes).map((child) => serializeCopiedSelectionNode(child, context)).join("");
+  if (["P", "DIV", "SECTION", "ARTICLE", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {
+    return `${text}\n`;
+  }
+  if (tag === "TR") return `${text}\n`;
+  if (tag === "TD" || tag === "TH") return `${text}\t`;
+  return text;
+}
+
+function elementFromSelectionNode(node) {
+  if (!node) return null;
+  return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+}
+
+function listItemMarkerFromOriginalItem(item) {
+  const list = item?.parentElement;
+  if (!list || list.tagName !== "OL") return "- ";
+  const value = Number(item.getAttribute("value"));
+  if (Number.isFinite(value) && value > 0) return `${value}. `;
+  const start = Number(list.getAttribute("start"));
+  const base = Number.isFinite(start) && start > 0 ? start : 1;
+  return `${base + elementChildIndex(item)}. `;
+}
+
+function copiedSelectionContext(range) {
+  const root = elementFromSelectionNode(range.commonAncestorContainer);
+  const list = root?.closest?.("ol, ul") || root?.querySelector?.("ol, ul") || null;
+  const items = list
+    ? Array.from(list.children).filter((child) => child.tagName === "LI" && range.intersectsNode(child))
+    : [];
+  return {
+    listItemMarkers: items.map(listItemMarkerFromOriginalItem)
+  };
+}
+
+function copiedSelectionTextWithListMarkers(selection) {
+  if (!selection || selection.rangeCount <= 0 || selection.isCollapsed) return "";
+  const chunks = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    chunks.push(serializeCopiedSelectionNode(range.cloneContents(), copiedSelectionContext(range)));
+  }
+  return normalizeClipboardPlainText(chunks.join("\n"));
+}
+
+function scopedSelectionRange(range, container) {
+  if (!range || !container || !range.intersectsNode(container)) return null;
+  const scoped = range.cloneRange();
+  if (!container.contains(range.startContainer)) {
+    scoped.setStart(container, 0);
+  }
+  if (!container.contains(range.endContainer)) {
+    scoped.setEnd(container, container.childNodes.length);
+  }
+  return scoped;
+}
+
+function copiedSelectionTextWithinContainer(selection, container) {
+  if (!container || !selection || selection.rangeCount <= 0 || selection.isCollapsed) return "";
+  const chunks = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = scopedSelectionRange(selection.getRangeAt(index), container);
+    if (!range) continue;
+    chunks.push(serializeCopiedSelectionNode(range.cloneContents(), copiedSelectionContext(range)));
+  }
+  return normalizeClipboardPlainText(chunks.join("\n"));
+}
+
+function handleRichTextCopy(event) {
+  if (event.defaultPrevented || event.target?.closest?.("input, textarea, [contenteditable='true']")) return;
+  const selection = window.getSelection();
+  const container = event.currentTarget?.nodeType === Node.ELEMENT_NODE ? event.currentTarget : null;
+  const text = container
+    ? copiedSelectionTextWithinContainer(selection, container)
+    : copiedSelectionTextWithListMarkers(selection);
+  if (!text || !event.clipboardData) return;
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", text);
+}
+
 const copyFeedbackTimers = new WeakMap();
 
 function showCopyFeedback(button) {

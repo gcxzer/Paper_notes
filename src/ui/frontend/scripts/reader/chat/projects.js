@@ -97,13 +97,12 @@ function renderReaderProjectRow(project, scopeId) {
   const projectId = escapeHtml(project.id);
   if (readerState.renamingChatProjectId === project.id) {
     return `
-      <form class="ask-project-rename" data-project-rename-form data-project-id="${projectId}">
-        <label>
+      <form class="ask-project-rename ask-session-rename-form" data-project-rename-form data-project-id="${projectId}">
+        <label class="ask-session-rename-card ask-project-rename-card">
           <span class="sr-only">Project name</span>
           <input type="text" name="name" maxlength="80" autocomplete="off" value="${escapeHtml(project.name)}" aria-label="Project name">
+          <button class="ask-session-save" type="submit">Save</button>
         </label>
-        <button type="submit" aria-label="Save project name" title="Save">${readerProjectIcon("check", 14)}</button>
-        <button type="button" data-project-rename-cancel="${projectId}" aria-label="Cancel rename" title="Cancel">${readerProjectIcon("x", 14)}</button>
       </form>
     `;
   }
@@ -656,13 +655,6 @@ function handleReaderProjectPopoverClick(event) {
   if (sessionButton) {
     void loadReaderChatSession(sessionButton.dataset.projectSession, { closeMenu: false });
     closeReaderProjectMenu();
-    return;
-  }
-
-  const renameCancel = event.target.closest("[data-project-rename-cancel]");
-  if (renameCancel) {
-    readerState.renamingChatProjectId = "";
-    renderReaderProjectControls();
     return;
   }
 

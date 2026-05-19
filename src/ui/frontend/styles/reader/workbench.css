@@ -149,6 +149,10 @@ html[data-theme="dark"] .pdf-pane {
   color: var(--muted);
 }
 
+.pdf-sidebar-tool.has-annotations {
+  color: var(--text);
+}
+
 .pdf-history-tool {
   min-width: 34px;
 }

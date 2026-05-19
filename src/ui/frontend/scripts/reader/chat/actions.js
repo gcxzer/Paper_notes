@@ -539,6 +539,7 @@ function initializeReaderChat() {
   elements.readerChatMessages?.addEventListener("click", handleNoteEditDraftClick);
   elements.readerChatMessages?.addEventListener("click", handleChatProgressClick);
   elements.readerChatMessages?.addEventListener("click", handleReaderChatMessageAction);
+  elements.readerChatMessages?.addEventListener("copy", handleRichTextCopy);
   elements.readerChatMessages?.addEventListener("dblclick", handleReaderChatMessageDoubleClick);
   elements.readerChatMessages?.addEventListener("input", handleReaderChatMessageInput);
   elements.readerChatMessages?.addEventListener("keydown", handleReaderChatMessageKeydown);

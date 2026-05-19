@@ -175,6 +175,23 @@ function selectedLineRectsForPage(pageElement, type) {
   return lineRectsFromClientRects(clientRects.length ? clientRects : selectionClientRectsForPage(pageElement), pageBox, type);
 }
 
+function clearSelectionAfterPdfAnnotation(selectedText = "", page = "") {
+  if (selectedText && typeof setReaderSelectedPdfText === "function") {
+    setReaderSelectedPdfText(selectedText, page);
+  }
+  if (typeof clearNativePdfSelectionOnly === "function") {
+    clearNativePdfSelectionOnly({ preserveSelectedText: Boolean(selectedText) });
+    return;
+  }
+  window.getSelection?.()?.removeAllRanges?.();
+  if (selectedText && typeof readerState === "object" && readerState) {
+    readerState.selectedPdfRanges = [];
+    readerState.selectedPdfPointerRegion = "ask";
+    readerState.preservePdfSelectionUntil = 0;
+  }
+  if (typeof clearPdfSelectionOverlays === "function") clearPdfSelectionOverlays();
+}
+
 function horizontalOverlap(a, b) {
   return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
 }
@@ -927,6 +944,7 @@ function addNoteAnnotation(event, pageElement) {
   pdfState.annotations.push(annotation);
   scheduleSaveAnnotations();
   renderAnnotationsForPage(pageElement);
+  clearSelectionAfterPdfAnnotation("", pageElement.dataset.page);
 }
 
 function finishSelectionAnnotation(pageElement, type) {
@@ -951,5 +969,6 @@ function finishSelectionAnnotation(pageElement, type) {
     pdfState.annotations.push(annotation);
     scheduleSaveAnnotations();
     renderAnnotationsForPage(pageElement);
+    clearSelectionAfterPdfAnnotation(selectedText, pageElement.dataset.page);
   }, 0);
 }
