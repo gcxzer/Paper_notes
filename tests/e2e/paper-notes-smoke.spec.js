@@ -2194,6 +2194,7 @@ test("reader ask send button cancels a pending request", async ({ page }) => {
   await expect(page.locator("[data-slash-command='new']")).toBeEnabled();
   await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
   await expect(page.locator("[data-slash-command='compact']")).toContainText("Wait for current answer to finish");
+  await expect(page.locator("[data-slash-command='stop']")).toBeEnabled();
 
   await askInput.fill("draft next question");
   await askInput.press("Enter");
@@ -3044,11 +3045,12 @@ test("reader slash commands show icons filter and start a new chat", async ({ pa
 
   await askInput.fill("/");
   await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
-  await expect(page.locator(".slash-command-item")).toHaveCount(2);
-  await expect(page.locator(".slash-command-icon")).toHaveCount(2);
+  await expect(page.locator(".slash-command-item")).toHaveCount(3);
+  await expect(page.locator(".slash-command-icon")).toHaveCount(3);
   await expect(page.locator(".slash-command-item").nth(0)).toContainText("New chat");
   await expect(page.locator(".slash-command-item").nth(0)).toContainText("Start a fresh Ask session");
   await expect(page.locator(".slash-command-item").nth(1)).toContainText("Compact");
+  await expect(page.locator(".slash-command-item").nth(2)).toContainText("Stop");
 
   await askInput.fill("/ne");
   await expect(page.locator(".slash-command-item")).toHaveCount(1);
@@ -3127,6 +3129,30 @@ test("reader slash compact is disabled without a session and executable with one
   await expect(page.locator("#readerSlashCommandMenu")).toBeHidden();
   await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
   expect(compressRequest).toMatchObject({ sessionId: "slash-compact-session", noteId: E2E_NOTE_ID });
+});
+
+test("reader slash stop cancels a pending request", async ({ page }) => {
+  await openFixtureReader(page);
+  await showAskPane(page);
+  let releaseStream;
+  const streamGate = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  const agentMocks = await installAgentMocks(page, { streamGate });
+
+  const askInput = page.locator("#readerChatInput");
+  await askInput.fill("keep running");
+  await page.locator("#sendReaderChat").click();
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Cancel");
+
+  await askInput.fill("/stop");
+  await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
+  await expect(page.locator("[data-slash-command='stop']")).toBeEnabled();
+  await askInput.press("Enter");
+  await expect.poll(() => agentMocks.cancelRequests.length).toBe(1);
+  expect(agentMocks.cancelRequests[0]).toMatchObject({ reason: "reader_cancelled" });
+  releaseStream();
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Send");
 });
 
 test("reader attachment uploads show tray progress and can be removed", async ({ page }) => {
