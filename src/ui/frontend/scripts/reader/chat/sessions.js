@@ -15,6 +15,7 @@ function chatSessionMatchesQuery(session) {
   return [
     session.title,
     session.lastMessagePreview,
+    readerSessionProjectName(session),
     chatSessionPaperLabel(session),
     formatChatSessionTime(session.updatedAt)
   ].some((value) => normalizeText(value).toLowerCase().includes(query));
@@ -67,10 +68,11 @@ function chatSessionMetaText(session, view) {
 function chatSessionMetaHtml(session, view) {
   const timeText = chatSessionMetaText(session, view);
   const paperLabel = chatSessionPaperLabel(session);
-  if (!paperLabel) return escapeHtml(timeText);
+  const projectName = readerSessionProjectName(session);
   return `
     <span class="ask-session-meta-time">${escapeHtml(timeText)}</span>
-    <span class="ask-session-meta-paper">· ${escapeHtml(paperLabel)}</span>
+    ${paperLabel ? `<span class="ask-session-meta-paper">· ${escapeHtml(paperLabel)}</span>` : ""}
+    ${projectName ? `<span class="ask-session-meta-project">· ${escapeHtml(projectName)}</span>` : ""}
   `;
 }
 
@@ -81,6 +83,7 @@ function clearSessionActionMenu() {
 function clearSessionRowState() {
   readerState.confirmingDeleteSessionId = "";
   readerState.renamingSessionId = "";
+  readerState.assigningProjectSessionId = "";
   clearSessionActionMenu();
 }
 
@@ -104,6 +107,12 @@ function addSessionMenuOption(menu, {
 }
 
 function populateSessionActionMenu(menu, session, view) {
+  if (readerState.assigningProjectSessionId === session.id) {
+    menu.classList.add("ask-session-project-picker-menu");
+    addSessionProjectPicker(menu, session);
+    return;
+  }
+  menu.classList.remove("ask-session-project-picker-menu");
   if (view === "active") {
     addSessionMenuOption(menu, {
       text: "Rename",
@@ -112,6 +121,16 @@ function populateSessionActionMenu(menu, session, view) {
         readerState.renamingSessionId = session.id;
         readerState.confirmingDeleteSessionId = "";
         clearSessionActionMenu();
+        renderChatSessionList();
+      },
+    });
+    addSessionMenuOption(menu, {
+      className: "ask-session-project",
+      text: readerSessionProjectName(session) ? `Project: ${readerSessionProjectName(session)}` : "Project...",
+      ariaLabel: `Choose project for ${session.title || "chat session"}`,
+      onClick: () => {
+        readerState.assigningProjectSessionId = session.id;
+        readerState.confirmingDeleteSessionId = "";
         renderChatSessionList();
       },
     });
@@ -128,6 +147,18 @@ function populateSessionActionMenu(menu, session, view) {
       onClick: () => trashReaderChatSession(session.id),
     });
   } else {
+    if (view === "archived") {
+      addSessionMenuOption(menu, {
+        className: "ask-session-project",
+        text: readerSessionProjectName(session) ? `Project: ${readerSessionProjectName(session)}` : "Project...",
+        ariaLabel: `Choose project for ${session.title || "chat session"}`,
+        onClick: () => {
+          readerState.assigningProjectSessionId = session.id;
+          readerState.confirmingDeleteSessionId = "";
+          renderChatSessionList();
+        },
+      });
+    }
     addSessionMenuOption(menu, {
       className: "ask-session-restore",
       text: "Restore",
@@ -167,6 +198,8 @@ function positionSessionActionMenu(menu, row) {
   const popoverRect = popover.getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
   const buttonRect = row.querySelector(".ask-session-more")?.getBoundingClientRect() || rowRect;
+  const availableHeight = Math.max(96, popoverRect.height - 16);
+  menu.style.maxHeight = `${Math.round(availableHeight)}px`;
   const menuRect = menu.getBoundingClientRect();
   const gap = 10;
   const left = Math.max(
@@ -218,6 +251,7 @@ function appendSessionActionMenu(row, session) {
     event.stopPropagation();
     readerState.openSessionActionMenuId = isMenuOpen ? "" : session.id;
     readerState.renamingSessionId = "";
+    readerState.assigningProjectSessionId = "";
     renderChatSessionList();
   });
 
@@ -292,7 +326,19 @@ function renderChatSessionList() {
     return;
   }
 
-  const visibleSessions = readerState.chatSessions.filter(chatSessionMatchesQuery);
+  const scopedSessions = readerState.chatSessions.filter(chatSessionMatchesProject);
+  if (!scopedSessions.length) {
+    const view = currentChatSessionView();
+    const scoped = Boolean(normalizeText(readerState.chatProjectScopeId));
+    elements.chatSessionList.innerHTML = `<p class="ask-session-empty">${
+      scoped
+        ? "No sessions in this project"
+        : view === "trashed" ? "Trash is empty" : view === "archived" ? "Archive is empty" : "No sessions yet"
+    }</p>`;
+    return;
+  }
+
+  const visibleSessions = scopedSessions.filter(chatSessionMatchesQuery);
   if (!visibleSessions.length) {
     const view = currentChatSessionView();
     elements.chatSessionList.innerHTML = `<p class="ask-session-empty">${
@@ -362,9 +408,11 @@ function renderChatSessionList() {
 
 function setChatSessionMenuOpen(open, view = currentChatSessionView()) {
   if (open) {
+    closeReaderProjectMenu();
     closeReaderModelMenu();
     closeReaderContextPopover();
     closeReaderToolMenu();
+    readerState.chatProjectScopeId = "";
   }
   if (open) readerState.chatSessionView = ["active", "archived", "trashed"].includes(view) ? view : "active";
   readerState.chatSessionMenuOpen = open;
@@ -390,6 +438,7 @@ async function openChatSessionView(view) {
   const changedView = currentChatSessionView() !== nextView;
   readerState.chatSessionView = nextView;
   readerState.chatSessionQuery = "";
+  readerState.chatProjectScopeId = "";
   clearSessionRowState();
   if (changedView) readerState.chatSessions = [];
   setChatSessionMenuOpen(true, nextView);
@@ -402,7 +451,11 @@ async function fetchReaderChatSessions({ silent = false } = {}) {
     const view = currentChatSessionView();
     const query = view === "active" ? "" : `?state=${encodeURIComponent(view)}`;
     const payload = await fetchAgentJson(`/api/chat/sessions${query}`);
-    const sessions = normalizeReaderChatSessions(payload.sessions);
+    const sessions = normalizeReaderChatSessions(payload.sessions).map(enrichReaderSessionProject);
+    if (currentChatSessionView() !== view) {
+      readerState.chatSessionsLoading = false;
+      return readerState.chatSessions;
+    }
     const activeSession = readerState.currentChatSession?.id === getChatSessionId()
       ? readerState.currentChatSession
       : readerState.chatSessions.find((session) => session.id === getChatSessionId());
@@ -412,6 +465,7 @@ async function fetchReaderChatSessions({ silent = false } = {}) {
     }
     readerState.chatSessionsLoading = false;
     renderChatSessionList();
+    if (readerState.chatProjectMenuOpen) renderReaderProjectControls();
     renderReaderModelControls();
     return readerState.chatSessions;
   } catch (error) {
@@ -419,6 +473,7 @@ async function fetchReaderChatSessions({ silent = false } = {}) {
     readerState.chatSessions = [];
     if (!silent) setReaderChatError(error.message || GENERIC_AGENT_ERROR);
     renderChatSessionList();
+    if (readerState.chatProjectMenuOpen) renderReaderProjectControls();
     renderReaderModelControls();
     return [];
   }
@@ -542,6 +597,7 @@ async function archiveReaderChatSession(sessionId) {
     if (sessionId === getChatSessionId()) clearCurrentReaderChatSession();
     clearSessionRowState();
     setReaderChatError("");
+    setReaderChatNotice("Moved to Archive");
     await fetchReaderChatSessions({ silent: true });
   } catch (error) {
     setReaderChatError(error.message || GENERIC_AGENT_ERROR);
@@ -559,6 +615,7 @@ async function trashReaderChatSession(sessionId) {
     if (sessionId === getChatSessionId()) clearCurrentReaderChatSession();
     clearSessionRowState();
     setReaderChatError("");
+    setReaderChatNotice("Moved to Trash");
     await fetchReaderChatSessions({ silent: true });
   } catch (error) {
     setReaderChatError(error.message || GENERIC_AGENT_ERROR);
@@ -575,6 +632,7 @@ async function restoreReaderChatSession(sessionId) {
     });
     clearSessionRowState();
     setReaderChatError("");
+    setReaderChatNotice("Restored to Sessions");
     await fetchReaderChatSessions({ silent: true });
   } catch (error) {
     setReaderChatError(error.message || GENERIC_AGENT_ERROR);
@@ -600,9 +658,13 @@ async function permanentlyDeleteReaderChatSession(sessionId) {
 }
 
 async function initializeReaderChatSessions() {
-  readerState.chatSessionView = "active";
-  readerState.chatSessionQuery = "";
+  const preserveOpenView = readerState.chatSessionMenuOpen && currentChatSessionView() !== "active";
+  if (!preserveOpenView) {
+    readerState.chatSessionView = "active";
+    readerState.chatSessionQuery = "";
+  }
   const sessions = await fetchReaderChatSessions({ silent: true });
+  if (readerState.chatSessionMenuOpen && currentChatSessionView() !== "active") return;
   const savedSessionId = storedChatSessionId();
   if (savedSessionId && sessions.some((session) => session.id === savedSessionId)) {
     await loadReaderChatSession(savedSessionId, { closeMenu: false, refreshList: false });

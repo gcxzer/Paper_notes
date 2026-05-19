@@ -231,16 +231,21 @@ html[data-theme="dark"] .note-page {
 }
 
 .ask-pane-header {
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
   min-height: 54px;
+  min-width: 0;
+}
+
+.ask-project-scope {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .ask-pane-controls {
   display: inline-flex;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   gap: 8px;
   min-width: 0;
 }
@@ -310,6 +315,11 @@ html[data-theme="dark"] .note-page {
     min-width: 72px;
     max-width: 90px;
     padding-inline: 6px;
+  }
+
+  .ask-project-button {
+    width: 32px;
+    padding-inline: 0;
   }
 }
 

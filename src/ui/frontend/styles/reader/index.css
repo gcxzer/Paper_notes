@@ -4,12 +4,12 @@
 @import "../shared/workspace-theme.css";
 @import "./layout.css";
 @import "./pdf.css";
-@import "./ask.css";
+@import "./ask.css?v=project-flyout-list-only-v1";
 @import "./chat.css";
 @import "./prompts.css";
 @import "./slash-commands.css";
 @import "./debug.css?v=debug-unified-v1";
-@import "./artifacts.css?v=progress-text-reading-v2";
+@import "./artifacts.css?v=project-flyout-list-only-v1";
 @import "./note.css";
 @import "./responsive.css";
-@import "./workbench.css";
+@import "./workbench.css?v=project-flyout-list-only-v1";

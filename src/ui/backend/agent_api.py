@@ -603,6 +603,56 @@ def update_chat_session_model(body: Any, *, service: AgentService | None = None)
     return {"session": serialize_session(session, debug_store=_debug_store_for_service(agent_service))}
 
 
+def update_chat_session_project(body: Any, *, service: AgentService | None = None) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
+    session_id = _body_session_id(body)
+    project_id = _optional_text(body.get("projectId") or body.get("project_id"))
+    project_name = _optional_text(body.get("projectName") or body.get("project_name"))
+
+    agent_service = service or get_agent_service()
+    try:
+        metadata = agent_service.session_store.update_session_metadata(session_id, {
+            "projectId": project_id,
+            "project_id": project_id,
+            "projectName": project_name,
+            "project_name": project_name,
+        })
+    except SessionNotFoundError as error:
+        raise AgentAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
+    return {"session": serialize_session_metadata(metadata)}
+
+
+def sync_chat_project_session_metadata(
+    project_id: str,
+    *,
+    project_name: str = "",
+    clear: bool = False,
+    service: AgentService | None = None,
+) -> dict[str, Any]:
+    normalized_project_id = _optional_text(project_id)
+    if not normalized_project_id:
+        raise AgentAPIError(HTTPStatus.BAD_REQUEST, "project_id_required", "Project id is required.")
+
+    agent_service = service or get_agent_service()
+    updated = 0
+    for metadata in agent_service.session_store.list_sessions(include_archived=True):
+        payload = metadata.metadata or {}
+        session_project_id = _optional_text(payload.get("projectId") or payload.get("project_id"))
+        if session_project_id != normalized_project_id:
+            continue
+        next_project_id = "" if clear else normalized_project_id
+        next_project_name = "" if clear else _optional_text(project_name)
+        agent_service.session_store.update_session_metadata(metadata.session_id, {
+            "projectId": next_project_id,
+            "project_id": next_project_id,
+            "projectName": next_project_name,
+            "project_name": next_project_name,
+        })
+        updated += 1
+    return {"updatedSessions": updated}
+
+
 def rename_chat_session(body: Any, *, service: AgentService | None = None) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
@@ -1069,6 +1119,8 @@ def serialize_session_metadata(metadata: AgentSessionMetadata) -> dict[str, Any]
         or origin_note_title
         or ""
     )
+    project_id = str(metadata_payload.get("projectId") or metadata_payload.get("project_id") or "")
+    project_name = str(metadata_payload.get("projectName") or metadata_payload.get("project_name") or "")
     return {
         "id": metadata.session_id,
         "sessionId": metadata.session_id,
@@ -1078,6 +1130,8 @@ def serialize_session_metadata(metadata: AgentSessionMetadata) -> dict[str, Any]
         "originNoteTitle": origin_note_title,
         "currentNoteId": current_note_id,
         "currentNoteTitle": current_note_title,
+        "projectId": project_id,
+        "projectName": project_name,
         "provider": metadata.provider or "",
         "model": metadata.model or "",
         "createdAt": metadata.created_at,

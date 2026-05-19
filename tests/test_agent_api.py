@@ -38,10 +38,12 @@ from backend.agent_api import (
     respond_chat_tool_approval,
     serialize_message,
     serialize_session,
+    sync_chat_project_session_metadata,
     undo_chat_session,
     undo_chat_tool_snapshot,
     upload_chat_attachment,
     update_chat_session_model,
+    update_chat_session_project,
 )
 from model_providers import ModelProviderAPIError
 from model_providers.types import ModelRequest, ModelResponse, ModelStreamEvent, ToolCall
@@ -1911,6 +1913,68 @@ def test_create_rename_archive_and_delete_chat_session(tmp_path):
     assert trash_sessions["sessions"][0]["id"] == created["session"]["id"]
     assert deleted["deleted"] is True
     assert service.session_store.get_session(created["session"]["id"]) is None
+
+
+def test_update_chat_session_project_updates_session_metadata(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    created = create_chat_session({"title": "Draft"}, service=service)
+
+    updated = update_chat_session_project(
+        {
+            "sessionId": created["session"]["id"],
+            "projectId": "project-rag",
+            "projectName": "RAG Review",
+        },
+        service=service,
+    )
+    listed = list_chat_sessions(service=service)["sessions"][0]
+    cleared = update_chat_session_project(
+        {
+            "sessionId": created["session"]["id"],
+            "projectId": "",
+            "projectName": "",
+        },
+        service=service,
+    )
+
+    assert updated["session"]["projectId"] == "project-rag"
+    assert updated["session"]["projectName"] == "RAG Review"
+    assert listed["projectId"] == "project-rag"
+    assert listed["projectName"] == "RAG Review"
+    assert cleared["session"]["projectId"] == ""
+    assert cleared["session"]["projectName"] == ""
+
+
+def test_sync_chat_project_session_metadata_renames_and_clears_assignments(tmp_path):
+    service = AgentService(
+        model_provider=FakeProvider([]),
+        session_store=AgentSessionStore(tmp_path / ".paper-notes" / "sessions"),
+        tool_registry=ToolRegistry(),
+    )
+    first = create_chat_session({"title": "First"}, service=service)["session"]
+    second = create_chat_session({"title": "Second"}, service=service)["session"]
+    update_chat_session_project(
+        {"sessionId": first["id"], "projectId": "project-rag", "projectName": "RAG"},
+        service=service,
+    )
+    update_chat_session_project(
+        {"sessionId": second["id"], "projectId": "project-other", "projectName": "Other"},
+        service=service,
+    )
+
+    renamed = sync_chat_project_session_metadata("project-rag", project_name="RAG Review", service=service)
+    cleared = sync_chat_project_session_metadata("project-rag", clear=True, service=service)
+    sessions = {session["id"]: session for session in list_chat_sessions({"includeArchived": ["true"]}, service=service)["sessions"]}
+
+    assert renamed["updatedSessions"] == 1
+    assert cleared["updatedSessions"] == 1
+    assert sessions[first["id"]]["projectId"] == ""
+    assert sessions[first["id"]]["projectName"] == ""
+    assert sessions[second["id"]]["projectId"] == "project-other"
 
 
 def test_update_chat_session_model_updates_current_session_only(tmp_path):

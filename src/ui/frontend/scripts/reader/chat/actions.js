@@ -519,6 +519,7 @@ async function sendReaderChatMessage(options = {}) {
 
 function initializeReaderChat() {
   initializeSavedPrompts();
+  initializeReaderProjects();
   renderReaderChatMessages({ preserveScrollTop: true });
   renderReaderModelControls();
   renderReaderContextControls();
@@ -646,6 +647,14 @@ function initializeReaderChat() {
       setChatSessionMenuOpen(false);
     }
     if (
+      readerState.chatProjectMenuOpen
+      && !elements.readerProjectPopover?.contains(event.target)
+      && !elements.readerProjectButton?.contains(event.target)
+      && !event.target.closest(".ask-project-flyout")
+    ) {
+      closeReaderProjectMenu();
+    }
+    if (
       readerState.modelMenuOpen
       && !elements.readerModelPopover?.contains(event.target)
       && !elements.readerModelMenuButton?.contains(event.target)
@@ -673,10 +682,12 @@ function initializeReaderChat() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (readerState.chatSessionMenuOpen) setChatSessionMenuOpen(false);
+    if (readerState.chatProjectMenuOpen) closeReaderProjectMenu();
     if (readerState.modelMenuOpen) closeReaderModelMenu();
     if (readerState.contextPopoverOpen) closeReaderContextPopover();
     if (readerState.toolMenuOpen) closeReaderToolMenu();
     if (readerState.debugCleanupMenuOpen) setDebugCleanupMenuOpen(false);
   });
   resizeReaderChatInput();
+  window.readerChatInitialized = true;
 }

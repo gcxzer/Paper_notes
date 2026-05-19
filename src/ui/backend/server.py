@@ -38,9 +38,11 @@ from ui.backend.agent_api import (
     list_chat_tool_approvals,
     preview_chat_tool_snapshot,
     respond_chat_tool_approval,
+    sync_chat_project_session_metadata,
     undo_chat_session,
     undo_chat_tool_snapshot,
     update_chat_session_model,
+    update_chat_session_project,
     upload_chat_attachment,
 )
 from media import MediaStoreError
@@ -48,6 +50,7 @@ from library.annotations import read_annotations, write_annotations
 from app_infra.formatting import normalize_text
 from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
 from ui.backend.memory_api import list_memory, update_memory
+from ui.backend.chat_projects_api import create_chat_project, delete_chat_project, list_chat_projects, rename_chat_project
 from ui.backend.mcp_api import (
     connect_mcp_server,
     get_mcp_settings,
@@ -175,6 +178,9 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/chat/sessions":
             self._run_api_handler(lambda: self.handle_list_chat_sessions(parsed.query))
             return
+        if parsed.path == "/api/chat/projects":
+            self._run_api_handler(self.handle_list_chat_projects)
+            return
         if parsed.path == "/api/chat/progress":
             self._run_api_handler(lambda: self.handle_get_chat_progress(parsed.query))
             return
@@ -250,6 +256,13 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             "/api/chat/session/delete": self.handle_delete_chat_session,
             "/api/chat/session/branch": self.handle_branch_chat_session,
             "/api/chat/session/undo": self.handle_undo_chat_session,
+            "/api/chat/session/project": self.handle_update_chat_session_project,
+            "/api/chat/projects": self.handle_create_chat_project,
+            "/api/chat/project": self.handle_create_chat_project,
+            "/api/chat/project/rename": self.handle_rename_chat_project,
+            "/api/chat/project/delete": self.handle_delete_chat_project,
+            "/api/chat/projects/rename": self.handle_rename_chat_project,
+            "/api/chat/projects/delete": self.handle_delete_chat_project,
             "/api/chat/tool-undo": self.handle_undo_chat_tool_snapshot,
             "/api/chat/tool-redo": self.handle_redo_chat_tool_snapshot,
             "/api/chat/tool-snapshots/cleanup": self.handle_cleanup_chat_tool_snapshots,
@@ -439,6 +452,25 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
 
     def handle_update_chat_session_model(self) -> None:
         self.send_json(HTTPStatus.OK, update_chat_session_model(self.read_json_body()))
+
+    def handle_update_chat_session_project(self) -> None:
+        self.send_json(HTTPStatus.OK, update_chat_session_project(self.read_json_body()))
+
+    def handle_list_chat_projects(self) -> None:
+        self.send_json(HTTPStatus.OK, list_chat_projects())
+
+    def handle_create_chat_project(self) -> None:
+        self.send_json(HTTPStatus.CREATED, create_chat_project(self.read_json_body()))
+
+    def handle_rename_chat_project(self) -> None:
+        payload = rename_chat_project(self.read_json_body())
+        sync = sync_chat_project_session_metadata(payload["project"]["id"], project_name=payload["project"]["name"])
+        self.send_json(HTTPStatus.OK, {**payload, **sync})
+
+    def handle_delete_chat_project(self) -> None:
+        payload = delete_chat_project(self.read_json_body())
+        sync = sync_chat_project_session_metadata(payload["projectId"], clear=True)
+        self.send_json(HTTPStatus.OK, {**payload, **sync})
 
     def handle_list_chat_sessions(self, query: str) -> None:
         self.send_json(HTTPStatus.OK, list_chat_sessions(parse_qs(query)))
