@@ -14,6 +14,13 @@
       description: "Summarize this session's context",
       icon: "layers-3",
     },
+    {
+      id: "stop",
+      trigger: "/stop",
+      title: "Stop",
+      description: "Cancel the current answer",
+      icon: "circle-stop",
+    },
   ];
 
   const state = {
@@ -31,10 +38,20 @@
   }
 
   function slashCommandStatus(command) {
-    if (command.id !== "compact") return { disabled: false, description: command.description };
-    if (isChatSessionPending()) return { disabled: true, description: "Wait for current answer to finish" };
-    if (!getChatSessionId()) return { disabled: true, description: "No active session yet" };
-    if (readerState.contextCompacting) return { disabled: true, description: "Compacting already in progress" };
+    if (command.id === "compact") {
+      if (isChatSessionPending()) return { disabled: true, description: "Wait for current answer to finish" };
+      if (!getChatSessionId()) return { disabled: true, description: "No active session yet" };
+      if (readerState.contextCompacting) return { disabled: true, description: "Compacting already in progress" };
+      return { disabled: false, description: command.description };
+    }
+    if (command.id === "stop") {
+      if (!isChatSessionPending()) return { disabled: true, description: "No answer is running" };
+      const progress = typeof currentChatProgress === "function" ? currentChatProgress() : null;
+      if (normalizeText(progress?.status) === "cancelling") {
+        return { disabled: true, description: "Cancellation already in progress" };
+      }
+      return { disabled: false, description: command.description };
+    }
     return { disabled: false, description: command.description };
   }
 
@@ -155,6 +172,8 @@
       await createReaderChatSession();
     } else if (command.id === "compact") {
       await compactReaderContext();
+    } else if (command.id === "stop") {
+      await cancelReaderChatRequest();
     }
     elements.readerChatInput?.focus();
   }
@@ -191,7 +210,7 @@
     if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && !event.isComposing) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      const selected = state.items[state.activeIndex];
+      const selected = state.items[state.activeIndex] || state.items[firstEnabledSlashIndex(state.items)];
       if (selected && !selected.disabled) executeSlashCommand(selected.id);
     }
   }

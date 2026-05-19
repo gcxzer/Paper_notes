@@ -12,6 +12,7 @@
     "chevron-left",
     "chevron-right",
     "circle-help",
+    "circle-stop",
     "clipboard-list",
     "copy",
     "download",
