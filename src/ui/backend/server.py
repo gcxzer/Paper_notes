@@ -1,42 +1,49 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import mimetypes
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
+from collections.abc import AsyncIterator, Callable
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
+
+import uvicorn
+from fastapi import FastAPI, Request, Response
+from starlette.responses import StreamingResponse
 
 from ui.backend.agent_api import (
     AgentAPIError,
     archive_chat_session,
     branch_chat_session,
     cancel_chat_request,
-    cleanup_debug_runs,
     cleanup_chat_tool_snapshots,
+    cleanup_debug_runs,
     compact_chat_session,
     create_chat_session,
     delete_chat_session,
     error_response,
+    get_agent_service,
     get_chat_context_status,
     get_chat_progress,
     get_chat_session,
     get_debug_run,
     handle_chat_request,
     handle_chat_stream_request,
-    get_agent_service,
-    list_chat_tool_snapshots,
     list_chat_sessions,
-    list_debug_runs,
-    rename_chat_session,
-    redo_chat_tool_snapshot,
     list_chat_tool_approvals,
+    list_chat_tool_snapshots,
+    list_debug_runs,
     preview_chat_tool_snapshot,
+    redo_chat_tool_snapshot,
+    rename_chat_session,
     respond_chat_tool_approval,
     sync_chat_project_session_metadata,
     undo_chat_session,
@@ -45,11 +52,19 @@ from ui.backend.agent_api import (
     update_chat_session_project,
     upload_chat_attachment,
 )
-from media import MediaStoreError
-from library.annotations import read_annotations, write_annotations
 from app_infra.formatting import normalize_text
-from library import import_pdf, import_pdf_from_url, read_library, rename_note, sanitize_library, update_note_summary, write_library
-from ui.backend.memory_api import list_memory, update_memory
+from app_infra.paths import HOST, MAX_BODY_SIZE, PORT, PROJECT_ROOT, PUBLIC_DIR, is_relative_to
+from library import (
+    import_pdf,
+    import_pdf_from_url,
+    read_library,
+    rename_note,
+    sanitize_library,
+    update_note_summary,
+    write_library,
+)
+from library.annotations import read_annotations, write_annotations
+from media import MediaStoreError
 from ui.backend.chat_projects_api import create_chat_project, delete_chat_project, list_chat_projects, rename_chat_project
 from ui.backend.mcp_api import (
     connect_mcp_server,
@@ -60,16 +75,9 @@ from ui.backend.mcp_api import (
     test_mcp_server,
     update_mcp_settings,
 )
+from ui.backend.memory_api import list_memory, update_memory
 from ui.backend.model_providers_api import get_model_providers
 from ui.backend.scratchpads_api import read_scratchpads, write_scratchpads
-from app_infra.paths import (
-    HOST,
-    MAX_BODY_SIZE,
-    PORT,
-    PROJECT_ROOT,
-    PUBLIC_DIR,
-    is_relative_to,
-)
 from ui.backend.settings_api import (
     delete_ai_api_key,
     get_ai_settings,
@@ -98,6 +106,11 @@ MIME_TYPES = {
     ".gif": "image/gif",
     ".svg": "image/svg+xml",
 }
+JSON_MEDIA_TYPE = "application/json; charset=utf-8"
+TEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
+CORS_ALLOW_METHODS = "GET,HEAD,POST,DELETE,OPTIONS"
+CORS_ALLOW_HEADERS = "Content-Type, X-Paper-Notes-Local-Action"
+
 
 def content_disposition_attachment(file_name: str) -> str:
     display_name = Path(normalize_text(file_name) or "download").name or "download"
@@ -107,298 +120,118 @@ def content_disposition_attachment(file_name: str) -> str:
     encoded = quote(display_name, safe="")
     return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
 
-class PaperNotesHandler(BaseHTTPRequestHandler):
-    server_version = "PaperNotesPython/1.2.1"
 
-    def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Paper-Notes-Local-Action")
-        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,POST,DELETE,OPTIONS")
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
+def json_response(status: int | HTTPStatus, body: Any) -> Response:
+    return Response(
+        content=json.dumps(body, ensure_ascii=False, indent=2),
+        status_code=int(status),
+        media_type=JSON_MEDIA_TYPE,
+    )
 
-    def log_message(self, format: str, *args: Any) -> None:
-        print(f"{self.address_string()} - {format % args}")
 
-    def send_text(self, status: int, body: str, content_type: str = "text/plain; charset=utf-8") -> None:
-        encoded = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(encoded)
+def text_response(
+    status: int | HTTPStatus,
+    body: str,
+    content_type: str = TEXT_MEDIA_TYPE,
+    *,
+    head: bool = False,
+) -> Response:
+    encoded = body.encode("utf-8")
+    headers = {"Content-Length": str(len(encoded))} if head else None
+    return Response(
+        content=b"" if head else encoded,
+        status_code=int(status),
+        media_type=content_type,
+        headers=headers,
+    )
 
-    def send_json(self, status: int, body: Any) -> None:
-        self.send_text(status, json.dumps(body, ensure_ascii=False, indent=2), "application/json; charset=utf-8")
 
-    def send_bytes(
-        self,
-        status: int,
-        body: bytes,
-        *,
-        content_type: str,
-        file_name: str = "",
-        download: bool = False,
-    ) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        if download:
-            self.send_header("Content-Disposition", content_disposition_attachment(file_name))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+async def read_json_body(request: Request) -> Any:
+    try:
+        content_length = int(request.headers.get("Content-Length") or "0")
+    except ValueError as error:
+        raise ValueError("Invalid Content-Length header.") from error
+    if content_length > MAX_BODY_SIZE:
+        raise ValueError("Request body is too large.")
 
-    def read_json_body(self) -> Any:
-        content_length = int(self.headers.get("Content-Length") or "0")
-        if content_length > MAX_BODY_SIZE:
-            raise ValueError("Request body is too large.")
-        raw = self.rfile.read(content_length)
-        return json.loads(raw.decode("utf-8") or "{}")
+    raw = await request.body()
+    if len(raw) > MAX_BODY_SIZE:
+        raise ValueError("Request body is too large.")
+    return json.loads(raw.decode("utf-8") or "{}")
 
-    def do_OPTIONS(self) -> None:
-        self.send_response(HTTPStatus.NO_CONTENT)
-        self.end_headers()
 
-    def do_HEAD(self) -> None:
-        self.serve_static()
+def query_params(request: Request) -> dict[str, list[str]]:
+    params: dict[str, list[str]] = {}
+    for key, value in request.query_params.multi_items():
+        params.setdefault(key, []).append(value)
+    return params
 
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path.startswith("/api/media/"):
-            self._run_api_handler(lambda: self.handle_get_media(parsed.path))
-            return
-        if parsed.path == "/api/library":
-            self.handle_read_library()
-            return
-        if parsed.path == "/api/annotations":
-            self.handle_read_annotations(parsed.query)
-            return
-        if parsed.path == "/api/chat/sessions":
-            self._run_api_handler(lambda: self.handle_list_chat_sessions(parsed.query))
-            return
-        if parsed.path == "/api/chat/projects":
-            self._run_api_handler(self.handle_list_chat_projects)
-            return
-        if parsed.path == "/api/chat/progress":
-            self._run_api_handler(lambda: self.handle_get_chat_progress(parsed.query))
-            return
-        if parsed.path == "/api/chat/context":
-            self._run_api_handler(lambda: self.handle_get_chat_context_status(parsed.query))
-            return
-        if parsed.path == "/api/chat/session":
-            self._run_api_handler(lambda: self.handle_get_chat_session(parsed.query))
-            return
-        if parsed.path == "/api/chat/tool-snapshots":
-            self._run_api_handler(lambda: self.handle_list_chat_tool_snapshots(parsed.query))
-            return
-        if parsed.path == "/api/chat/tool-snapshot-diff":
-            self._run_api_handler(lambda: self.handle_preview_chat_tool_snapshot(parsed.query))
-            return
-        if parsed.path == "/api/chat/tool-approvals":
-            self._run_api_handler(lambda: self.handle_list_chat_tool_approvals(parsed.query))
-            return
-        if parsed.path == "/api/debug/runs":
-            self._run_api_handler(lambda: self.handle_list_debug_runs(parsed.query))
-            return
-        if parsed.path.startswith("/api/debug/runs/"):
-            self._run_api_handler(lambda: self.handle_get_debug_run(parsed.path))
-            return
-        if parsed.path == "/api/memory":
-            self._run_api_handler(self.handle_list_memory)
-            return
-        if parsed.path == "/api/scratchpads":
-            self._run_api_handler(self.handle_read_scratchpads)
-            return
-        if parsed.path == "/api/settings/ai":
-            self._run_api_handler(self.handle_get_ai_settings)
-            return
-        if parsed.path == "/api/settings/tools":
-            self._run_api_handler(self.handle_get_tool_settings)
-            return
-        if parsed.path == "/api/settings/mcp":
-            self._run_api_handler(self.handle_get_mcp_settings)
-            return
-        if parsed.path == "/api/settings/mcp/stderr-log":
-            self._run_api_handler(lambda: self.handle_get_mcp_stderr_log(parsed.query))
-            return
-        if parsed.path == "/api/skills":
-            self._run_api_handler(lambda: self.handle_list_skills(parsed.query))
-            return
-        if parsed.path == "/api/skills/view":
-            self._run_api_handler(lambda: self.handle_view_skill(parsed.query))
-            return
-        if parsed.path == "/api/model/providers":
-            self._run_api_handler(self.handle_get_model_providers)
-            return
-        if parsed.path == "/api/auth/codex/status":
-            self._run_api_handler(self.handle_get_codex_auth_status)
-            return
-        self.serve_static()
 
-    def do_POST(self) -> None:
-        routes = {
-            "/api/import-pdf": self.handle_import_pdf,
-            "/api/import-paper-url": self.handle_import_paper_url,
-            "/api/rename-note": self.handle_rename_note,
-            "/api/update-note-summary": self.handle_update_note_summary,
-            "/api/library": self.handle_write_library,
-            "/api/annotations": self.handle_write_annotations,
-            "/api/chat": self.handle_chat,
-            "/api/chat/stream": self.handle_chat_stream,
-            "/api/chat/attachments": self.handle_upload_chat_attachment,
-            "/api/chat/cancel": self.handle_cancel_chat,
-            "/api/chat/compress": self.handle_compact_chat_session,
-            "/api/chat/session": self.handle_create_chat_session,
-            "/api/chat/session/rename": self.handle_rename_chat_session,
-            "/api/chat/session/archive": self.handle_archive_chat_session,
-            "/api/chat/session/delete": self.handle_delete_chat_session,
-            "/api/chat/session/branch": self.handle_branch_chat_session,
-            "/api/chat/session/undo": self.handle_undo_chat_session,
-            "/api/chat/session/project": self.handle_update_chat_session_project,
-            "/api/chat/projects": self.handle_create_chat_project,
-            "/api/chat/project": self.handle_create_chat_project,
-            "/api/chat/project/rename": self.handle_rename_chat_project,
-            "/api/chat/project/delete": self.handle_delete_chat_project,
-            "/api/chat/projects/rename": self.handle_rename_chat_project,
-            "/api/chat/projects/delete": self.handle_delete_chat_project,
-            "/api/chat/tool-undo": self.handle_undo_chat_tool_snapshot,
-            "/api/chat/tool-redo": self.handle_redo_chat_tool_snapshot,
-            "/api/chat/tool-snapshots/cleanup": self.handle_cleanup_chat_tool_snapshots,
-            "/api/chat/tool-approvals/respond": self.handle_respond_chat_tool_approval,
-            "/api/chat/session/model": self.handle_update_chat_session_model,
-            "/api/open-local-file": self.handle_open_local_file,
-            "/api/memory": self.handle_update_memory,
-            "/api/scratchpads": self.handle_write_scratchpads,
-            "/api/settings/ai": self.handle_update_ai_settings,
-            "/api/settings/tools": self.handle_update_tool_settings,
-            "/api/settings/mcp": self.handle_update_mcp_settings,
-            "/api/settings/mcp/connect": self.handle_connect_mcp_server,
-            "/api/settings/mcp/test": self.handle_test_mcp_server,
-            "/api/settings/mcp/reconnect": self.handle_reconnect_mcp_server,
-            "/api/settings/mcp/reset-circuit": self.handle_reset_mcp_server_circuit,
-            "/api/skills/update": self.handle_update_skill,
-            "/api/skills/settings": self.handle_update_skill_settings,
-            "/api/auth/codex/start": self.handle_start_codex_auth,
-            "/api/auth/codex/poll": self.handle_poll_codex_auth,
-            "/api/auth/codex/logout": self.handle_logout_codex_auth,
-            "/api/debug/runs/cleanup": self.handle_cleanup_debug_runs,
-        }
-        parsed = urlparse(self.path)
-        handler = routes.get(parsed.path)
-        if handler is None:
-            self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
-            return
-        self._run_api_handler(handler)
+def first_param(params: dict[str, list[str]], key: str, default: str = "") -> str:
+    values = params.get(key)
+    if not values:
+        return default
+    return values[0]
 
-    def do_PATCH(self) -> None:
-        self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
 
-    def do_DELETE(self) -> None:
-        routes = {
-            "/api/settings/ai/key": self.handle_delete_ai_api_key,
-        }
-        parsed = urlparse(self.path)
-        handler = routes.get(parsed.path)
-        if handler is None:
-            self.send_text(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
-            return
-        self._run_api_handler(handler)
+def serve_static_path(pathname: str, *, head: bool = False) -> Response:
+    pathname = unquote(pathname)
+    if pathname == "/":
+        pathname = "/index.html"
 
-    def _run_api_handler(self, handler: Any) -> None:
-        try:
-            handler()
-        except AgentAPIError as error:
-            self.send_json(error.status, error_response(error))
-        except ValueError as error:
-            self.send_text(HTTPStatus.BAD_REQUEST, str(error) or "Bad request")
-        except Exception as error:
-            print(error, file=sys.stderr)
-            self.send_text(HTTPStatus.INTERNAL_SERVER_ERROR, str(error) or "Server error")
+    base_dir = PUBLIC_DIR
+    relative_path = pathname.lstrip("/")
 
-    def handle_read_library(self) -> None:
-        self.send_json(HTTPStatus.OK, read_library())
+    if pathname.startswith("/assets/scripts/"):
+        base_dir = PUBLIC_DIR
+        relative_path = pathname.removeprefix("/assets/")
+    elif pathname.startswith("/assets/styles/"):
+        base_dir = PUBLIC_DIR
+        relative_path = pathname.removeprefix("/assets/")
+    elif pathname.startswith("/resources/"):
+        base_dir = PROJECT_ROOT
+    elif pathname.startswith("/node_modules/"):
+        base_dir = PROJECT_ROOT
+    elif pathname.startswith("/assets/"):
+        base_dir = PROJECT_ROOT
+    elif pathname == "/notes.json":
+        base_dir = PROJECT_ROOT
 
-    def handle_import_pdf(self) -> None:
-        note = import_pdf(self.read_json_body())
-        self.send_json(HTTPStatus.CREATED, note)
+    file_path = (base_dir / relative_path).resolve()
+    if not is_relative_to(file_path, base_dir.resolve()):
+        return text_response(HTTPStatus.FORBIDDEN, "Forbidden", head=head)
 
-    def handle_import_paper_url(self) -> None:
-        note = import_pdf_from_url(self.read_json_body())
-        self.send_json(HTTPStatus.CREATED, note)
+    if not file_path.is_file():
+        return text_response(HTTPStatus.NOT_FOUND, "Not found", head=head)
 
-    def handle_rename_note(self) -> None:
-        body = self.read_json_body()
-        note_id = normalize_text(body.get("id"))
-        next_title = normalize_text(body.get("title"))
-        if not note_id or not next_title:
-            self.send_text(HTTPStatus.BAD_REQUEST, "Note id and title are required.")
-            return
+    content_type = MIME_TYPES.get(file_path.suffix.lower()) or mimetypes.guess_type(file_path.name)[0]
+    content_type = content_type or "application/octet-stream"
+    data = file_path.read_bytes()
+    return Response(
+        content=b"" if head else data,
+        media_type=content_type,
+        headers={"Content-Length": str(len(data))},
+    )
 
-        note = rename_note(note_id, next_title)
-        if note is None:
-            self.send_text(HTTPStatus.NOT_FOUND, "Note not found.")
-            return
-        self.send_json(HTTPStatus.OK, note)
 
-    def handle_update_note_summary(self) -> None:
-        body = self.read_json_body()
-        note_id = normalize_text(body.get("id"))
-        if not note_id:
-            self.send_text(HTTPStatus.BAD_REQUEST, "Note id is required.")
-            return
+def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    lines = [f"event: {event}"]
+    lines.extend(f"data: {line}" for line in body.splitlines() or ["{}"])
+    return ("\n".join(lines) + "\n\n").encode("utf-8")
 
-        note = update_note_summary(note_id, body.get("summary"))
-        if note is None:
-            self.send_text(HTTPStatus.NOT_FOUND, "Note not found.")
-            return
-        self.send_json(HTTPStatus.OK, note)
 
-    def handle_write_library(self) -> None:
-        library = write_library(sanitize_library(self.read_json_body()))
-        self.send_json(HTTPStatus.OK, library)
+async def sse_event_generator(body: Any, request: Request) -> AsyncIterator[bytes]:
+    events: queue.Queue[bytes | None] = queue.Queue()
+    closed = threading.Event()
 
-    def handle_read_annotations(self, query: str) -> None:
-        note_id = parse_qs(query).get("noteId", [""])[0]
-        payload = read_annotations(note_id)
-        if payload is None:
-            self.send_text(HTTPStatus.BAD_REQUEST, "noteId is required.")
-            return
-        self.send_json(HTTPStatus.OK, payload)
+    def send_event(event: str, payload: dict[str, Any]) -> bool:
+        if closed.is_set():
+            return False
+        events.put(_sse_frame(event, payload))
+        return True
 
-    def handle_write_annotations(self) -> None:
-        body = self.read_json_body()
-        payload = write_annotations(body.get("noteId"), body.get("annotations"))
-        if payload is None:
-            self.send_text(HTTPStatus.BAD_REQUEST, "noteId is required.")
-            return
-        self.send_json(HTTPStatus.OK, payload)
-
-    def handle_chat(self) -> None:
-        self.send_json(HTTPStatus.OK, handle_chat_request(self.read_json_body()))
-
-    def handle_chat_stream(self) -> None:
-        body = self.read_json_body()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Connection", "close")
-        self.end_headers()
-
-        closed = False
-
-        def send_event(event: str, payload: dict[str, Any]) -> bool:
-            nonlocal closed
-            if closed:
-                return False
-            try:
-                self.wfile.write(_sse_frame(event, payload))
-                self.wfile.flush()
-                return True
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                closed = True
-                return False
-
+    def run_stream() -> None:
         try:
             handle_chat_stream_request(body, send_event=send_event)
         except Exception as error:
@@ -406,145 +239,369 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
             send_event("error", {"code": "stream_failed", "error": str(error) or "Chat stream failed."})
             send_event("done", {})
         finally:
-            self.close_connection = True
+            events.put(None)
 
-    def handle_upload_chat_attachment(self) -> None:
-        self.send_json(HTTPStatus.CREATED, upload_chat_attachment(self.read_json_body()))
+    threading.Thread(target=run_stream, daemon=True).start()
+    try:
+        while True:
+            if await request.is_disconnected():
+                closed.set()
+                break
+            try:
+                event = events.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+            if event is None:
+                break
+            yield event
+    finally:
+        closed.set()
 
-    def handle_cancel_chat(self) -> None:
-        self.send_json(HTTPStatus.OK, cancel_chat_request(self.read_json_body()))
 
-    def handle_cleanup_debug_runs(self) -> None:
-        self.send_json(HTTPStatus.OK, cleanup_debug_runs(self.read_json_body()))
+def create_app() -> FastAPI:
+    app = FastAPI(title="Paper Notes", version="1.2.1", docs_url=None, redoc_url=None)
 
-    def handle_compact_chat_session(self) -> None:
-        self.send_json(HTTPStatus.OK, compact_chat_session(self.read_json_body()))
+    @app.middleware("http")
+    async def add_compat_headers(request: Request, call_next: Callable[[Request], Any]) -> Response:
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = CORS_ALLOW_HEADERS
+        response.headers["Access-Control-Allow-Methods"] = CORS_ALLOW_METHODS
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
-    def handle_create_chat_session(self) -> None:
-        self.send_json(HTTPStatus.CREATED, create_chat_session(self.read_json_body()))
+    @app.exception_handler(AgentAPIError)
+    async def handle_agent_api_error(request: Request, error: AgentAPIError) -> Response:
+        return json_response(error.status, error_response(error))
 
-    def handle_rename_chat_session(self) -> None:
-        self.send_json(HTTPStatus.OK, rename_chat_session(self.read_json_body()))
+    @app.exception_handler(ValueError)
+    async def handle_value_error(request: Request, error: ValueError) -> Response:
+        return text_response(HTTPStatus.BAD_REQUEST, str(error) or "Bad request")
 
-    def handle_archive_chat_session(self) -> None:
-        self.send_json(HTTPStatus.OK, archive_chat_session(self.read_json_body()))
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, error: Exception) -> Response:
+        print(error, file=sys.stderr)
+        return text_response(HTTPStatus.INTERNAL_SERVER_ERROR, str(error) or "Server error")
 
-    def handle_delete_chat_session(self) -> None:
-        self.send_json(HTTPStatus.OK, delete_chat_session(self.read_json_body()))
+    @app.options("/")
+    @app.options("/{path:path}")
+    async def options_handler(path: str = "") -> Response:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
 
-    def handle_branch_chat_session(self) -> None:
-        self.send_json(HTTPStatus.CREATED, branch_chat_session(self.read_json_body()))
+    @app.get("/api/library")
+    async def api_read_library() -> Response:
+        return json_response(HTTPStatus.OK, read_library())
 
-    def handle_undo_chat_session(self) -> None:
-        self.send_json(HTTPStatus.OK, undo_chat_session(self.read_json_body()))
+    @app.post("/api/import-pdf")
+    async def api_import_pdf(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, import_pdf(await read_json_body(request)))
 
-    def handle_undo_chat_tool_snapshot(self) -> None:
-        self.send_json(HTTPStatus.OK, undo_chat_tool_snapshot(self.read_json_body()))
+    @app.post("/api/import-paper-url")
+    async def api_import_paper_url(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, import_pdf_from_url(await read_json_body(request)))
 
-    def handle_redo_chat_tool_snapshot(self) -> None:
-        self.send_json(HTTPStatus.OK, redo_chat_tool_snapshot(self.read_json_body()))
+    @app.post("/api/rename-note")
+    async def api_rename_note(request: Request) -> Response:
+        body = await read_json_body(request)
+        note_id = normalize_text(body.get("id")) if isinstance(body, dict) else ""
+        next_title = normalize_text(body.get("title")) if isinstance(body, dict) else ""
+        if not note_id or not next_title:
+            return text_response(HTTPStatus.BAD_REQUEST, "Note id and title are required.")
 
-    def handle_cleanup_chat_tool_snapshots(self) -> None:
-        self.send_json(HTTPStatus.OK, cleanup_chat_tool_snapshots(self.read_json_body()))
+        note = rename_note(note_id, next_title)
+        if note is None:
+            return text_response(HTTPStatus.NOT_FOUND, "Note not found.")
+        return json_response(HTTPStatus.OK, note)
 
-    def handle_respond_chat_tool_approval(self) -> None:
-        self.send_json(HTTPStatus.OK, respond_chat_tool_approval(self.read_json_body()))
+    @app.post("/api/update-note-summary")
+    async def api_update_note_summary(request: Request) -> Response:
+        body = await read_json_body(request)
+        note_id = normalize_text(body.get("id")) if isinstance(body, dict) else ""
+        if not note_id:
+            return text_response(HTTPStatus.BAD_REQUEST, "Note id is required.")
 
-    def handle_update_chat_session_model(self) -> None:
-        self.send_json(HTTPStatus.OK, update_chat_session_model(self.read_json_body()))
+        note = update_note_summary(note_id, body.get("summary"))
+        if note is None:
+            return text_response(HTTPStatus.NOT_FOUND, "Note not found.")
+        return json_response(HTTPStatus.OK, note)
 
-    def handle_update_chat_session_project(self) -> None:
-        self.send_json(HTTPStatus.OK, update_chat_session_project(self.read_json_body()))
+    @app.post("/api/library")
+    async def api_write_library(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, write_library(sanitize_library(await read_json_body(request))))
 
-    def handle_list_chat_projects(self) -> None:
-        self.send_json(HTTPStatus.OK, list_chat_projects())
+    @app.get("/api/annotations")
+    async def api_read_annotations(request: Request) -> Response:
+        note_id = first_param(query_params(request), "noteId")
+        payload = read_annotations(note_id)
+        if payload is None:
+            return text_response(HTTPStatus.BAD_REQUEST, "noteId is required.")
+        return json_response(HTTPStatus.OK, payload)
 
-    def handle_create_chat_project(self) -> None:
-        self.send_json(HTTPStatus.CREATED, create_chat_project(self.read_json_body()))
+    @app.post("/api/annotations")
+    async def api_write_annotations(request: Request) -> Response:
+        body = await read_json_body(request)
+        payload = write_annotations(body.get("noteId"), body.get("annotations")) if isinstance(body, dict) else None
+        if payload is None:
+            return text_response(HTTPStatus.BAD_REQUEST, "noteId is required.")
+        return json_response(HTTPStatus.OK, payload)
 
-    def handle_rename_chat_project(self) -> None:
-        payload = rename_chat_project(self.read_json_body())
+    @app.post("/api/chat")
+    async def api_chat(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, handle_chat_request(await read_json_body(request)))
+
+    @app.post("/api/chat/stream")
+    async def api_chat_stream(request: Request) -> StreamingResponse:
+        body = await read_json_body(request)
+        return StreamingResponse(
+            sse_event_generator(body, request),
+            media_type="text/event-stream; charset=utf-8",
+            headers={"Connection": "close"},
+        )
+
+    @app.post("/api/chat/attachments")
+    async def api_upload_chat_attachment(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, upload_chat_attachment(await read_json_body(request)))
+
+    @app.post("/api/chat/cancel")
+    async def api_cancel_chat(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, cancel_chat_request(await read_json_body(request)))
+
+    @app.post("/api/debug/runs/cleanup")
+    async def api_cleanup_debug_runs(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, cleanup_debug_runs(await read_json_body(request)))
+
+    @app.post("/api/chat/compress")
+    async def api_compact_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, compact_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session")
+    async def api_create_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, create_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/rename")
+    async def api_rename_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, rename_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/archive")
+    async def api_archive_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, archive_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/delete")
+    async def api_delete_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, delete_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/branch")
+    async def api_branch_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, branch_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/undo")
+    async def api_undo_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, undo_chat_session(await read_json_body(request)))
+
+    @app.post("/api/chat/session/project")
+    async def api_update_chat_session_project(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_chat_session_project(await read_json_body(request)))
+
+    @app.get("/api/chat/projects")
+    async def api_list_chat_projects() -> Response:
+        return json_response(HTTPStatus.OK, list_chat_projects())
+
+    @app.post("/api/chat/projects")
+    @app.post("/api/chat/project")
+    async def api_create_chat_project(request: Request) -> Response:
+        return json_response(HTTPStatus.CREATED, create_chat_project(await read_json_body(request)))
+
+    @app.post("/api/chat/project/rename")
+    @app.post("/api/chat/projects/rename")
+    async def api_rename_chat_project(request: Request) -> Response:
+        payload = rename_chat_project(await read_json_body(request))
         sync = sync_chat_project_session_metadata(payload["project"]["id"], project_name=payload["project"]["name"])
-        self.send_json(HTTPStatus.OK, {**payload, **sync})
+        return json_response(HTTPStatus.OK, {**payload, **sync})
 
-    def handle_delete_chat_project(self) -> None:
-        payload = delete_chat_project(self.read_json_body())
+    @app.post("/api/chat/project/delete")
+    @app.post("/api/chat/projects/delete")
+    async def api_delete_chat_project(request: Request) -> Response:
+        payload = delete_chat_project(await read_json_body(request))
         sync = sync_chat_project_session_metadata(payload["projectId"], clear=True)
-        self.send_json(HTTPStatus.OK, {**payload, **sync})
+        return json_response(HTTPStatus.OK, {**payload, **sync})
 
-    def handle_list_chat_sessions(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, list_chat_sessions(parse_qs(query)))
+    @app.post("/api/chat/tool-undo")
+    async def api_undo_chat_tool_snapshot(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, undo_chat_tool_snapshot(await read_json_body(request)))
 
-    def handle_get_chat_session(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, get_chat_session(parse_qs(query)))
+    @app.post("/api/chat/tool-redo")
+    async def api_redo_chat_tool_snapshot(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, redo_chat_tool_snapshot(await read_json_body(request)))
 
-    def handle_list_chat_tool_snapshots(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, list_chat_tool_snapshots(parse_qs(query)))
+    @app.post("/api/chat/tool-snapshots/cleanup")
+    async def api_cleanup_chat_tool_snapshots(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, cleanup_chat_tool_snapshots(await read_json_body(request)))
 
-    def handle_preview_chat_tool_snapshot(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, preview_chat_tool_snapshot(parse_qs(query)))
+    @app.post("/api/chat/tool-approvals/respond")
+    async def api_respond_chat_tool_approval(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, respond_chat_tool_approval(await read_json_body(request)))
 
-    def handle_list_chat_tool_approvals(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, list_chat_tool_approvals(parse_qs(query)))
+    @app.post("/api/chat/session/model")
+    async def api_update_chat_session_model(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_chat_session_model(await read_json_body(request)))
 
-    def handle_list_debug_runs(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, list_debug_runs(parse_qs(query)))
+    @app.get("/api/chat/sessions")
+    async def api_list_chat_sessions(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, list_chat_sessions(query_params(request)))
 
-    def handle_get_debug_run(self, path: str) -> None:
-        request_id = unquote(path.rsplit("/", 1)[-1])
-        self.send_json(HTTPStatus.OK, get_debug_run(request_id))
+    @app.get("/api/chat/session")
+    async def api_get_chat_session(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, get_chat_session(query_params(request)))
 
-    def handle_get_chat_progress(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, get_chat_progress(parse_qs(query)))
+    @app.get("/api/chat/tool-snapshots")
+    async def api_list_chat_tool_snapshots(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, list_chat_tool_snapshots(query_params(request)))
 
-    def handle_get_chat_context_status(self, query: str) -> None:
-        self.send_json(HTTPStatus.OK, get_chat_context_status(parse_qs(query)))
+    @app.get("/api/chat/tool-snapshot-diff")
+    async def api_preview_chat_tool_snapshot(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, preview_chat_tool_snapshot(query_params(request)))
 
-    def handle_list_memory(self) -> None:
-        self.send_json(HTTPStatus.OK, list_memory())
+    @app.get("/api/chat/tool-approvals")
+    async def api_list_chat_tool_approvals(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, list_chat_tool_approvals(query_params(request)))
 
-    def handle_update_memory(self) -> None:
-        self.send_json(HTTPStatus.OK, update_memory(self.read_json_body()))
+    @app.get("/api/debug/runs")
+    async def api_list_debug_runs(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, list_debug_runs(query_params(request)))
 
-    def handle_get_ai_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, get_ai_settings())
+    @app.get("/api/debug/runs/{request_id:path}")
+    async def api_get_debug_run(request: Request) -> Response:
+        request_id = unquote(request.url.path.rsplit("/", 1)[-1])
+        return json_response(HTTPStatus.OK, get_debug_run(request_id))
 
-    def handle_get_tool_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, get_tool_settings())
+    @app.get("/api/chat/progress")
+    async def api_get_chat_progress(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, get_chat_progress(query_params(request)))
 
-    def handle_get_mcp_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, get_mcp_settings())
+    @app.get("/api/chat/context")
+    async def api_get_chat_context_status(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, get_chat_context_status(query_params(request)))
 
-    def handle_list_skills(self, query: str) -> None:
-        params = parse_qs(query)
-        category = params.get("category", [""])[0]
-        self.send_json(HTTPStatus.OK, list_skills(category=category))
+    @app.get("/api/memory")
+    async def api_list_memory() -> Response:
+        return json_response(HTTPStatus.OK, list_memory())
 
-    def handle_view_skill(self, query: str) -> None:
-        params = parse_qs(query)
-        name = params.get("name", [""])[0]
-        file_path = params.get("filePath", params.get("file_path", [""]))[0]
-        self.send_json(HTTPStatus.OK, view_skill(name=name, file_path=file_path))
+    @app.post("/api/memory")
+    async def api_update_memory(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_memory(await read_json_body(request)))
 
-    def handle_update_skill_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, update_skill_settings(self.read_json_body()))
+    @app.get("/api/scratchpads")
+    async def api_read_scratchpads() -> Response:
+        return json_response(HTTPStatus.OK, read_scratchpads())
 
-    def handle_update_skill(self) -> None:
-        self.send_json(HTTPStatus.OK, update_skill(self.read_json_body()))
+    @app.post("/api/scratchpads")
+    async def api_write_scratchpads(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, write_scratchpads(await read_json_body(request)))
 
-    def handle_read_scratchpads(self) -> None:
-        self.send_json(HTTPStatus.OK, read_scratchpads())
+    @app.get("/api/settings/ai")
+    async def api_get_ai_settings() -> Response:
+        return json_response(HTTPStatus.OK, get_ai_settings())
 
-    def handle_write_scratchpads(self) -> None:
-        self.send_json(HTTPStatus.OK, write_scratchpads(self.read_json_body()))
+    @app.post("/api/settings/ai")
+    async def api_update_ai_settings(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_ai_settings(await read_json_body(request)))
 
-    def handle_get_model_providers(self) -> None:
-        self.send_json(HTTPStatus.OK, get_model_providers())
+    @app.delete("/api/settings/ai/key")
+    async def api_delete_ai_api_key(request: Request) -> Response:
+        provider = first_param(query_params(request), "provider", "openai")
+        return json_response(HTTPStatus.OK, delete_ai_api_key(provider))
 
-    def handle_open_local_file(self) -> None:
-        if self.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":
-            raise AgentAPIError(HTTPStatus.FORBIDDEN, "missing_local_action_header", "Local file open requests require a trusted reader header.")
-        body = self.read_json_body()
+    @app.get("/api/settings/tools")
+    async def api_get_tool_settings() -> Response:
+        return json_response(HTTPStatus.OK, get_tool_settings())
+
+    @app.post("/api/settings/tools")
+    async def api_update_tool_settings(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_tool_settings(await read_json_body(request)))
+
+    @app.get("/api/settings/mcp")
+    async def api_get_mcp_settings() -> Response:
+        return json_response(HTTPStatus.OK, get_mcp_settings())
+
+    @app.post("/api/settings/mcp")
+    async def api_update_mcp_settings(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_mcp_settings(await read_json_body(request)))
+
+    @app.post("/api/settings/mcp/test")
+    async def api_test_mcp_server(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, test_mcp_server(await read_json_body(request)))
+
+    @app.post("/api/settings/mcp/connect")
+    async def api_connect_mcp_server(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, connect_mcp_server(await read_json_body(request)))
+
+    @app.post("/api/settings/mcp/reconnect")
+    async def api_reconnect_mcp_server(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, reconnect_mcp_server(await read_json_body(request)))
+
+    @app.post("/api/settings/mcp/reset-circuit")
+    async def api_reset_mcp_server_circuit(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, reset_mcp_server_circuit(await read_json_body(request)))
+
+    @app.get("/api/settings/mcp/stderr-log")
+    async def api_get_mcp_stderr_log(request: Request) -> Response:
+        params = query_params(request)
+        try:
+            max_chars = int(first_param(params, "maxChars", first_param(params, "max_chars", "60000")))
+        except (TypeError, ValueError):
+            max_chars = 60000
+        return json_response(HTTPStatus.OK, get_mcp_stderr_log(max_chars=max_chars))
+
+    @app.get("/api/skills")
+    async def api_list_skills(request: Request) -> Response:
+        category = first_param(query_params(request), "category")
+        return json_response(HTTPStatus.OK, list_skills(category=category))
+
+    @app.get("/api/skills/view")
+    async def api_view_skill(request: Request) -> Response:
+        params = query_params(request)
+        name = first_param(params, "name")
+        file_path = first_param(params, "filePath", first_param(params, "file_path"))
+        return json_response(HTTPStatus.OK, view_skill(name=name, file_path=file_path))
+
+    @app.post("/api/skills/settings")
+    async def api_update_skill_settings(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_skill_settings(await read_json_body(request)))
+
+    @app.post("/api/skills/update")
+    async def api_update_skill(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, update_skill(await read_json_body(request)))
+
+    @app.get("/api/model/providers")
+    async def api_get_model_providers() -> Response:
+        return json_response(HTTPStatus.OK, get_model_providers())
+
+    @app.get("/api/auth/codex/status")
+    async def api_get_codex_auth_status() -> Response:
+        return json_response(HTTPStatus.OK, get_codex_auth_status())
+
+    @app.post("/api/auth/codex/start")
+    async def api_start_codex_auth() -> Response:
+        return json_response(HTTPStatus.OK, start_codex_auth())
+
+    @app.post("/api/auth/codex/poll")
+    async def api_poll_codex_auth(request: Request) -> Response:
+        return json_response(HTTPStatus.OK, poll_codex_auth(await read_json_body(request)))
+
+    @app.post("/api/auth/codex/logout")
+    async def api_logout_codex_auth() -> Response:
+        return json_response(HTTPStatus.OK, logout_codex_auth())
+
+    @app.post("/api/open-local-file")
+    async def api_open_local_file(request: Request) -> Response:
+        if request.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":
+            raise AgentAPIError(
+                HTTPStatus.FORBIDDEN,
+                "missing_local_action_header",
+                "Local file open requests require a trusted reader header.",
+            )
+        body = await read_json_body(request)
         if not isinstance(body, dict):
             raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
         raw_target = normalize_text(body.get("path") or body.get("href"))
@@ -569,138 +626,54 @@ class PaperNotesHandler(BaseHTTPRequestHandler):
                 subprocess.Popen(["xdg-open", str(target)])
         except OSError as error:
             raise AgentAPIError(HTTPStatus.INTERNAL_SERVER_ERROR, "open_failed", str(error)) from error
-        self.send_json(HTTPStatus.OK, {"success": True, "path": str(target)})
+        return json_response(HTTPStatus.OK, {"success": True, "path": str(target)})
 
-    def handle_get_media(self, path: str) -> None:
-        parts = [part for part in path.split("/") if part]
-        if len(parts) not in {3, 4} or parts[0] != "api" or parts[1] != "media":
-            self.send_text(HTTPStatus.NOT_FOUND, "Media not found.")
-            return
-        artifact_id = unquote(parts[2])
-        download = len(parts) == 4 and parts[3] == "download"
-        if len(parts) == 4 and not download:
-            self.send_text(HTTPStatus.NOT_FOUND, "Media not found.")
-            return
-        try:
-            media_store = get_agent_service().media_store
-            artifact = media_store.require_artifact(artifact_id)
-            body = media_store.read_bytes(artifact.id)
-        except MediaStoreError as error:
-            raise AgentAPIError(HTTPStatus.NOT_FOUND, "media_not_found", str(error)) from error
-        self.send_bytes(
-            HTTPStatus.OK,
-            body,
-            content_type=artifact.mime_type,
-            file_name=artifact.file_name,
-            download=download,
-        )
+    @app.get("/api/media/{artifact_id}")
+    async def api_get_media(artifact_id: str) -> Response:
+        return get_media_response(artifact_id, download=False)
 
-    def handle_update_ai_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, update_ai_settings(self.read_json_body()))
+    @app.get("/api/media/{artifact_id}/download")
+    async def api_download_media(artifact_id: str) -> Response:
+        return get_media_response(artifact_id, download=True)
 
-    def handle_update_tool_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, update_tool_settings(self.read_json_body()))
+    @app.get("/api/media/{artifact_id}/{tail:path}")
+    async def api_unknown_media_path(artifact_id: str, tail: str) -> Response:
+        return text_response(HTTPStatus.NOT_FOUND, "Media not found.")
 
-    def handle_update_mcp_settings(self) -> None:
-        self.send_json(HTTPStatus.OK, update_mcp_settings(self.read_json_body()))
+    @app.api_route("/", methods=["POST", "PATCH", "DELETE"])
+    @app.api_route("/{path:path}", methods=["POST", "PATCH", "DELETE"])
+    async def method_not_allowed(path: str = "") -> Response:
+        return text_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
 
-    def handle_test_mcp_server(self) -> None:
-        self.send_json(HTTPStatus.OK, test_mcp_server(self.read_json_body()))
+    @app.api_route("/", methods=["GET", "HEAD"])
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"])
+    async def static_files(request: Request, path: str = "") -> Response:
+        return serve_static_path(request.url.path, head=request.method == "HEAD")
 
-    def handle_connect_mcp_server(self) -> None:
-        self.send_json(HTTPStatus.OK, connect_mcp_server(self.read_json_body()))
-
-    def handle_reconnect_mcp_server(self) -> None:
-        self.send_json(HTTPStatus.OK, reconnect_mcp_server(self.read_json_body()))
-
-    def handle_reset_mcp_server_circuit(self) -> None:
-        self.send_json(HTTPStatus.OK, reset_mcp_server_circuit(self.read_json_body()))
-
-    def handle_get_mcp_stderr_log(self, query: str) -> None:
-        params = parse_qs(query)
-        try:
-            max_chars = int((params.get("maxChars") or params.get("max_chars") or ["60000"])[0])
-        except (TypeError, ValueError):
-            max_chars = 60000
-        self.send_json(HTTPStatus.OK, get_mcp_stderr_log(max_chars=max_chars))
-
-    def handle_delete_ai_api_key(self) -> None:
-        query = parse_qs(urlparse(self.path).query)
-        provider = (query.get("provider") or ["openai"])[0]
-        self.send_json(HTTPStatus.OK, delete_ai_api_key(provider))
-
-    def handle_get_codex_auth_status(self) -> None:
-        self.send_json(HTTPStatus.OK, get_codex_auth_status())
-
-    def handle_start_codex_auth(self) -> None:
-        self.send_json(HTTPStatus.OK, start_codex_auth())
-
-    def handle_poll_codex_auth(self) -> None:
-        self.send_json(HTTPStatus.OK, poll_codex_auth(self.read_json_body()))
-
-    def handle_logout_codex_auth(self) -> None:
-        self.send_json(HTTPStatus.OK, logout_codex_auth())
-
-    def serve_static(self) -> None:
-        parsed = urlparse(self.path)
-        pathname = unquote(parsed.path)
-        if pathname == "/":
-            pathname = "/index.html"
-
-        base_dir = PUBLIC_DIR
-        relative_path = pathname.lstrip("/")
-
-        if pathname.startswith("/assets/scripts/"):
-            base_dir = PUBLIC_DIR
-            relative_path = pathname.removeprefix("/assets/")
-        elif pathname.startswith("/assets/styles/"):
-            base_dir = PUBLIC_DIR
-            relative_path = pathname.removeprefix("/assets/")
-        elif pathname.startswith("/resources/"):
-            base_dir = PROJECT_ROOT
-        elif pathname.startswith("/node_modules/"):
-            base_dir = PROJECT_ROOT
-        elif pathname.startswith("/assets/"):
-            base_dir = PROJECT_ROOT
-        elif pathname == "/notes.json":
-            base_dir = PROJECT_ROOT
-
-        file_path = (base_dir / relative_path).resolve()
-        if not is_relative_to(file_path, base_dir.resolve()):
-            self.send_text(HTTPStatus.FORBIDDEN, "Forbidden")
-            return
-
-        if not file_path.is_file():
-            self.send_text(HTTPStatus.NOT_FOUND, "Not found")
-            return
-
-        content_type = MIME_TYPES.get(file_path.suffix.lower()) or mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
-        data = file_path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(data)
+    return app
 
 
-def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
-    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    lines = [f"event: {event}"]
-    lines.extend(f"data: {line}" for line in body.splitlines() or ["{}"])
-    return ("\n".join(lines) + "\n\n").encode("utf-8")
+def get_media_response(artifact_id: str, *, download: bool) -> Response:
+    try:
+        media_store = get_agent_service().media_store
+        artifact = media_store.require_artifact(artifact_id)
+        body = media_store.read_bytes(artifact.id)
+    except MediaStoreError as error:
+        raise AgentAPIError(HTTPStatus.NOT_FOUND, "media_not_found", str(error)) from error
+
+    headers = {"Content-Length": str(len(body))}
+    if download:
+        headers["Content-Disposition"] = content_disposition_attachment(artifact.file_name)
+    return Response(content=body, media_type=artifact.mime_type, headers=headers)
+
+
+app = create_app()
 
 
 def main() -> None:
-    server = ThreadingHTTPServer((HOST, PORT), PaperNotesHandler)
     display_host = "localhost" if HOST in {"127.0.0.1", "0.0.0.0"} else HOST
-    print(f"Paper Notes is running at http://{display_host}:{PORT}")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopping Paper Notes.")
-    finally:
-        server.server_close()
+    print(f"Paper Notes is running at http://{display_host}:{PORT}", flush=True)
+    uvicorn.run(app, host=HOST, port=PORT)
 
 
 if __name__ == "__main__":
