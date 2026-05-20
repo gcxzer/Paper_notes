@@ -1,3 +1,5 @@
+let readerProjectFlyoutCloseTimer = 0;
+
 function normalizeReaderChatProject(rawProject) {
   const id = normalizeText(rawProject?.id || rawProject?.projectId || rawProject?.project_id);
   const name = normalizeText(rawProject?.name || rawProject?.title);
@@ -101,7 +103,7 @@ function renderReaderProjectRow(project, scopeId) {
         <label class="ask-session-rename-card ask-project-rename-card">
           <span class="sr-only">Project name</span>
           <input type="text" name="name" maxlength="80" autocomplete="off" value="${escapeHtml(project.name)}" aria-label="Project name">
-          <button class="ask-session-save" type="submit">Save</button>
+          <button class="ask-session-save" type="submit" aria-label="Save project name">Save</button>
         </label>
       </form>
     `;
@@ -285,6 +287,9 @@ function showReaderProjectFlyout(projectId) {
 
 function positionReaderProjectFlyout(flyout, row) {
   if (!flyout || !row) return;
+  const popover = elements.readerProjectPopover;
+  if (!popover) return;
+  const popoverRect = popover.getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
   const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
   const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -300,12 +305,67 @@ function positionReaderProjectFlyout(flyout, row) {
   const maxTop = Math.max(12, viewportHeight - 320 - 12);
   const top = Math.max(12, Math.min(rowRect.top, maxTop));
   flyout.style.width = `${Math.round(width)}px`;
-  flyout.style.left = `${Math.round(left)}px`;
-  flyout.style.top = `${Math.round(top)}px`;
+  flyout.style.left = `${Math.round(left - popoverRect.left)}px`;
+  flyout.style.top = `${Math.round(top - popoverRect.top)}px`;
+}
+
+function positionReaderProjectFlyoutBridge(bridge, row, flyout) {
+  const popover = elements.readerProjectPopover;
+  if (!bridge || !row || !flyout || !popover) return;
+  const popoverRect = popover.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const flyoutRect = flyout.getBoundingClientRect();
+  const overlap = 8;
+  const flyoutOnRight = flyoutRect.left >= rowRect.right;
+  const gapStart = flyoutOnRight ? rowRect.right : flyoutRect.right;
+  const gapEnd = flyoutOnRight ? flyoutRect.left : rowRect.left;
+  const width = Math.max(0, gapEnd - gapStart) + overlap * 2;
+  const left = gapStart - popoverRect.left - overlap;
+  const topEdge = Math.min(rowRect.top, flyoutRect.top);
+  const bottomEdge = Math.max(rowRect.bottom, flyoutRect.bottom);
+  bridge.style.left = `${Math.round(left)}px`;
+  bridge.style.top = `${Math.round(topEdge - popoverRect.top - overlap)}px`;
+  bridge.style.width = `${Math.round(width)}px`;
+  bridge.style.height = `${Math.round(bottomEdge - topEdge + overlap * 2)}px`;
 }
 
 function removeReaderProjectFlyout() {
-  document.querySelectorAll(".ask-project-flyout").forEach((flyout) => flyout.remove());
+  document.querySelectorAll(".ask-project-flyout, .ask-project-flyout-bridge").forEach((element) => element.remove());
+}
+
+function cancelReaderProjectFlyoutClose() {
+  if (!readerProjectFlyoutCloseTimer) return;
+  window.clearTimeout(readerProjectFlyoutCloseTimer);
+  readerProjectFlyoutCloseTimer = 0;
+}
+
+function pointerInsideReaderProjectHoverArea() {
+  return Boolean(document.querySelector("#readerProjectPopover:hover, .ask-project-flyout:hover, .ask-project-flyout-bridge:hover"));
+}
+
+function scheduleHideReaderProjectFlyout() {
+  cancelReaderProjectFlyoutClose();
+  readerProjectFlyoutCloseTimer = window.setTimeout(() => {
+    readerProjectFlyoutCloseTimer = 0;
+    if (!pointerInsideReaderProjectHoverArea()) hideReaderProjectFlyout();
+  }, 180);
+}
+
+function hideReaderProjectFlyout() {
+  cancelReaderProjectFlyoutClose();
+  if (!readerState.expandedChatProjectId) return;
+  readerState.expandedChatProjectId = "";
+  removeReaderProjectFlyout();
+}
+
+function isReaderProjectHoverTarget(target) {
+  const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  return Boolean(element?.closest?.("#readerProjectPopover, .ask-project-flyout, .ask-project-flyout-bridge"));
+}
+
+function hideReaderProjectFlyoutIfOutside(event) {
+  if (isReaderProjectHoverTarget(event.relatedTarget)) return;
+  scheduleHideReaderProjectFlyout();
 }
 
 function appendReaderProjectFlyout() {
@@ -319,14 +379,25 @@ function appendReaderProjectFlyout() {
   wrapper.innerHTML = renderReaderProjectSubmenu(project);
   const flyout = wrapper.firstElementChild;
   if (!flyout) return;
+  const bridge = document.createElement("div");
+  bridge.className = "ask-project-flyout-bridge";
+  bridge.setAttribute("aria-hidden", "true");
   flyout.addEventListener("click", (event) => {
     const sessionButton = event.target.closest("[data-project-session]");
     if (!sessionButton) return;
+    event.preventDefault();
+    event.stopPropagation();
     void loadReaderChatSession(sessionButton.dataset.projectSession, { closeMenu: false });
     closeReaderProjectMenu();
   });
-  document.body.appendChild(flyout);
+  bridge.addEventListener("pointerenter", cancelReaderProjectFlyoutClose);
+  bridge.addEventListener("pointerleave", hideReaderProjectFlyoutIfOutside);
+  flyout.addEventListener("pointerenter", cancelReaderProjectFlyoutClose);
+  flyout.addEventListener("pointerleave", hideReaderProjectFlyoutIfOutside);
+  elements.readerProjectPopover.appendChild(bridge);
+  elements.readerProjectPopover.appendChild(flyout);
   positionReaderProjectFlyout(flyout, row);
+  positionReaderProjectFlyoutBridge(bridge, row, flyout);
 }
 
 function rememberReaderProjectListScroll() {
@@ -685,8 +756,13 @@ function handleReaderProjectPopoverClick(event) {
 
 function handleReaderProjectPopoverPointerOver(event) {
   if (readerState.openProjectActionMenuId) return;
+  cancelReaderProjectFlyoutClose();
+  if (event.target.closest(".ask-project-flyout, .ask-project-flyout-bridge")) return;
   const row = event.target.closest("[data-project-row]");
-  if (!row || event.target.closest("[data-project-menu]")) return;
+  if (!row || event.target.closest("[data-project-menu]")) {
+    hideReaderProjectFlyout();
+    return;
+  }
   showReaderProjectFlyout(row.dataset.projectRow);
 }
 
@@ -724,6 +800,7 @@ function initializeReaderProjects() {
   });
   elements.readerProjectPopover?.addEventListener("click", handleReaderProjectPopoverClick);
   elements.readerProjectPopover?.addEventListener("pointerover", handleReaderProjectPopoverPointerOver);
+  elements.readerProjectPopover?.addEventListener("pointerleave", hideReaderProjectFlyoutIfOutside);
   elements.readerProjectPopover?.addEventListener("submit", handleReaderProjectPopoverSubmit);
   void fetchReaderChatProjects({ silent: true });
 }

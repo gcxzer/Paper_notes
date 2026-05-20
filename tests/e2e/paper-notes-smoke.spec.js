@@ -2019,14 +2019,14 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
     streamGate,
     workTraceItems: [
       { type: "reasoning", text: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
-      { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
-      { type: "status", text: "Preparing answer...", at: "2026-05-13T10:00:02.000Z" },
+      { type: "status", text: "Preparing answer...", at: "2026-05-13T10:00:01.000Z" },
+      { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:02.000Z" },
     ],
     progressVisibleEvents: [
       { stage: "thinking", detail: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
       { stage: "thinking", detail: "Thinking through the paper context and reading", at: "2026-05-13T10:00:00.500Z" },
-      { stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
-      { stage: "status", detail: "Preparing answer...", at: "2026-05-13T10:00:02.000Z" },
+      { stage: "status", detail: "Preparing answer...", at: "2026-05-13T10:00:01.000Z" },
+      { stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:02.000Z" },
     ],
   });
 
@@ -2100,8 +2100,8 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
     nodes.map((node) => node.textContent?.trim()).filter(Boolean)
   ))).toEqual([
     "Thinking through the paper context...",
-    "Reading note context...",
     "Preparing answer...",
+    "Reading note context...",
   ]);
   await page.evaluate(() => {
     const runKey = chatSessionRunKey();
@@ -2510,6 +2510,7 @@ test("reader session popover is tall enough for longer chat lists", async ({ pag
 
 test("reader ask projects filter sessions and session menu assigns a project", async ({ page }) => {
   const assignmentCalls = [];
+  const loadedSessionIds = [];
   const projectMutations = [];
   const projects = [
     { id: "project-llm", name: "LLM Review", order: 0 },
@@ -2541,6 +2542,23 @@ test("reader ask projects filter sessions and session menu assigns a project", a
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: activeSessions }),
+    });
+  });
+  await page.route("**/api/chat/session?id=*", async (route) => {
+    const url = new URL(route.request().url());
+    const sessionId = url.searchParams.get("id") || "";
+    loadedSessionIds.push(sessionId);
+    const session = activeSessions.find((item) => item.id === sessionId);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          ...session,
+          id: sessionId,
+          sessionId,
+          messages: [{ role: "assistant", content: "LLM loaded message" }],
+        },
+      }),
     });
   });
   await page.route("**/api/chat/session/project", async (route) => {
@@ -2597,6 +2615,10 @@ test("reader ask projects filter sessions and session menu assigns a project", a
   const projectFlyoutBox = await page.locator(".ask-project-flyout").boundingBox();
   expect(projectFlyoutBox?.width).toBeGreaterThan(100);
   expect(projectFlyoutBox?.height).toBeGreaterThan(30);
+  await page.locator(".ask-project-flyout").getByRole("button", { name: /LLM chat/ }).click();
+  await expect(page.locator("#readerProjectPopover")).toBeHidden();
+  await expect(page.locator("#readerChatMessages")).toContainText("LLM loaded message");
+  expect(loadedSessionIds).toEqual(["active-session-llm"]);
 
   await page.locator("#chatSessionMenuButton").click();
   await expect(page.locator(".ask-session-row", { hasText: "LLM chat" })).toBeVisible();
@@ -2676,7 +2698,14 @@ test("reader project menu keeps scroll while previewing long project lists", asy
   const box = await list.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box.x + 90, box.y + 90);
-  await expect(page.locator(".ask-project-flyout")).toBeVisible();
+  const flyout = page.locator(".ask-project-flyout");
+  await expect(flyout).toBeVisible();
+  const flyoutBox = await flyout.boundingBox();
+  expect(flyoutBox).not.toBeNull();
+  await page.mouse.move(flyoutBox.x + 20, flyoutBox.y + 20);
+  await expect(flyout).toBeVisible();
+  await page.mouse.move(12, 12);
+  await expect(flyout).toHaveCount(0);
   await page.waitForTimeout(250);
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeHoverScrollTop - 4);
 });
@@ -4531,13 +4560,13 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
   });
   await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
   await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
-  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+  await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
   await page.locator("#readerChatInput").dblclick();
   await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
-  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+  await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
   await page.locator("#readerChatInput").click({ clickCount: 3 });
   await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
-  await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
+  await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
   const chipHandle = await page.locator(".ask-selected-text-chip").elementHandle();
   await page.evaluate(() => {
     schedulePdfSelectionOverlayRender();
@@ -4642,8 +4671,8 @@ test("reader highlight and underline annotations keep selected PDF text", async 
     ), type);
     await expect(page.locator(".ask-selected-text-chip")).toContainText("Text selected");
     await expect(page.locator(".ask-selected-text-chip")).toHaveAttribute("data-selected-text-preview", /stochastic/);
-    await expect(page.locator(".pdf-selection-rect").first()).toBeVisible();
-    expect(await page.evaluate(() => window.getSelection()?.toString())).toContain("stochastic");
+    await expect(page.locator(".pdf-selection-rect")).toHaveCount(0);
+    expect(await page.evaluate(() => window.getSelection()?.toString() || "")).toBe("");
 
     await page.evaluate(() => {
       pdfState.annotations = [];

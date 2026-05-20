@@ -678,7 +678,7 @@
 }
 
 .ask-project-flyout {
-  position: fixed;
+  position: absolute;
   z-index: 120;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -689,6 +689,13 @@
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(16px);
+}
+
+.ask-project-flyout-bridge {
+  position: absolute;
+  z-index: 119;
+  background: transparent;
+  pointer-events: auto;
 }
 
 .ask-project-session,
