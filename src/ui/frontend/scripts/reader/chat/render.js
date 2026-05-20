@@ -144,6 +144,10 @@ function safeChatLinkHref(rawHref) {
   return "";
 }
 
+function safeChatImageHref(rawHref) {
+  return safeChatLinkHref(rawHref);
+}
+
 function splitTrailingUrlPunctuation(url) {
   let trimmed = url;
   let trailing = "";
@@ -179,10 +183,16 @@ function extractChatMathSegments(text) {
     });
     return token;
   };
+  const protectInlineDollarMath = (match, prefix, formula) => {
+    const normalizedFormula = String(formula || "").trim();
+    if (!normalizedFormula) return match;
+    return `${prefix}${protect(false)(match, normalizedFormula)}`;
+  };
   const source = String(text || "")
     .replace(/\\\[([\s\S]*?)\\\]/g, protect(true))
     .replace(/\$\$([\s\S]*?)\$\$/g, protect(true))
-    .replace(/\\\(([\s\S]*?)\\\)/g, protect(false));
+    .replace(/\\\(([\s\S]*?)\\\)/g, protect(false))
+    .replace(/(^|[^\\$])\$([^\s$\n](?:[^\n$]*?[^\s$\n])?)\$(?![\d$])/g, protectInlineDollarMath);
   return { source, mathSegments };
 }
 
@@ -221,8 +231,19 @@ function renderChatMarkdown(text) {
   html = html.replace(/__([^_\n](?:[\s\S]*?[^_\n])?)__/g, "<strong>$1</strong>");
   html = html.replace(/\*\*/g, "");
   html = html.replace(/__/g, "");
+  html = html.replace(/~~([^~\n](?:[\s\S]*?[^~\n])?)~~/g, "<del>$1</del>");
+  html = html.replace(/~~/g, "");
   html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
   html = html.replace(/(^|[^\w])_([^_\n]+?)_(?=[^\w]|$)/g, "$1<em>$2</em>");
+  const imageSpans = [];
+  html = html.replace(/!\[([^\]\n]{0,240})\]\(([^)\s]+)(?:\s+"[^"]{0,160}")?\)/g, (match, alt, href) => {
+    const safeHref = safeChatImageHref(href);
+    if (!safeHref) return match;
+    const token = `@@IMAGESPAN${imageSpans.length}@@`;
+    const altText = alt.replace(/@@CODESPAN(\d+)@@/g, (spanToken, index) => codeSpanLabels[Number(index)] ?? spanToken);
+    imageSpans.push(`<a class="chat-markdown-image-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer"><img class="chat-markdown-image" src="${escapeHtml(safeHref)}" alt="${escapeHtml(altText)}" loading="lazy" decoding="async"></a>`);
+    return token;
+  });
   const linkSpans = [];
   html = html.replace(/\[([^\]\n]{1,240})\]\(([^)\s]+)\)/g, (match, label, href) => {
     const safeHref = safeChatLinkHref(href);
@@ -246,12 +267,13 @@ function renderChatMarkdown(text) {
   linkSpans.forEach((link, index) => {
     html = html.replace(`@@LINKSPAN${index}@@`, link);
   });
+  imageSpans.forEach((image, index) => {
+    html = html.replace(`@@IMAGESPAN${index}@@`, image);
+  });
   codeSpans.forEach((code, index) => {
     html = html.replace(`@@CODESPAN${index}@@`, code);
   });
-  codeBlocks.forEach((block, index) => {
-    html = html.replace(`@@CODEBLOCK${index}@@`, block);
-  });
+  html = restoreChatCodeBlocks(html, codeBlocks);
   return restoreChatMathSegments(html, mathSegments);
 }
 
@@ -269,31 +291,59 @@ function renderTraceInlineMarkdown(text) {
 function renderChatMarkdownBlocks(html) {
   const lines = String(html || "").split(/\r?\n/);
   const output = [];
-  let listType = "";
+  const listStack = [];
   let blockquote = [];
 
-  const closeList = () => {
-    if (!listType) return;
-    output.push(`</${listType}>`);
-    listType = "";
+  const leadingSpaces = (value) => (String(value || "").match(/^\s*/) || [""])[0].replace(/\t/g, "  ").length;
+  const listStartAttr = (type, start = "") => (
+    type === "ol" && start ? ` start="${escapeHtml(start)}"` : ""
+  );
+  const closeTopList = () => {
+    const top = listStack.pop();
+    if (!top) return;
+    if (top.openLi) output.push("</li>");
+    output.push(`</${top.type}>`);
+  };
+  const closeListsDeeperThan = (indent) => {
+    while (listStack.length && listStack[listStack.length - 1].indent > indent) {
+      closeTopList();
+    }
+  };
+  const closeLists = () => {
+    while (listStack.length) closeTopList();
   };
   const closeBlockquote = () => {
     if (!blockquote.length) return;
-    closeList();
+    closeLists();
     output.push(`<blockquote>${blockquote.join("<br>")}</blockquote>`);
     blockquote = [];
   };
-  const openList = (type, start = "") => {
+  const renderListItem = ({ type, indent, content, start = "", task = null }) => {
     closeBlockquote();
-    if (listType === type) return;
-    closeList();
-    const startAttr = type === "ol" && start ? ` start="${escapeHtml(start)}"` : "";
-    output.push(`<${type}${startAttr}>`);
-    listType = type;
+    closeListsDeeperThan(indent);
+    let current = listStack[listStack.length - 1];
+    if (!current || current.indent < indent || current.type !== type) {
+      if (current && current.indent === indent && current.type !== type) {
+        closeTopList();
+      }
+      output.push(`<${type}${listStartAttr(type, start)}>`);
+      current = { type, indent, openLi: false };
+      listStack.push(current);
+    } else if (current.openLi) {
+      output.push("</li>");
+      current.openLi = false;
+    }
+    current.openLi = true;
+    if (task) {
+      const checked = task.checked ? " checked" : "";
+      output.push(`<li class="chat-task-list-item"><span class="chat-task-list-row"><input type="checkbox" disabled${checked}><span class="chat-task-list-text">${content}</span></span>`);
+      return;
+    }
+    output.push(`<li>${content}`);
   };
   const closeBlocks = () => {
     closeBlockquote();
-    closeList();
+    closeLists();
   };
   const tableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
   const tableRow = (line) => /^\s*\|.+\|\s*$/.test(line);
@@ -342,21 +392,29 @@ function renderChatMarkdownBlocks(html) {
       output.push("<hr>");
       continue;
     }
-    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const unordered = line.match(/^(\s*)[-*+]\s+(?:(\[( |x|X)\])\s+)?(.+)$/);
     if (unordered) {
-      openList("ul");
-      output.push(`<li>${unordered[1]}</li>`);
+      renderListItem({
+        type: "ul",
+        indent: leadingSpaces(unordered[1]),
+        content: unordered[4],
+        task: unordered[2] ? { checked: unordered[3]?.toLowerCase() === "x" } : null
+      });
       continue;
     }
-    const ordered = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
+    const ordered = line.match(/^(\s*)(\d+)[.)]\s+(.+)$/);
     if (ordered) {
-      openList("ol", ordered[1]);
-      output.push(`<li>${ordered[2]}</li>`);
+      renderListItem({
+        type: "ol",
+        indent: leadingSpaces(ordered[1]),
+        start: ordered[2],
+        content: ordered[3]
+      });
       continue;
     }
     const quote = line.match(/^\s*(?:>|&gt;)\s?(.*)$/);
     if (quote) {
-      closeList();
+      closeLists();
       blockquote.push(quote[1]);
       continue;
     }
@@ -371,10 +429,97 @@ function normalizeFencedCode(code) {
   return String(code || "").replace(/^(?:[ \t]*\r?\n)+/, "").replace(/(?:\r?\n[ \t]*)+$/, "");
 }
 
+function restoreChatCodeBlocks(html, codeBlocks) {
+  let output = String(html || "");
+  codeBlocks.forEach((block, index) => {
+    const token = `@@CODEBLOCK${index}@@`;
+    output = output.replaceAll(`<p>${token}</p>`, block);
+    output = output.replaceAll(token, block);
+  });
+  return output;
+}
+
+function isMermaidCodeBlockLanguage(language = "") {
+  return ["mermaid", "mmd"].includes(normalizeText(language).trim().toLowerCase());
+}
+
 function renderChatCodeBlock(code, language = "") {
   const normalizedCode = String(code || "");
   const label = normalizeText(language);
+  if (isMermaidCodeBlockLanguage(label)) return renderChatMermaidBlock(normalizedCode);
   return `<div class="chat-code-block">${label ? `<div class="chat-code-language">${escapeHtml(label)}</div>` : ""}<pre><code>${escapeHtml(normalizedCode)}</code></pre><button class="chat-code-copy" type="button" data-code-copy="${escapeHtml(encodeURIComponent(normalizedCode))}">Copy</button></div>`;
+}
+
+function renderChatMermaidBlock(code) {
+  const normalizedCode = String(code || "");
+  const encodedCode = escapeHtml(encodeURIComponent(normalizedCode));
+  return `
+    <div class="chat-mermaid-block">
+      <div class="chat-mermaid-header">
+        <div class="chat-code-language">mermaid</div>
+        <button class="chat-code-copy" type="button" data-code-copy="${encodedCode}">Copy</button>
+      </div>
+      <div class="chat-mermaid-diagram" data-mermaid-code="${encodedCode}" aria-label="Mermaid diagram">
+        <pre class="chat-mermaid-source"><code>${escapeHtml(normalizedCode)}</code></pre>
+      </div>
+    </div>
+  `;
+}
+
+let chatMermaidRenderCounter = 0;
+
+function decodeChatMermaidCode(element) {
+  try {
+    return decodeURIComponent(element?.dataset?.mermaidCode || "");
+  } catch (error) {
+    console.warn("Could not decode Mermaid source.", error);
+    return "";
+  }
+}
+
+function scheduleChatMermaidRender(container, { keepScrolledToBottom = false } = {}) {
+  if (!container?.querySelector?.(".chat-mermaid-diagram")) return;
+  requestAnimationFrame(() => {
+    renderChatMermaidDiagrams(container)
+      .then(() => {
+        if (keepScrolledToBottom && container.isConnected) {
+          container.scrollTop = container.scrollHeight;
+        }
+      })
+      .catch((error) => console.warn("Failed to render Mermaid diagrams.", error));
+  });
+}
+
+async function renderChatMermaidDiagrams(container = elements.readerChatMessages) {
+  const mermaid = globalThis.mermaid;
+  if (!container || !mermaid?.render) return;
+  const diagrams = Array.from(container.querySelectorAll(".chat-mermaid-diagram:not([data-mermaid-status])"));
+  await Promise.all(diagrams.map((diagram) => renderChatMermaidDiagram(diagram, mermaid)));
+}
+
+async function renderChatMermaidDiagram(diagram, mermaid) {
+  const code = decodeChatMermaidCode(diagram).trim();
+  if (!code) return;
+  const renderId = `chat-mermaid-svg-${Date.now()}-${chatMermaidRenderCounter += 1}`;
+  diagram.dataset.mermaidStatus = "rendering";
+  diagram.dataset.mermaidRenderId = renderId;
+  try {
+    const result = await mermaid.render(renderId, code);
+    if (!diagram.isConnected || diagram.dataset.mermaidRenderId !== renderId) return;
+    diagram.innerHTML = result.svg;
+    diagram.dataset.mermaidStatus = "rendered";
+    diagram.closest(".chat-mermaid-block")?.classList.add("is-rendered");
+    if (typeof result.bindFunctions === "function") result.bindFunctions(diagram);
+  } catch (error) {
+    if (!diagram.isConnected || diagram.dataset.mermaidRenderId !== renderId) return;
+    diagram.dataset.mermaidStatus = "error";
+    diagram.closest(".chat-mermaid-block")?.classList.add("is-error");
+    diagram.innerHTML = `
+      <div class="chat-mermaid-error">Could not render Mermaid diagram.</div>
+      <pre class="chat-mermaid-source"><code>${escapeHtml(code)}</code></pre>
+    `;
+    console.warn("Could not render Mermaid diagram.", error);
+  }
 }
 
 function normalizeImageArtifacts(rawArtifacts) {
@@ -1784,7 +1929,8 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   `;
   }).join("");
   elements.readerChatMessages.innerHTML = `${messagesHtml}${insertedProgress ? "" : chatProgressHtml}`;
-  if (forceScrollToBottom || (scrollToBottom && wasNearBottom)) {
+  const keepScrolledToBottom = forceScrollToBottom || (scrollToBottom && wasNearBottom);
+  if (keepScrolledToBottom) {
     elements.readerChatMessages.scrollTop = elements.readerChatMessages.scrollHeight;
   } else if (preserveScrollTop || scrollToBottom) {
     elements.readerChatMessages.scrollTop = previousScrollTop;
@@ -1792,6 +1938,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
       if (elements.readerChatMessages) elements.readerChatMessages.scrollTop = previousScrollTop;
     });
   }
+  scheduleChatMermaidRender(elements.readerChatMessages, { keepScrolledToBottom });
 }
 
 function renderUserGenerationBadge(generation, attachments = []) {

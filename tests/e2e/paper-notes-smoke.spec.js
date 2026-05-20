@@ -3416,6 +3416,57 @@ test("reader chat renders LaTeX math in assistant messages", async ({ page }) =>
   await expect(bubble).not.toContainText("\\]");
 });
 
+test("reader chat renders Mermaid diagrams", async ({ page }) => {
+  await openFixtureReader(page);
+  await showAskPane(page);
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "流程如下：\n\n```mermaid\nflowchart TD\n  A[开始 Prompt] --> B[生成 paraphrase]\n  B --> C[估计句子频率]\n  C --> D[筛选高频表述]\n```",
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const bubble = page.locator(".ask-message-assistant .ask-bubble");
+  const diagram = bubble.locator(".chat-mermaid-block");
+  await expect(diagram).toBeVisible();
+  await expect(diagram.locator(".chat-code-language")).toHaveText("mermaid");
+  await expect(diagram.locator(".chat-mermaid-diagram svg")).toBeVisible({ timeout: 8000 });
+  await expect(diagram.locator(".chat-mermaid-source")).toHaveCount(0);
+  await expect(diagram).toContainText("开始 Prompt");
+  await expect(bubble.locator(".chat-code-block")).toHaveCount(0);
+});
+
+test("reader chat renders extended markdown features", async ({ page }) => {
+  await openFixtureReader(page);
+  await showAskPane(page);
+
+  await page.evaluate(() => {
+    readerState.chatMessages = [{
+      role: "assistant",
+      text: "支持 ~~删除线~~ 和 $E=mc^2$。\n\n![示例图](resources/Paper-images/pdf-adam-s-law-textual-frequency-law-on-large-language-models-mp8j9yvt/page-0001-image-001-xref-130.png)\n\n- [x] 完成图片渲染\n- [ ] 补任务列表\n  - 子任务 A\n  1. 子步骤一",
+    }];
+    renderReaderChatMessages({ forceScrollToBottom: true });
+  });
+
+  const bubble = page.locator(".ask-message-assistant .ask-bubble");
+  await expect(bubble.locator("del")).toHaveText("删除线");
+  await expect(bubble.locator(".chat-math-inline .katex")).toBeVisible();
+  await expect(bubble).not.toContainText("$E=mc^2$");
+
+  const image = bubble.locator("img.chat-markdown-image");
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("alt", "示例图");
+
+  const taskItems = bubble.locator(".chat-task-list-item");
+  await expect(taskItems).toHaveCount(2);
+  await expect(taskItems.nth(0).locator("input[type='checkbox']")).toBeChecked();
+  await expect(taskItems.nth(1).locator("input[type='checkbox']")).not.toBeChecked();
+  await expect(taskItems.nth(1).locator("ul li")).toHaveText("子任务 A");
+  await expect(taskItems.nth(1).locator("ol li")).toHaveText("子步骤一");
+});
+
 test("reader chat renders markdown blockquotes", async ({ page }) => {
   await openFixtureReader(page);
   const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });

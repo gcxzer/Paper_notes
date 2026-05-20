@@ -245,6 +245,11 @@
   font-weight: 600;
 }
 
+.ask-bubble del {
+  color: color-mix(in srgb, var(--muted-strong) 82%, var(--text));
+  text-decoration-thickness: 0.08em;
+}
+
 .ask-bubble code {
   padding: 0 0.12em;
   border: 0;
@@ -310,6 +315,29 @@
   margin: 0.18em 0;
 }
 
+.ask-bubble .chat-task-list-item {
+  list-style: none;
+}
+
+.ask-bubble .chat-task-list-row {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.45em;
+  max-width: 100%;
+}
+
+.ask-bubble .chat-task-list-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  margin: 0.28em 0 0;
+  accent-color: var(--accent);
+}
+
+.ask-bubble .chat-task-list-text {
+  min-width: 0;
+}
+
 .ask-bubble blockquote {
   padding: 0.2em 0 0.2em 0.8em;
   border-left: 3px solid color-mix(in srgb, var(--accent) 42%, var(--line));
@@ -358,6 +386,23 @@
   border-bottom: 0;
 }
 
+.ask-bubble .chat-markdown-image-link {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0.35em 0;
+  border-radius: 8px;
+}
+
+.ask-bubble .chat-markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: 460px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  object-fit: contain;
+}
+
 .ask-bubble .chat-math-block {
   max-width: 100%;
   margin: 0.8em 0;
@@ -378,6 +423,64 @@
 .ask-bubble .chat-math-fallback {
   font-family: Georgia, "Times New Roman", serif;
   white-space: pre-wrap;
+}
+
+.ask-bubble .chat-mermaid-block {
+  max-width: 100%;
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-alt) 82%, var(--panel));
+}
+
+.ask-bubble .chat-mermaid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ask-bubble .chat-mermaid-diagram {
+  max-width: 100%;
+  min-height: 88px;
+  padding: 14px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.ask-bubble .chat-mermaid-diagram svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.ask-bubble .chat-mermaid-source {
+  margin: 0;
+  overflow-x: auto;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.ask-bubble .chat-mermaid-source code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  overflow-wrap: normal;
+}
+
+.ask-bubble .chat-mermaid-error {
+  margin-bottom: 8px;
+  color: #ffb0b0;
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
 .ask-stream-caret {

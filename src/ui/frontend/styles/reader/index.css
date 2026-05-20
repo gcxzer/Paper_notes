@@ -5,7 +5,7 @@
 @import "./layout.css";
 @import "./pdf.css";
 @import "./ask.css?v=project-flyout-list-only-v1";
-@import "./chat.css";
+@import "./chat.css?v=chat-mermaid-v1";
 @import "./prompts.css";
 @import "./slash-commands.css";
 @import "./debug.css?v=debug-unified-v1";

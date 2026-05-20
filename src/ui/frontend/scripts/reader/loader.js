@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "web-search-query-trace-v1";
+const READER_SCRIPT_VERSION = "chat-mermaid-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-default-off-v1",
@@ -59,6 +59,37 @@ async function bootReader() {
     const pdfjsLib = await import("/node_modules/pdfjs-dist/legacy/build/pdf.mjs");
     pdfjsLib.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs";
     globalThis.pdfjsLib = pdfjsLib;
+    try {
+      const mermaidModule = await import("/node_modules/mermaid/dist/mermaid.esm.min.mjs");
+      const mermaid = mermaidModule.default || mermaidModule;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        suppressErrorRendering: true,
+        theme: "base",
+        flowchart: {
+          htmlLabels: false,
+          useMaxWidth: true
+        },
+        sequence: {
+          useMaxWidth: true
+        },
+        themeVariables: {
+          background: "transparent",
+          primaryColor: "#f8fafc",
+          primaryTextColor: "#111827",
+          primaryBorderColor: "#94a3b8",
+          lineColor: "#64748b",
+          secondaryColor: "#eff6ff",
+          tertiaryColor: "#f5f3ff",
+          fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        }
+      });
+      globalThis.mermaid = mermaid;
+    } catch (error) {
+      console.warn("Mermaid diagrams will fall back to source blocks.", error);
+      globalThis.mermaid = null;
+    }
     for (const src of READER_CLASSIC_SCRIPTS) {
       await loadClassicScript(src);
     }
