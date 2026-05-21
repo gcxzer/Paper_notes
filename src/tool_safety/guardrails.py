@@ -1,7 +1,7 @@
 """Runtime guardrail decisions for repeated or non-progressing tool calls.
 
 This module is about *what the agent loop should do with a specific tool
-call attempt*, not about the inherent safety category of the tool itself.
+call attempt, not about the inherent safety category of the tool itself.
 
 `ToolGuardrailDecision.action` values:
 - `allow`: run the tool normally.
@@ -10,13 +10,6 @@ call attempt*, not about the inherent safety category of the tool itself.
 - `block`: skip this specific tool call and return a synthetic tool result;
   the agent can continue and choose a different strategy.
 - `halt`: stop the whole agent run because the tool loop appears stuck.
-
-The other fields make the decision explainable:
-- `code` is the stable machine-readable reason.
-- `message` is the model-visible guidance.
-- `tool_name` identifies the affected tool.
-- `count` records the repeat/failure count that triggered the decision.
-- `signature` identifies the exact `tool_name + canonical arguments` pair.
 """
 
 from __future__ import annotations

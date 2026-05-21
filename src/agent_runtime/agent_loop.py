@@ -25,6 +25,21 @@ from model_providers.types import ModelRequest, ModelResponse, ModelStreamEvent,
 
 logger = logging.getLogger(__name__)
 
+# _TurnResult:
+#     A control-flow marker returned to the outer run_agent_loop. It is not
+#     written to history; it only tells the loop what to do next, such as
+#     continue another turn, execute tools, or return a final AgentRunResult.
+#
+# AgentEvent:
+#     A runtime event that records what just happened. It is for the UI, logs,
+#     debug panels, and the final run result; it is not a model message and does
+#     not automatically enter ModelRequest.messages.
+#
+# _record_event:
+#     The shared entry point for recording AgentEvents. It appends the event to
+#     state.events and, when event_sink exists, pushes it to the external
+#     listener. It handles bookkeeping/broadcasting, not agent-loop control flow.
+
 _BUDGET_WARNING_THRESHOLDS = (
     ("notice", 0.70),
     ("urgent", 0.85),
@@ -143,10 +158,15 @@ def _call_model_turn(
     event_sink: AgentEventSink | None,
 ) -> _TurnResult:
     sanitized = sanitize_model_messages(state.messages)
+
     if sanitized.stats.changed:
         _record_event(
             state.events,
-            _model_message_sanitized_event(sanitized),
+            AgentEvent(
+            "model_message_sanitized",
+            "Repaired model-visible message history before provider call.",
+            sanitized.stats.to_event_data(),
+            ),
             event_sink,
         )
 
@@ -190,11 +210,13 @@ def _call_model_turn(
     )
     _accumulate_usage(state.usage, response.usage)
     state.artifacts.extend(response.artifacts)
+
     for work_event in _reasoning_trace_events_from_response(response, turn_index + 1):
         _record_event(state.events, work_event, event_sink)
     for work_event in _work_trace_events_from_response(response, turn_index + 1):
         _record_event(state.events, work_event, event_sink)
     _record_event(state.events, _model_response_event(response, turn_index + 1), event_sink)
+
     if _is_cancelled(request):
         _record_cancelled_stream_work_events(state.events, streamed_work_events)
         return _TurnResult(
@@ -203,57 +225,6 @@ def _call_model_turn(
         )
 
     return _TurnResult("handle_response", response=response)
-
-
-def _generate_model_response(
-    model_provider: ModelProvider,
-    model_request: ModelRequest,
-    request: AgentRunRequest,
-    turn_index: int,
-    event_sink: AgentEventSink | None,
-    *,
-    streamed_work_events: list[AgentEvent] | None = None,
-) -> ModelResponse:
-    stream_generate = getattr(model_provider, "stream_generate", None)
-    if not request.stream_events_enabled or not callable(stream_generate):
-        return model_provider.generate(model_request)
-
-    def on_stream_event(event: ModelStreamEvent) -> None:
-        data = dict(event.data)
-        data.update({
-            "turn": turn_index + 1,
-        })
-        if event_sink is not None:
-            if event.type == "text_delta":
-                data.update({"delta": event.delta, "text": event.text})
-                event_sink(AgentEvent("model_delta", "Receiving model response.", data))
-            elif event.type == "reasoning_summary_delta":
-                data.update({"delta": event.delta, "text": event.text, "trace_type": "summary"})
-                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
-                if streamed_work_events is not None:
-                    streamed_work_events.append(agent_event)
-                event_sink(agent_event)
-            elif event.type == "reasoning_summary_done":
-                data.update({"text": event.text, "trace_type": "summary", "source": "provider"})
-                agent_event = AgentEvent("work_trace_item", event.text, data)
-                if streamed_work_events is not None:
-                    streamed_work_events.append(agent_event)
-                event_sink(agent_event)
-            elif event.type == "assistant_commentary_delta":
-                data.update({"delta": event.delta, "text": event.text, "trace_type": "commentary"})
-                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
-                if streamed_work_events is not None:
-                    streamed_work_events.append(agent_event)
-                event_sink(agent_event)
-            elif event.type == "assistant_commentary_done":
-                data.update({"text": event.text, "trace_type": "commentary", "source": "provider"})
-                agent_event = AgentEvent("work_trace_item", event.text, data)
-                if streamed_work_events is not None:
-                    streamed_work_events.append(agent_event)
-                event_sink(agent_event)
-
-    return stream_generate(model_request, event_sink=on_stream_event)
-
 
 def _messages_with_budget_warning(
     messages: list[dict[str, Any]],
@@ -336,6 +307,55 @@ def _inject_iteration_budget_warning(
         "_iteration_budget_warning": True,
     })
     return messages
+
+def _generate_model_response(
+    model_provider: ModelProvider,
+    model_request: ModelRequest,
+    request: AgentRunRequest,
+    turn_index: int,
+    event_sink: AgentEventSink | None,
+    *,
+    streamed_work_events: list[AgentEvent] | None = None,
+) -> ModelResponse:
+    stream_generate = getattr(model_provider, "stream_generate", None)
+    if not request.stream_events_enabled or not callable(stream_generate):
+        return model_provider.generate(model_request)
+
+    def on_stream_event(event: ModelStreamEvent) -> None:
+        data = dict(event.data)
+        data.update({
+            "turn": turn_index + 1,
+        })
+        if event_sink is not None:
+            if event.type == "text_delta":
+                data.update({"delta": event.delta, "text": event.text})
+                event_sink(AgentEvent("model_delta", "Receiving model response.", data))
+            elif event.type == "reasoning_summary_delta":
+                data.update({"delta": event.delta, "text": event.text, "trace_type": "summary"})
+                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
+            elif event.type == "reasoning_summary_done":
+                data.update({"text": event.text, "trace_type": "summary", "source": "provider"})
+                agent_event = AgentEvent("work_trace_item", event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
+            elif event.type == "assistant_commentary_delta":
+                data.update({"delta": event.delta, "text": event.text, "trace_type": "commentary"})
+                agent_event = AgentEvent("work_trace_delta", event.delta or event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
+            elif event.type == "assistant_commentary_done":
+                data.update({"text": event.text, "trace_type": "commentary", "source": "provider"})
+                agent_event = AgentEvent("work_trace_item", event.text, data)
+                if streamed_work_events is not None:
+                    streamed_work_events.append(agent_event)
+                event_sink(agent_event)
+
+    return stream_generate(model_request, event_sink=on_stream_event)
 
 
 def _handle_model_response(
@@ -442,6 +462,9 @@ def _prepare_tool_calls(
         state.last_content_tools_all_housekeeping = _all_tool_calls_housekeeping(response.tool_calls)
     return _TurnResult("handle_response", response=response)
 
+def _all_tool_calls_housekeeping(tool_calls: list[ToolCall]) -> bool:
+    housekeeping_tools = {"persistent_memory", "todo"}
+    return bool(tool_calls) and all(tool_call.name in housekeeping_tools for tool_call in tool_calls)
 
 def _handle_incomplete_response(
     state: _LoopState,
@@ -482,7 +505,7 @@ def _handle_incomplete_response(
     )
     return _TurnResult("continue_loop")
 
-
+# handle no tool response
 def _handle_no_tool_response(
     request: AgentRunRequest,
     state: _LoopState,
@@ -503,6 +526,14 @@ def _handle_no_tool_response(
         result=_finish_completed(state, turn_index + 1, event_sink),
     )
 
+def _should_recover_empty_after_tools(response: ModelResponse, messages: list[dict[str, Any]]) -> bool:
+    if response.finish_reason == "incomplete" or response.tool_calls:
+        return False
+    if response.artifacts:
+        return False
+    if response.content and response.content.strip():
+        return False
+    return any(message.get("role") == "tool" for message in messages[-6:])
 
 def _handle_empty_after_tools(
     state: _LoopState,
@@ -554,7 +585,32 @@ def _handle_empty_after_tools(
         result=_finish_error(state, turn_index + 1, "model_empty_after_tool_results"),
     )
 
+def _append_empty_tool_recovery_nudge(messages: list[dict[str, Any]], response: ModelResponse) -> None:
+    if (
+        messages
+        and messages[-1].get("role") == "assistant"
+        and not messages[-1].get("tool_calls")
+        and not str(messages[-1].get("content") or "").strip()
+    ):
+        messages[-1]["content"] = "(empty)"
+        messages[-1]["_empty_recovery_synthetic"] = True
+    else:
+        messages.append({
+            "role": "assistant",
+            "content": "(empty)",
+            "finish_reason": response.finish_reason,
+            "_empty_recovery_synthetic": True,
+        })
+    messages.append({
+        "role": "user",
+        "content": (
+            "You just executed tool calls but returned an empty response. "
+            "Please process the tool results above and continue with the task."
+        ),
+        "_empty_recovery_synthetic": True,
+    })
 
+# execute tool turn
 def _execute_tool_turn(
     request: AgentRunRequest,
     state: _LoopState,
@@ -676,21 +732,77 @@ def _execute_one_tool_call(
         event_sink,
     )
     if after_decision.action == "warn":
-        _record_event(state.events, _tool_guardrail_event(after_decision, "tool_warning"), event_sink)
+        _record_event(
+            state.events,
+            AgentEvent("tool_warning", after_decision.message, after_decision.to_metadata()),
+            event_sink,
+        )
     if after_decision.halts_run:
-        _record_event(state.events, _tool_guardrail_event(after_decision, "tool_halted"), event_sink)
+        _record_event(
+            state.events,
+            AgentEvent("tool_halted", after_decision.message, after_decision.to_metadata()),
+            event_sink,
+        )
         return _TurnResult(
             "return_result",
-            result=_tool_guardrail_halted_result(
-                messages=state.messages,
+            result=AgentRunResult(
+                completed=False,
+                final_response=state.final_response,
+                messages=copy.deepcopy(state.messages),
                 events=state.events,
                 turns=turn_index + 1,
-                final_response=state.final_response,
-                decision=after_decision,
                 usage=_usage_or_none(state.usage),
+                error=after_decision.code or "tool_guardrail_halt",
             ),
         )
     return _TurnResult("continue_loop")
+
+def _tool_arguments_for_guardrail(tool_call: ToolCall) -> dict[str, Any]:
+    raw_arguments = tool_call.arguments or ""
+    if not raw_arguments.strip():
+        return {}
+    try:
+        parsed = json.loads(raw_arguments)
+    except json.JSONDecodeError:
+        return {"__raw_arguments": raw_arguments}
+    return parsed if isinstance(parsed, dict) else {"__raw_arguments": raw_arguments}
+
+def _tool_is_read_only(tool_executor: ToolExecutor | None, tool_name: str) -> bool:
+    checker = getattr(tool_executor, "is_read_only", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(tool_name))
+    except Exception:
+        logger.debug("Tool read-only check failed for %s", tool_name, exc_info=True)
+        return False
+    
+def _tool_metadata(tool_executor: ToolExecutor | None, tool_name: str) -> dict[str, Any]:
+    metadata = getattr(tool_executor, "tool_metadata", None)
+    if not callable(metadata):
+        return {}
+    try:
+        value = metadata(tool_name)
+    except Exception:
+        logger.debug("Tool metadata lookup failed for %s", tool_name, exc_info=True)
+        return {}
+    return value if isinstance(value, dict) else {}
+
+def _should_warn_for_mutating_tool(tool_metadata: dict[str, Any]) -> bool:
+    return bool(tool_metadata.get("mutating")) and str(tool_metadata.get("write_mode") or "") == "warn"
+
+def _execute_tool(tool_executor: ToolExecutor, tool_call: ToolCall) -> ToolResult:
+    try:
+        raw_result = tool_executor.execute(tool_call)
+    except Exception as error:
+        return ToolResult(
+            call_id=tool_call.call_id or tool_call.id,
+            name=tool_call.name,
+            content=f"Error: {error}",
+            is_error=True,
+        )
+    return _normalize_tool_result(tool_call, raw_result)
+
 
 
 def _handle_tool_blocked(
@@ -712,23 +824,27 @@ def _handle_tool_blocked(
     turn_tool_messages.append(tool_message)
     _record_event(
         state.events,
-        _tool_guardrail_event(decision, "tool_halted" if decision.halts_run else "tool_blocked"),
+        AgentEvent(
+            "tool_halted" if decision.halts_run else "tool_blocked",
+            decision.message,
+            decision.to_metadata(),
+        ),
         event_sink,
     )
     if decision.halts_run:
         return _TurnResult(
             "return_result",
-            result=_tool_guardrail_halted_result(
-                messages=state.messages,
+            result=AgentRunResult(
+                completed=False,
+                final_response=state.final_response,
+                messages=copy.deepcopy(state.messages),
                 events=state.events,
                 turns=turn_index + 1,
-                final_response=state.final_response,
-                decision=decision,
                 usage=_usage_or_none(state.usage),
+                error=decision.code or "tool_guardrail_halt",
             ),
         )
     return _TurnResult("continue_loop")
-
 
 def _tool_preflight_cancelled(
     request: AgentRunRequest,
@@ -743,7 +859,6 @@ def _tool_preflight_cancelled(
         "return_result",
         result=_finish_cancelled(request, state, event_sink, turn_index + 1, turn_start_messages),
     )
-
 
 def _record_mutating_tool_warning(
     state: _LoopState,
@@ -767,6 +882,65 @@ def _record_mutating_tool_warning(
         event_sink,
     )
 
+def _tool_message_from_result(tool_call: ToolCall, tool_result: ToolResult) -> dict[str, Any]:
+    return {
+        "role": "tool",
+        "name": tool_result.name or tool_call.name,
+        "tool_call_id": tool_result.call_id or tool_call.call_id or tool_call.id,
+        "content": tool_result.content,
+    }
+
+# finish  reasons
+def _is_cancelled(request: AgentRunRequest) -> bool:
+    return bool(request.control and request.control.cancelled)
+
+def _finish_cancelled(
+    request: AgentRunRequest,
+    state: _LoopState,
+    event_sink: AgentEventSink | None,
+    turns: int,
+    messages: list[dict[str, Any]],
+) -> AgentRunResult:
+    has_work_trace = any(event.type in {"work_trace_delta", "work_trace_item"} for event in state.events)
+    result_messages = state.messages if has_work_trace and len(state.messages) > len(messages) else messages
+    if has_work_trace and not any(message.get("role") == "assistant" for message in result_messages):
+        result_messages = [*result_messages, {"role": "assistant", "content": ""}]
+    return _cancelled_result(
+        request,
+        messages=result_messages,
+        events=state.events,
+        event_sink=event_sink,
+        turns=turns,
+        final_response=state.final_response,
+        usage=_usage_or_none(state.usage),
+    )
+
+def _cancelled_result(
+    request: AgentRunRequest,
+    *,
+    messages: list[dict[str, Any]],
+    events: list[AgentEvent],
+    event_sink: AgentEventSink | None,
+    turns: int,
+    final_response: str | None,
+    usage: TokenUsage | None = None,
+) -> AgentRunResult:
+    reason = request.control.reason if request.control else "cancelled"
+    _record_event(
+        events,
+        AgentEvent("cancelled", "Agent run cancelled.", {"reason": reason}),
+        event_sink,
+    )
+    return AgentRunResult(
+        completed=False,
+        final_response=final_response,
+        messages=copy.deepcopy(messages),
+        events=events,
+        turns=turns,
+        usage=usage,
+        error="cancelled",
+        cancelled=True,
+    )
 
 def _finish_completed(
     state: _LoopState,
@@ -787,7 +961,6 @@ def _finish_completed(
         turns=turns,
         usage=_usage_or_none(state.usage),
     )
-
 
 def _finish_pending_tools(
     state: _LoopState,
@@ -816,7 +989,6 @@ def _finish_pending_tools(
         error="tool_executor_missing",
     )
 
-
 def _finish_error(state: _LoopState, turns: int, error: str) -> AgentRunResult:
     return AgentRunResult(
         completed=False,
@@ -828,29 +1000,6 @@ def _finish_error(state: _LoopState, turns: int, error: str) -> AgentRunResult:
         usage=_usage_or_none(state.usage),
         error=error,
     )
-
-
-def _finish_cancelled(
-    request: AgentRunRequest,
-    state: _LoopState,
-    event_sink: AgentEventSink | None,
-    turns: int,
-    messages: list[dict[str, Any]],
-) -> AgentRunResult:
-    has_work_trace = _has_work_trace_events(state.events)
-    result_messages = state.messages if has_work_trace and len(state.messages) > len(messages) else messages
-    if has_work_trace and not any(message.get("role") == "assistant" for message in result_messages):
-        result_messages = [*result_messages, {"role": "assistant", "content": ""}]
-    return _cancelled_result(
-        request,
-        messages=result_messages,
-        events=state.events,
-        event_sink=event_sink,
-        turns=turns,
-        final_response=state.final_response,
-        usage=_usage_or_none(state.usage),
-    )
-
 
 def _finish_max_turns(
     model_provider: ModelProvider,
@@ -875,7 +1024,6 @@ def _finish_max_turns(
         usage=_usage_or_none(state.usage),
         error="max_turns_exceeded",
     )
-
 
 def _summarize_max_turns(
     model_provider: ModelProvider,
@@ -910,7 +1058,12 @@ def _summarize_max_turns(
         response = model_provider.generate(model_request)
     except Exception as error:
         state.final_response = _MAX_TURNS_SUMMARY_FALLBACK
-        _append_max_turns_summary_message(state, _MAX_TURNS_SUMMARY_FALLBACK, finish_reason="error")
+        state.messages.append({
+            "role": "assistant",
+            "content": _MAX_TURNS_SUMMARY_FALLBACK,
+            "finish_reason": "error",
+            "metadata": {"max_turns_summary": True},
+        })
         _record_event(
             state.events,
             AgentEvent(
@@ -928,7 +1081,12 @@ def _summarize_max_turns(
     content = (response.content or "").strip()
     if not content:
         state.final_response = _MAX_TURNS_SUMMARY_FALLBACK
-        _append_max_turns_summary_message(state, _MAX_TURNS_SUMMARY_FALLBACK, finish_reason="empty")
+        state.messages.append({
+            "role": "assistant",
+            "content": _MAX_TURNS_SUMMARY_FALLBACK,
+            "finish_reason": "empty",
+            "metadata": {"max_turns_summary": True},
+        })
         _record_event(
             state.events,
             AgentEvent(
@@ -941,30 +1099,12 @@ def _summarize_max_turns(
         return
 
     state.final_response = content
-    _append_max_turns_summary_message(state, content, finish_reason=response.finish_reason)
-
-
-def _append_max_turns_summary_message(
-    state: _LoopState,
-    content: str,
-    *,
-    finish_reason: str,
-) -> None:
     state.messages.append({
         "role": "assistant",
         "content": content,
-        "finish_reason": finish_reason,
+        "finish_reason": response.finish_reason,
         "metadata": {"max_turns_summary": True},
     })
-
-
-def _is_cancelled(request: AgentRunRequest) -> bool:
-    return bool(request.control and request.control.cancelled)
-
-
-def _has_work_trace_events(events: list[AgentEvent]) -> bool:
-    return any(event.type in {"work_trace_delta", "work_trace_item"} for event in events)
-
 
 def _record_cancelled_stream_work_events(events: list[AgentEvent], streamed_events: list[AgentEvent]) -> None:
     seen = {
@@ -988,55 +1128,6 @@ def _record_cancelled_stream_work_events(events: list[AgentEvent], streamed_even
         seen.add(key)
         events.append(event)
 
-
-def _cancelled_result(
-    request: AgentRunRequest,
-    *,
-    messages: list[dict[str, Any]],
-    events: list[AgentEvent],
-    event_sink: AgentEventSink | None,
-    turns: int,
-    final_response: str | None,
-    usage: TokenUsage | None = None,
-) -> AgentRunResult:
-    reason = request.control.reason if request.control else "cancelled"
-    _record_event(
-        events,
-        AgentEvent("cancelled", "Agent run cancelled.", {"reason": reason}),
-        event_sink,
-    )
-    return AgentRunResult(
-        completed=False,
-        final_response=final_response,
-        messages=copy.deepcopy(messages),
-        events=events,
-        turns=turns,
-        usage=usage,
-        error="cancelled",
-        cancelled=True,
-    )
-
-
-def _tool_guardrail_halted_result(
-    *,
-    messages: list[dict[str, Any]],
-    events: list[AgentEvent],
-    turns: int,
-    final_response: str | None,
-    decision: ToolGuardrailDecision,
-    usage: TokenUsage | None = None,
-) -> AgentRunResult:
-    return AgentRunResult(
-        completed=False,
-        final_response=final_response,
-        messages=copy.deepcopy(messages),
-        events=events,
-        turns=turns,
-        usage=usage,
-        error=decision.code or "tool_guardrail_halt",
-    )
-
-
 def _record_event(
     events: list[AgentEvent],
     event: AgentEvent,
@@ -1050,7 +1141,7 @@ def _record_event(
     except Exception:
         logger.debug("Agent event sink failed for %s", event.type, exc_info=True)
 
-
+# _assistant_message_from_response
 def _assistant_message_from_response(response: ModelResponse) -> dict[str, Any] | None:
     provider_data = dict(response.provider_data or {})
     if (
@@ -1089,6 +1180,13 @@ def _assistant_message_from_response(response: ModelResponse) -> dict[str, Any] 
         message["artifacts"] = response.artifacts
     return message
 
+def _has_replay_metadata(provider_data: dict[str, Any]) -> bool:
+    if isinstance(provider_data.get("reasoning_content"), str) and provider_data.get("reasoning_content"):
+        return True
+    return any(
+        isinstance(provider_data.get(key), list) and bool(provider_data.get(key))
+        for key in ("codex_reasoning_items", "codex_message_items", "work_trace_items")
+    )
 
 def _tool_call_message(tool_call: ToolCall) -> dict[str, Any]:
     provider_data = dict(tool_call.provider_data or {})
@@ -1109,37 +1207,6 @@ def _tool_call_message(tool_call: ToolCall) -> dict[str, Any]:
     if isinstance(thought_signature, str) and thought_signature:
         message["thoughtSignature"] = thought_signature
     return message
-
-
-def _has_replay_metadata(provider_data: dict[str, Any]) -> bool:
-    if isinstance(provider_data.get("reasoning_content"), str) and provider_data.get("reasoning_content"):
-        return True
-    return any(
-        isinstance(provider_data.get(key), list) and bool(provider_data.get(key))
-        for key in ("codex_reasoning_items", "codex_message_items", "work_trace_items")
-    )
-
-
-def _tool_message_from_result(tool_call: ToolCall, tool_result: ToolResult) -> dict[str, Any]:
-    return {
-        "role": "tool",
-        "name": tool_result.name or tool_call.name,
-        "tool_call_id": tool_result.call_id or tool_call.call_id or tool_call.id,
-        "content": tool_result.content,
-    }
-
-
-def _execute_tool(tool_executor: ToolExecutor, tool_call: ToolCall) -> ToolResult:
-    try:
-        raw_result = tool_executor.execute(tool_call)
-    except Exception as error:
-        return ToolResult(
-            call_id=tool_call.call_id or tool_call.id,
-            name=tool_call.name,
-            content=f"Error: {error}",
-            is_error=True,
-        )
-    return _normalize_tool_result(tool_call, raw_result)
 
 
 def _append_executor_events(events: list[AgentEvent], tool_executor: ToolExecutor) -> None:
@@ -1283,6 +1350,7 @@ def _reasoning_trace_events_from_response(response: ModelResponse, turn: int) ->
 
 
 def _with_ephemeral_messages(messages: list[dict[str, Any]], request_options: dict[str, Any] | None) -> list[dict[str, Any]]:
+    # 从 request_options 中拿出合法的临时 system/developer 消息，深拷贝后插到模型请求最前面，用来影响本次模型调用，但不污染原始聊天 messages。
     if not isinstance(request_options, dict):
         return messages
     raw_messages = request_options.get("_paper_notes_ephemeral_messages")
@@ -1359,14 +1427,6 @@ def _append_web_search_query(value: Any, queries: list[str], seen: set[str]) -> 
         return
     seen.add(key)
     queries.append(text)
-
-
-def _model_message_sanitized_event(result: MessageSanitizationResult) -> AgentEvent:
-    return AgentEvent(
-        "model_message_sanitized",
-        "Repaired model-visible message history before provider call.",
-        result.stats.to_event_data(),
-    )
 
 
 def _tool_call_recovery_event(
@@ -1560,86 +1620,3 @@ def _safe_snapshot_value(value: dict[str, Any]) -> dict[str, Any]:
             for key, item in list(arguments.items())[:20]
         },
     }
-
-
-def _tool_guardrail_event(decision: ToolGuardrailDecision, event_type: str) -> AgentEvent:
-    return AgentEvent(event_type, decision.message, decision.to_metadata())
-
-
-def _tool_arguments_for_guardrail(tool_call: ToolCall) -> dict[str, Any]:
-    raw_arguments = tool_call.arguments or ""
-    if not raw_arguments.strip():
-        return {}
-    try:
-        parsed = json.loads(raw_arguments)
-    except json.JSONDecodeError:
-        return {"__raw_arguments": raw_arguments}
-    return parsed if isinstance(parsed, dict) else {"__raw_arguments": raw_arguments}
-
-
-def _tool_is_read_only(tool_executor: ToolExecutor | None, tool_name: str) -> bool:
-    checker = getattr(tool_executor, "is_read_only", None)
-    if not callable(checker):
-        return False
-    try:
-        return bool(checker(tool_name))
-    except Exception:
-        logger.debug("Tool read-only check failed for %s", tool_name, exc_info=True)
-        return False
-
-
-def _tool_metadata(tool_executor: ToolExecutor | None, tool_name: str) -> dict[str, Any]:
-    metadata = getattr(tool_executor, "tool_metadata", None)
-    if not callable(metadata):
-        return {}
-    try:
-        value = metadata(tool_name)
-    except Exception:
-        logger.debug("Tool metadata lookup failed for %s", tool_name, exc_info=True)
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def _should_warn_for_mutating_tool(tool_metadata: dict[str, Any]) -> bool:
-    return bool(tool_metadata.get("mutating")) and str(tool_metadata.get("write_mode") or "") == "warn"
-
-
-def _all_tool_calls_housekeeping(tool_calls: list[ToolCall]) -> bool:
-    housekeeping_tools = {"persistent_memory", "todo"}
-    return bool(tool_calls) and all(tool_call.name in housekeeping_tools for tool_call in tool_calls)
-
-
-def _should_recover_empty_after_tools(response: ModelResponse, messages: list[dict[str, Any]]) -> bool:
-    if response.finish_reason == "incomplete" or response.tool_calls:
-        return False
-    if response.artifacts:
-        return False
-    if response.content and response.content.strip():
-        return False
-    return any(message.get("role") == "tool" for message in messages[-6:])
-
-
-def _append_empty_tool_recovery_nudge(messages: list[dict[str, Any]], response: ModelResponse) -> None:
-    if (
-        messages
-        and messages[-1].get("role") == "assistant"
-        and not messages[-1].get("tool_calls")
-        and not str(messages[-1].get("content") or "").strip()
-    ):
-        messages[-1]["content"] = "(empty)"
-        messages[-1]["_empty_recovery_synthetic"] = True
-    else:
-        messages.append({
-            "role": "assistant",
-            "content": "(empty)",
-            "finish_reason": response.finish_reason,
-            "_empty_recovery_synthetic": True,
-        })
-    messages.append({
-        "role": "user",
-        "content": (
-            "You just executed tool calls but returned an empty response. "
-            "Please process the tool results above and continue with the task."
-        ),
-        "_empty_recovery_synthetic": True,
-    })

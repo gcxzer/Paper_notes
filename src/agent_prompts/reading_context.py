@@ -1,3 +1,5 @@
+"""Helpers for building the current reading-context prompt section."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

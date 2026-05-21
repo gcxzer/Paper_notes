@@ -76,11 +76,7 @@ def build_responses_payload(
         payload["max_output_tokens"] = request.max_output_tokens
 
     payload.update({key: value for key, value in request.request_options.items() if not str(key).startswith("_")})
-    if tools and has_web_search_tool(tools):
-        payload["include"] = _merge_include(
-            payload.get("include"),
-            ["web_search_call.action.sources"],
-        )
+
     if _work_trace_enabled(request.request_options, provider_name=provider_name) and not _reasoning_effort_is_none(payload):
         reasoning = payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else {}
         payload["reasoning"] = {**reasoning, "summary": reasoning.get("summary") or "auto"}
@@ -88,12 +84,6 @@ def build_responses_payload(
     if codex_strict:
         return preflight_codex_payload(payload)
     return payload
-
-
-def combine_instructions(*parts: str | None) -> str | None:
-    instructions = [part.strip() for part in parts if isinstance(part, str) and part.strip()]
-    return "\n\n".join(instructions) if instructions else None
-
 
 def split_instructions_and_input(
     messages: list[dict[str, Any]],
@@ -155,6 +145,9 @@ def split_instructions_and_input(
 
     return "\n\n".join(instructions) or None, input_items
 
+def combine_instructions(*parts: str | None) -> str | None:
+    instructions = [part.strip() for part in parts if isinstance(part, str) and part.strip()]
+    return "\n\n".join(instructions) if instructions else None
 
 def responses_content_parts(
     role: str,

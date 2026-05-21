@@ -160,7 +160,7 @@ def _parse_arguments(arguments: str) -> tuple[dict[str, Any] | None, str]:
 def _looks_truncated(arguments: str) -> bool:
     stripped = arguments.rstrip()
     return bool(stripped) and not stripped.endswith(("}", "]"))
-
+ 
 
 def _deduplicate_tool_calls(tool_calls: list[ToolCall], stats: ToolCallRecoveryStats) -> list[ToolCall]:
     seen: set[tuple[str, str]] = set()

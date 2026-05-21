@@ -15,6 +15,15 @@ DEFAULT_PROGRESS_TTL_SECONDS = 30 * 60
 DEFAULT_MAX_EVENTS = 40
 
 
+# ---------------------------------------------------------------------------
+# Progress records and in-memory store
+#
+# The agent runtime emits AgentEvent objects while a run is active. This module
+# keeps a short-lived, pollable progress snapshot per request_id so the UI can
+# show status, visible progress rows, and work-trace items during synchronous
+# HTTP requests.
+# ---------------------------------------------------------------------------
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -284,6 +293,13 @@ def unknown_progress_snapshot(request_id: str) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# AgentEvent -> progress event conversion
+#
+# These helpers convert internal AgentEvent objects into three UI-facing views:
+# raw progress events, filtered visible events, and compact work-trace items.
+# ---------------------------------------------------------------------------
+
 def _progress_event(event: AgentEvent) -> dict[str, Any]:
     stage, detail = _stage_and_detail(event)
     return {
@@ -401,6 +417,10 @@ def _work_trace_item_from_visible(
     return item
 
 
+# ---------------------------------------------------------------------------
+# Event de-duplication and work-trace merging
+# ---------------------------------------------------------------------------
+
 def _has_visible_event(events: list[dict[str, Any]], event: dict[str, Any]) -> bool:
     key = (_clean_text(event.get("type")), _clean_text(event.get("detail")))
     return any((_clean_text(item.get("type")), _clean_text(item.get("detail"))) == key for item in events)
@@ -449,6 +469,13 @@ def _visible_status_event(status: str, stage: str, detail: str, at: str) -> dict
         "data": {},
     }
 
+
+# ---------------------------------------------------------------------------
+# Event type -> stage/detail mapping
+#
+# This is the central display dictionary for progress. Add new AgentEvent types
+# here when the runtime starts emitting them.
+# ---------------------------------------------------------------------------
 
 def _stage_and_detail(event: AgentEvent) -> tuple[str, str]:
     data = event.data or {}
@@ -533,6 +560,10 @@ def _provider_native_web_search_detail(data: dict[str, Any]) -> str:
     return f"Searched the web: {count_text}."
 
 
+# ---------------------------------------------------------------------------
+# Status and text helpers
+# ---------------------------------------------------------------------------
+
 def _web_search_query_summary(value: Any) -> str:
     queries = value if isinstance(value, list) else []
     parts: list[str] = []
@@ -578,6 +609,13 @@ def _status_for_event(event: AgentEvent) -> str | None:
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
+
+# ---------------------------------------------------------------------------
+# Tool progress wording
+#
+# The detailed wording is used in raw progress history; the visible wording is
+# shorter and optimized for the UI's live status/work-trace display.
+# ---------------------------------------------------------------------------
 
 def _tool_start_detail(name: str, data: dict[str, Any]) -> str:
     args = _tool_args(data.get("arguments"))
@@ -701,6 +739,10 @@ def _visible_tool_result_detail(name: str, data: dict[str, Any]) -> str:
         return f"Saved {count} file{suffix}."
     return ""
 
+
+# ---------------------------------------------------------------------------
+# Argument parsing and compact value formatting
+# ---------------------------------------------------------------------------
 
 def _tool_args(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):

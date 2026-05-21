@@ -1,5 +1,5 @@
 from agent_prompts.builder import build_agent_instructions, extract_tool_names
-from agent_prompts.context import AgentPromptContext, build_context_section, normalize_prompt_context
+from agent_prompts.reading_context import AgentPromptContext, build_context_section, normalize_prompt_context
 from agent_prompts.defaults import PAPER_NOTES_AGENT_IDENTITY
 
 __all__ = [

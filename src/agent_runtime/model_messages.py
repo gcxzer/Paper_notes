@@ -6,12 +6,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+
 VALID_API_ROLES = frozenset({"system", "developer", "user", "assistant", "tool", "function"})
 MISSING_TOOL_RESULT_CODE = "missing_tool_result_synthetic"
 
 
 @dataclass(slots=True)
 class MessageSanitizationStats:
+
     removed_invalid_roles: int = 0
     removed_orphaned_tool_results: int = 0
     inserted_missing_tool_results: int = 0
@@ -21,6 +23,7 @@ class MessageSanitizationStats:
 
     @property
     def changed(self) -> bool:
+
         return bool(
             self.removed_invalid_roles
             or self.removed_orphaned_tool_results
@@ -28,6 +31,7 @@ class MessageSanitizationStats:
         )
 
     def to_event_data(self) -> dict[str, Any]:
+
         return {
             "removed_invalid_roles": self.removed_invalid_roles,
             "removed_orphaned_tool_results": self.removed_orphaned_tool_results,
@@ -40,6 +44,7 @@ class MessageSanitizationStats:
 
 @dataclass(slots=True)
 class MessageSanitizationResult:
+
     messages: list[dict[str, Any]]
     stats: MessageSanitizationStats
 
@@ -54,6 +59,8 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
     """
     stats = MessageSanitizationStats()
     filtered: list[dict[str, Any]] = []
+
+    # 第一关：只保留 dict 消息，并且 role 必须是 API 支持的角色。
     for message in messages:
         if not isinstance(message, dict):
             stats.removed_invalid_roles += 1
@@ -66,6 +73,8 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
             continue
         filtered.append(copy.deepcopy(message))
 
+    # 收集 assistant 发起过的 tool call。tool_calls_by_id 用于判断某个
+    # tool result 是否有来源，tool_call_order 用于按原顺序补缺失结果。
     tool_calls_by_id: dict[str, dict[str, Any]] = {}
     tool_call_order: list[str] = []
     for message in filtered:
@@ -78,6 +87,8 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
             tool_calls_by_id.setdefault(call_id, tool_call)
             tool_call_order.append(call_id)
 
+    # 收集已有的 tool result。每条 tool 消息都应该能对应到一个 assistant
+    # tool call；否则它就是孤儿结果，provider 可能会拒绝这段消息链。
     result_call_ids = {
         str(message.get("tool_call_id") or "")
         for message in filtered
@@ -85,6 +96,7 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
     }
     orphaned_ids = sorted(result_call_ids - set(tool_calls_by_id))
     if orphaned_ids:
+        # 删除没有对应 assistant tool call 的 tool result。
         orphaned_set = set(orphaned_ids)
         filtered = [
             message
@@ -95,6 +107,8 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
         stats.orphaned_tool_call_ids = orphaned_ids
         result_call_ids -= orphaned_set
 
+    # assistant 发起了 tool call，但 transcript 里没有对应 tool result 时，
+    # 补一条合成失败结果，让模型看到一条完整但明确失败的工具链。
     missing_ids = [call_id for call_id in tool_call_order if call_id not in result_call_ids]
     if not missing_ids:
         return MessageSanitizationResult(messages=filtered, stats=stats)
@@ -119,6 +133,8 @@ def sanitize_model_messages(messages: list[dict[str, Any]]) -> MessageSanitizati
 
 
 def synthetic_missing_tool_result(*, call_id: str, tool_name: str = "") -> dict[str, Any]:
+    """生成一条合成 tool result,表示本地 transcript 丢失了真实工具结果。"""
+
     payload = {
         "success": False,
         "changed": False,

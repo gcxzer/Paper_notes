@@ -66,7 +66,6 @@ _RUNTIME_GENERATION_TOOL_HIDE_MODES = {"readonly", "block", "halt", "disabled"}
 ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
 logger = logging.getLogger(__name__)
 
-
 @dataclass(slots=True)
 class AgentServiceRequest:
     message: Any
@@ -160,6 +159,7 @@ class AgentContextStatus:
         if self.context_length <= 0:
             return 0
         return min(100, max(0, round((self.threshold_tokens / self.context_length) * 100)))
+
 
 class AgentService:
     def __init__(
@@ -433,6 +433,7 @@ class AgentService:
         tool_selection_events = _tool_selection_warning_events(tool_snapshot)
         for event in tool_selection_events:
             _emit_service_event(event, request.event_sink)
+
         note_id = self._note_id_for_request(request, session.metadata)
         memory_context = self._memory_context(request, session.metadata.session_id, note_id=note_id)
         todo_context = self._todo_context(session.metadata.session_id)
@@ -535,6 +536,7 @@ class AgentService:
         model_input_count = len(model_messages)
         if run_result.cancelled:
             _ensure_cancelled_turn_message(run_result.messages, model_input_count)
+
         _attach_tool_activity(
             run_result.messages,
             run_result.events,
@@ -755,6 +757,8 @@ class AgentService:
             warning=warning,
         )
 
+    # Session state ------------------------------------------------------------
+
     def _get_or_create_session(self, request: AgentServiceRequest) -> tuple[AgentSession, bool]:
         if request.session_id:
             session = self.session_store.get_session(request.session_id)
@@ -795,6 +799,8 @@ class AgentService:
             return session
         metadata = self.session_store.update_session_metadata(session.metadata.session_id, next_metadata, replace=True)
         return AgentSession(metadata=metadata, messages=session.messages)
+
+    # Tool selection and model-visible tool schemas ---------------------------
 
     def _tool_schemas(self, request: AgentServiceRequest) -> list[dict[str, Any]]:
         return self._tool_catalog_snapshot(request).model_tools
@@ -919,22 +925,7 @@ class AgentService:
         )
         return self.tool_catalog.resolve(selection)
 
-    def _filter_tool_names_by_tool_settings(
-        self,
-        tool_names: set[str],
-        *,
-        disabled_tools: set[str],
-        tool_write_modes: dict[str, str],
-    ) -> set[str]:
-        if not disabled_tools and not tool_write_modes:
-            return tool_names
-        selected = set(tool_names)
-        selected.difference_update(disabled_tools)
-        for name, mode in tool_write_modes.items():
-            definition = self.tool_registry.get(name)
-            if definition is not None and definition.mutating and mode in {"readonly", "block", "halt"}:
-                selected.discard(name)
-        return selected
+    # Memory and todo context --------------------------------------------------
 
     def _memory_context(self, request: AgentServiceRequest, session_id: str, *, note_id: str) -> str:
         if self.memory_manager is None:
@@ -973,6 +964,8 @@ class AgentService:
                 **dict(request.metadata),
             },
         )
+
+    # Model input preparation and context compression -------------------------
 
     def _prepare_model_messages(
         self,
@@ -1284,6 +1277,8 @@ class AgentService:
             fallback_model=fallback_model,
         )
 
+    # Persistence and usage accounting ----------------------------------------
+
     def _persist_run_messages(
         self,
         session: AgentSession,
@@ -1403,6 +1398,8 @@ class AgentService:
                 return _empty_actual_context_usage()
         return from_messages
 
+    # Provider/model selection -------------------------------------------------
+
     def _resolve_model_selection(
         self,
         request: AgentServiceRequest,
@@ -1494,6 +1491,8 @@ class AgentService:
             return merged
         return {"session_title": metadata.title}
 
+    # Tool registration and per-run tool context ------------------------------
+
     def _register_persistent_memory_tools(self) -> None:
         if self.memory_manager is None:
             return
@@ -1570,6 +1569,8 @@ class AgentService:
         control = getattr(self._tool_context, "control", None)
         return bool(getattr(control, "cancelled", False))
 
+    # Attachments and request options -----------------------------------------
+
     def _normalize_attachments(self, attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for item in attachments or []:
@@ -1602,7 +1603,10 @@ class AgentService:
             options["_paper_notes_file_generation"] = file_generation
         return options
 
+    # Tool implementations backed by service state ----------------------------
+
     def _analyze_paper_image_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+
         artifact_id = str(args.get("artifact_id") or args.get("artifactId") or "").strip()
         if not artifact_id and args.get("path"):
             existing = self.media_store.find_by_path(str(args.get("path") or ""))
@@ -1658,6 +1662,8 @@ class AgentService:
             return ""
         return self.todo_store.format_for_injection(session_id)
 
+    # Construction helpers -----------------------------------------------------
+
     @staticmethod
     def _create_memory_manager(
         *,
@@ -1683,6 +1689,10 @@ class AgentService:
             or ""
         )
 
+
+# ---------------------------------------------------------------------------
+# Service result and session-message helpers
+# ---------------------------------------------------------------------------
 
 def _service_result(
     *,
@@ -1730,6 +1740,14 @@ def _context_compaction_marker_message(*, focus: str | None = None, warning: str
         },
     }
 
+
+# ---------------------------------------------------------------------------
+# Run trace, work trace, and tool activity attachment
+#
+# These helpers decorate persisted assistant messages with UI-facing trace data.
+# They do not affect model input; they make the final chat transcript easier to
+# inspect and render.
+# ---------------------------------------------------------------------------
 
 def _run_trace_status(run_result: AgentRunResult) -> str:
     if run_result.cancelled:
@@ -1845,8 +1863,6 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
             text = _work_trace_tool_result_detail(str(data.get("name") or "tool"), data)
         elif event_type == "tool_error":
             text = _work_trace_tool_error_detail(str(data.get("name") or "tool"), data)
-        elif event_type == "model_response":
-            text = _provider_native_web_search_detail(data)
         elif event_type in {"tool_approval_requested", "tool_calls_pending", "halted", "tool_halted", "cancelled"}:
             text = event.message
         else:
@@ -1855,64 +1871,16 @@ def _work_trace_items_from_events(events: list[AgentEvent]) -> list[dict[str, An
         if not text:
             continue
         tool_name = str(data.get("name") or "")
-        if event_type == "model_response":
-            item_type = "tool"
-            source = "provider"
-        else:
-            item_type = "skill" if event_type.startswith("tool_") and _is_skill_tool(tool_name) else "tool" if event_type.startswith("tool_") else "status"
-            source = "runtime"
-        key = (item_type, text)
+        key = ("skill" if event_type.startswith("tool_") and _is_skill_tool(tool_name) else "tool" if event_type.startswith("tool_") else "status", text)
         if key in seen_fallback:
             continue
         seen_fallback.add(key)
         items.append({
-            "type": item_type,
+            "type": key[0],
             "text": text,
-            "source": source,
+            "source": "runtime",
         })
     return items
-
-
-def _provider_native_web_search_detail(data: dict[str, Any]) -> str:
-    call_count = _positive_int(data.get("web_search_call_count"))
-    if not call_count:
-        return ""
-    source_count = _positive_int(data.get("web_search_source_count"))
-    search_label = "search" if call_count == 1 else "searches"
-    count_text = f"{call_count} {search_label}"
-    if source_count:
-        source_label = "source" if source_count == 1 else "sources"
-        count_text = f"{count_text}, {source_count} {source_label}"
-    query_text = _web_search_query_summary(data.get("web_search_queries") or data.get("webSearchQueries"))
-    if query_text:
-        return f"Searched the web: {query_text} ({count_text})."
-    return f"Searched the web: {count_text}."
-
-
-def _web_search_query_summary(value: Any) -> str:
-    queries = value if isinstance(value, list) else []
-    parts: list[str] = []
-    for item in queries:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        if len(text) > 96:
-            text = f"{text[:95]}…"
-        parts.append(f'"{text}"')
-        if len(parts) >= 3:
-            break
-    if not parts:
-        return ""
-    remaining = len(queries) - len(parts)
-    return "; ".join(parts) + (f"; +{remaining} more" if remaining > 0 else "")
-
-
-def _positive_int(value: Any) -> int:
-    try:
-        number = int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, number)
 
 
 def _merge_native_work_trace_item(items: list[dict[str, Any]], item: dict[str, Any]) -> None:
@@ -2158,6 +2126,10 @@ def _tool_activity_from_events(events: list[AgentEvent], *, session_id: str) -> 
     return activities
 
 
+# ---------------------------------------------------------------------------
+# Compression and tool-selection events
+# ---------------------------------------------------------------------------
+
 def _compression_event(
     result: Any,
     *,
@@ -2275,6 +2247,10 @@ def _compact_warning(events: list[AgentEvent], context: AgentContextStatus) -> s
         return f"Session compacted {context.compression_count} times. Accuracy may degrade. Consider starting a new chat."
     return None
 
+
+# ---------------------------------------------------------------------------
+# Model-visible transcript and context usage helpers
+# ---------------------------------------------------------------------------
 
 def _model_visible_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     visible: list[dict[str, Any]] = []
@@ -2463,12 +2439,9 @@ def _internal_raw_transcript_index(message: dict[str, Any]) -> int | None:
         return None
 
 
-def _last_user_message_text(messages: list[dict[str, Any]]) -> str:
-    for message in reversed(messages):
-        if message.get("role") == "user":
-            return str(message.get("content") or "").strip()
-    return ""
-
+# ---------------------------------------------------------------------------
+# Prompt/request construction helpers
+# ---------------------------------------------------------------------------
 
 def _combine_extra_instructions(*parts: str | None) -> str | None:
     cleaned = [str(part or "").strip() for part in parts if str(part or "").strip()]
@@ -2627,6 +2600,10 @@ def _attach_result_artifacts(messages: list[dict[str, Any]], artifacts: list[dic
         return
 
 
+# ---------------------------------------------------------------------------
+# Runtime context and ephemeral model messages
+# ---------------------------------------------------------------------------
+
 def _runtime_prompt_context(
     current: datetime,
     *,
@@ -2781,6 +2758,10 @@ def _render_runtime_prompt_context(runtime_context: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Small normalization helpers
+# ---------------------------------------------------------------------------
+
 def _clean_provider(value: object) -> str:
     return normalize_model_provider_name(value)
 
@@ -2835,11 +2816,6 @@ def _session_note_context_metadata(
         next_metadata["current_note_title"] = current_note_title
     return next_metadata
 
-
-def _clean_tool_name(value: object) -> str:
-    return str(value or "").strip()
-
-
 def _compression_setting(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if value:
@@ -2849,4 +2825,10 @@ def _compression_setting(name: str) -> str:
         value = values.get(name, "").strip()
         if value:
             return value
+    return ""
+
+def _last_user_message_text(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return str(message.get("content") or "").strip()
     return ""

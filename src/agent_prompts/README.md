@@ -8,7 +8,7 @@ facts in `agent_runtime.service`.
 
 - `__init__.py`: Public exports for prompt context and instruction builders.
 - `builder.py`: Composes the final instructions string from identity, response discipline, memory/todo guidance, available tools, and reading context.
-- `context.py`: Normalizes Reader context and renders current paper, page, selected text, and visible annotation context.
+- `reading_context.py`: Normalizes Reader context and renders current paper, page, selected text, and visible annotation context.
 - `defaults.py`: Static instruction blocks and per-tool guidance used by the prompt builder.
 
 ## Prompt Flow

@@ -31,6 +31,14 @@ from app_infra.formatting import normalize_text
 from telemetry.debug_logs import DebugRunStore, sanitize_debug_payload
 
 
+# ---------------------------------------------------------------------------
+# Shared API state and service access
+#
+# This module is the UI/backend adapter around AgentService. HTTP handlers call
+# these functions, which validate request bodies, coordinate per-session runs,
+# wire progress/debug stores, and serialize service results for the frontend.
+# ---------------------------------------------------------------------------
+
 class AgentAPIError(Exception):
     def __init__(self, status: HTTPStatus, code: str, message: str) -> None:
         super().__init__(message)
@@ -46,6 +54,8 @@ _RUN_COORDINATOR = AgentRunCoordinator()
 _DEBUG_RUN_STORE = DebugRunStore()
 _BACKGROUND_RUN_STORE = BackgroundChatRunStore()
 _SANDBOX_MEDIA_LINK_RE = re.compile(r"sandbox:(/api/media/[A-Za-z0-9._~/%+-]+)", re.IGNORECASE)
+
+
 def get_agent_service() -> AgentService:
     global _SERVICE
     with _SERVICE_LOCK:
@@ -85,6 +95,13 @@ def get_background_run_store() -> BackgroundChatRunStore:
 def _debug_store_for_service(service: AgentService) -> DebugRunStore:
     return DebugRunStore(service.session_store.sessions_root.parent / "logs" / "runs")
 
+
+# ---------------------------------------------------------------------------
+# Chat run endpoints
+#
+# JSON and SSE chat entry points both build AgentServiceRequest objects, attach
+# progress/debug callbacks, and hand execution to AgentService.
+# ---------------------------------------------------------------------------
 
 def handle_chat_request(
     body: Any,
@@ -370,6 +387,10 @@ def _ensure_stream_session_id(body: dict[str, Any], service: AgentService) -> st
     return session_id
 
 
+# ---------------------------------------------------------------------------
+# Attachments, cancellation, progress, and debug endpoints
+# ---------------------------------------------------------------------------
+
 def upload_chat_attachment(body: Any, *, service: AgentService | None = None) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
@@ -481,6 +502,10 @@ def get_chat_progress(
     progress = progress_store or get_agent_progress_store()
     return progress.get(request_id) or unknown_progress_snapshot(request_id)
 
+
+# ---------------------------------------------------------------------------
+# Session and context endpoints
+# ---------------------------------------------------------------------------
 
 def list_chat_sessions(query: dict[str, list[str]] | None = None, *, service: AgentService | None = None) -> dict[str, Any]:
     include_archived = _query_bool(query or {}, "includeArchived") or _query_bool(query or {}, "include_archived")
@@ -739,6 +764,10 @@ def undo_chat_session(body: Any, *, service: AgentService | None = None) -> dict
     }
 
 
+# ---------------------------------------------------------------------------
+# Tool snapshot and approval endpoints
+# ---------------------------------------------------------------------------
+
 def undo_chat_tool_snapshot(body: Any, *, service: AgentService | None = None) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
@@ -878,6 +907,13 @@ def respond_chat_tool_approval(body: Any, *, service: AgentService | None = None
         raise AgentAPIError(HTTPStatus.BAD_REQUEST, "invalid_approval_action", str(error)) from error
     return {"approval": approval}
 
+
+# ---------------------------------------------------------------------------
+# Response serialization
+#
+# These functions translate service/session/runtime objects into the JSON shape
+# consumed by the frontend.
+# ---------------------------------------------------------------------------
 
 def serialize_chat_result(result: AgentServiceResult, *, debug_store: DebugRunStore | None = None) -> dict[str, Any]:
     tool_activity = _tool_activity_from_events(result.events, session_id=result.session_id)
@@ -1236,6 +1272,10 @@ def _messages_with_debug_run_traces(
     return messages
 
 
+# ---------------------------------------------------------------------------
+# Debug trace and work-trace reconstruction
+# ---------------------------------------------------------------------------
+
 def _message_can_receive_debug_trace(message: dict[str, Any]) -> bool:
     if message.get("role") != "assistant":
         return False
@@ -1580,6 +1620,10 @@ def _public_tool_call_message(tool_call: Any) -> Any:
     return public
 
 
+# ---------------------------------------------------------------------------
+# Event and stream serialization
+# ---------------------------------------------------------------------------
+
 def serialize_event(event: AgentEvent) -> dict[str, Any]:
     return {
         "type": event.type,
@@ -1633,6 +1677,10 @@ def error_response(error: AgentAPIError) -> dict[str, str]:
         "code": error.code,
     }
 
+
+# ---------------------------------------------------------------------------
+# Request parsing and request-option normalization
+# ---------------------------------------------------------------------------
 
 def _prompt_context(body: dict[str, Any]) -> dict[str, Any]:
     raw_context = body.get("context")
@@ -1881,6 +1929,10 @@ def _file_generation_config(value: Any) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Provider error messages
+# ---------------------------------------------------------------------------
+
 def _model_provider_error_message(body: dict[str, Any]) -> str:
     has_attachments = bool(_chat_attachments(body.get("attachments")))
     image_generation = _image_generation_config(body.get("imageGeneration") or body.get("image_generation"))
@@ -2013,6 +2065,10 @@ def _session_title(body: dict[str, Any], message: Any) -> str:
 
     return "New chat"
 
+
+# ---------------------------------------------------------------------------
+# Debug run bookkeeping
+# ---------------------------------------------------------------------------
 
 def _new_debug_request_id() -> str:
     return f"debug-{uuid4()}"
@@ -2187,6 +2243,10 @@ def _tool_write_modes(value: Any) -> dict[str, str]:
     return modes
 
 
+# ---------------------------------------------------------------------------
+# Run coordination and cancellation helpers
+# ---------------------------------------------------------------------------
+
 def _acquire_run_slot(
     runs: AgentRunCoordinator,
     *,
@@ -2243,6 +2303,10 @@ def _fail_progress(progress_store: AgentProgressStore, request_id: str, detail: 
     if request_id:
         progress_store.fail(request_id, detail)
 
+
+# ---------------------------------------------------------------------------
+# Primitive body/query parsing helpers
+# ---------------------------------------------------------------------------
 
 def _body_session_id(body: dict[str, Any]) -> str:
     session_id = _optional_text(body.get("sessionId") or body.get("session_id") or body.get("id"))

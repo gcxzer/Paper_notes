@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_prompts.context import AgentPromptContext, build_context_section
+from agent_prompts.reading_context import AgentPromptContext, build_context_section
 from agent_prompts.defaults import (
     PAPER_NOTES_AGENT_IDENTITY,
     PAPER_NOTES_CODE_EXECUTION_GUIDANCE,
