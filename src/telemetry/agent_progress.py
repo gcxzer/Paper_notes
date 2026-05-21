@@ -12,7 +12,7 @@ from agent_runtime.tool_trace import read_paper_progress_detail
 
 
 DEFAULT_PROGRESS_TTL_SECONDS = 30 * 60
-DEFAULT_MAX_EVENTS = 40
+DEFAULT_MAX_EVENTS = 120
 
 
 # ---------------------------------------------------------------------------
