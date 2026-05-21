@@ -1,16 +1,27 @@
 # Paper Notes Progress
 
-Updated: 2026-05-18
+Updated: 2026-05-21
 
 ## Remaining Follow-Ups
 
-- slash command
 - Improve memory management and retrieval quality, dreaming.
+- memory snapshot/ memory review/ skill review
 - Add a subagent system
 - Consider a stronger isolated backend for Code Execution.
-- Consider splitting large backend API modules once their route groups
-  stabilize.
-- Cron/channal
+- Cron/channel workflows
+
+## Release 2.0.1
+
+- Added Ask session projects so sessions can be grouped, filtered, assigned,
+  renamed, and deleted from the reader UI.
+- Improved reader slash commands with command status, disabled-state handling,
+  and smoke coverage for active chat states.
+- Added rich chat Markdown rendering for tables, code, links, task lists,
+  images, and safer HTML output.
+- Native web search traces now surface query/result details through agent
+  progress events, API payloads, and chat rendering.
+- Refined reader interaction polish across chat controls, layout behavior,
+  selection handling, and project/session menus.
 
 ## Release 1.2.0
 
@@ -60,6 +71,12 @@ Current user-facing capabilities include:
 - Chat with an agent that can inspect papers, notes, annotations, sessions,
   skills, memory, uploaded attachments, web results, and bounded Python
   execution output.
+- Organize Ask sessions into named projects, filter sessions by project, and
+  manage project assignments from the session menu.
+- Use reader slash commands for common chat/session actions, with unavailable
+  commands disabled while an answer is running.
+- Read richer chat output with Markdown tables, code blocks, links, images,
+  lists, and task lists rendered inline.
 - Review and apply safe note edits through Paper Notes tools.
 - View debug logs, tool activity, progress events, note diffs, and undo/redo
   write snapshots.
@@ -81,7 +98,8 @@ Current user-facing capabilities include:
 The codebase is organized around a few stable boundaries:
 
 - `main.py` starts the local server.
-- `src/ui/backend` contains HTTP routes and the static file server.
+- `src/ui/backend` contains the FastAPI app, HTTP routes, chat project routes,
+  and the static file server.
 - `src/ui/frontend` contains the library page, reader page, settings UI, PDF
   annotation UI, and chat UI.
 - `src/library` owns paper metadata, note HTML helpers, and annotation storage.
@@ -224,6 +242,9 @@ Recent focused verification:
   Streamable HTTP fixtures, tool registration, reconnect/keepalive handling,
   artifact materialization, timeout/error handling, and AgentService tool
   visibility.
+- Recent focused coverage also includes FastAPI server behavior, Ask session
+  projects, reader slash commands, rich Markdown rendering, and native web
+  search trace progress details.
 - Recent full-suite checks passed with backend/unit coverage, Playwright smoke
   coverage, frontend syntax checks, and `git diff --check`.
 

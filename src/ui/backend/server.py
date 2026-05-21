@@ -260,7 +260,7 @@ async def sse_event_generator(body: Any, request: Request) -> AsyncIterator[byte
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Paper Notes", version="1.2.1", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Paper Notes", version="2.0.1", docs_url=None, redoc_url=None)
 
     @app.middleware("http")
     async def add_compat_headers(request: Request, call_next: Callable[[Request], Any]) -> Response:
