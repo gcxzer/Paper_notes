@@ -1,0 +1,128 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.reader-shell {
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.reader-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-alt);
+}
+
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.toolbar-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.toolbar-button:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-hover);
+}
+
+.toolbar-button:disabled:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-soft);
+}
+
+.reader-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reader-side-toggle {
+  min-width: 72px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.reader-side-toggle:hover,
+.reader-side-toggle:focus-visible,
+.reader-side-toggle.is-active {
+  border-color: var(--accent);
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.reader-title {
+  min-width: 0;
+}
+
+.reader-title span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.reader-title strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.96rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, var(--pdf-pane-width)) var(--reader-resizer-width) minmax(320px, 1fr) var(--reader-resizer-width) minmax(320px, var(--ask-pane-width));
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.reader-layout.is-html-pane-hidden {
+  grid-template-columns: minmax(0, 1fr) var(--reader-resizer-width) minmax(320px, var(--ask-pane-width));
+}
+
+.reader-layout.is-html-pane-hidden .reader-main-resizer,
+.reader-layout.is-html-pane-hidden .note-pane {
+  display: none;
+}
+
+.reader-layout.is-ask-pane-hidden {
+  grid-template-columns: minmax(280px, var(--pdf-pane-width)) var(--reader-resizer-width) minmax(360px, 1fr);
+}
+
+.reader-layout.is-ask-pane-hidden .reader-ask-resizer,
+.reader-layout.is-ask-pane-hidden .ask-pane {
+  display: none;
+}
+
+.reader-layout.is-html-pane-hidden.is-ask-pane-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pdf-pane,
+.note-pane,

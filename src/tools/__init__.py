@@ -1,34 +1,38 @@
-"""Agent tools and tool registry."""
-from tools.catalog import ToolCatalog, ToolCatalogSnapshot, ToolSelection
-from tools.executor import ToolExecutorAdapter
-from tools.registry import ToolRegistry
-from tools.toolsets import BUILTIN_TOOL_GROUPS, BUILTIN_TOOLSETS, ToolsetDefinition, ToolsetResolution, resolve_toolsets
-from tools.types import (
-    ToolDefinition,
-    ToolDispatchResult,
-    ToolExecutionContext,
-    ToolGroupDefinition,
-    ToolHandler,
-    ToolMiddleware,
-    ToolResultEnvelope,
-)
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from langchain_core.tools import BaseTool
+
+from tools.paper_notes import create_tools as create_paper_notes_tools
+
+
+def create_tools(
+    *,
+    library_path: Path | None = None,
+    annotations_dir: Path | None = None,
+    html_dir: Path | None = None,
+    papers_dir: Path | None = None,
+    paper_text_cache_dir: Path | None = None,
+    paper_page_cache_dir: Path | None = None,
+    paper_image_cache_dir: Path | None = None,
+    media_store: Any | None = None,
+    paper_image_analyzer: Any | None = None,
+) -> list[BaseTool]:
+    return create_paper_notes_tools(
+        library_path=library_path,
+        annotations_dir=annotations_dir,
+        html_dir=html_dir,
+        papers_dir=papers_dir,
+        paper_text_cache_dir=paper_text_cache_dir,
+        paper_page_cache_dir=paper_page_cache_dir,
+        paper_image_cache_dir=paper_image_cache_dir,
+        media_store=media_store,
+        paper_image_analyzer=paper_image_analyzer,
+    )
+
 
 __all__ = [
-    "BUILTIN_TOOL_GROUPS",
-    "BUILTIN_TOOLSETS",
-    "ToolCatalog",
-    "ToolCatalogSnapshot",
-    "ToolDefinition",
-    "ToolDispatchResult",
-    "ToolExecutionContext",
-    "ToolExecutorAdapter",
-    "ToolGroupDefinition",
-    "ToolHandler",
-    "ToolMiddleware",
-    "ToolRegistry",
-    "ToolResultEnvelope",
-    "ToolSelection",
-    "ToolsetDefinition",
-    "ToolsetResolution",
-    "resolve_toolsets",
+    "create_tools",
 ]

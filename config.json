@@ -1,0 +1,25 @@
+{
+  "models": {
+    "default": "main",
+    "main": {
+      "provider": "openai",
+      "name": "gpt-5.5",
+      "options": {
+        "temperature": 0.2,
+        "max_tokens": 4096
+      }
+    },
+    "code": {
+      "provider": "anthropic",
+      "name": "claude-opus-4-7",
+      "options": {
+        "temperature": 0.2,
+        "max_tokens": 4096
+      }
+    }
+  },
+  "checkpointer": {
+    "type": "sqlite",
+    "path": ".paper-notes/checkpoints.sqlite"
+  }
+}

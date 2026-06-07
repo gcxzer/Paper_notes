@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+# Public Paper Notes tool API exports kept stable for callers outside this package.
+
+from tools.paper_notes.media import write_note_from_paper_image
+from tools.paper_notes.notes import (
+    append_note_section,
+    build_note_context,
+    delete_note_section,
+    get_note,
+    insert_note_image,
+    list_note_sections,
+    preview_note_diff,
+    read_annotations_tool,
+    read_note_html,
+    replace_note_section,
+    search_library,
+    update_note_metadata,
+    validate_note_html,
+    write_note_section,
+)
+from tools.paper_notes.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
+from tools.paper_notes.registry import (
+    PAPER_NOTES_TOOLSET,
+    create_paper_notes_registry,
+    get_note_context,
+    manage_annotations,
+    write_note_media,
+    read_paper,
+    review_note,
+    search_notes,
+    write_note,
+)
+
+__all__ = [
+    "PAPER_NOTES_TOOLSET",
+    "append_note_section",
+    "build_note_context",
+    "create_paper_notes_registry",
+    "delete_note_section",
+    "extract_paper_images",
+    "get_note",
+    "insert_note_image",
+    "list_note_sections",
+    "get_note_context",
+    "manage_annotations",
+    "write_note_media",
+    "read_paper",
+    "review_note",
+    "search_notes",
+    "write_note",
+    "preview_note_diff",
+    "read_annotations_tool",
+    "read_note_html",
+    "read_paper_text",
+    "render_paper_page",
+    "replace_note_section",
+    "search_library",
+    "search_paper_text",
+    "update_note_metadata",
+    "validate_note_html",
+    "write_note_from_paper_image",
+    "write_note_section",
+]

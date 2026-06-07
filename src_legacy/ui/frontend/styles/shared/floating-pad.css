@@ -1,0 +1,433 @@
+.floating-pad {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.floating-pad[hidden] {
+  display: none;
+}
+
+.floating-pad-button {
+  position: fixed;
+  z-index: 12002;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border: 1px solid color-mix(in srgb, var(--accent, #5d6bff) 78%, #ffffff);
+  border-radius: 999px;
+  background: var(--accent, #5d6bff);
+  color: #ffffff;
+  box-shadow: 0 18px 44px rgba(62, 74, 220, 0.34), 0 3px 12px rgba(22, 19, 15, 0.22);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.floating-pad-button:active {
+  cursor: grabbing;
+}
+
+.floating-pad-button.is-dragging {
+  cursor: grabbing;
+  transform: scale(1.02);
+}
+
+.floating-pad-button:hover,
+.floating-pad-button:focus-visible,
+.floating-pad.is-open .floating-pad-button {
+  border-color: #ffffff;
+  background: color-mix(in srgb, var(--accent, #5d6bff) 86%, #111111);
+  box-shadow: 0 20px 52px rgba(62, 74, 220, 0.46), 0 0 0 4px color-mix(in srgb, var(--accent, #5d6bff) 22%, transparent);
+  outline: none;
+}
+
+.floating-pad-button svg {
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.floating-pad-panel {
+  position: fixed;
+  z-index: 12001;
+  display: grid;
+  grid-template-rows: auto minmax(270px, 1fr) auto;
+  width: min(460px, calc(100vw - 24px));
+  height: min(540px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent, #5d6bff) 46%, var(--line, #d7d2c8));
+  border-radius: 14px;
+  background: var(--panel, #fff);
+  box-shadow: 0 22px 70px rgba(22, 19, 15, 0.22);
+  color: var(--text, #262321);
+  pointer-events: auto;
+}
+
+.floating-pad-panel.is-list-open {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.floating-pad-panel[hidden] {
+  display: none;
+}
+
+.floating-pad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 13px 10px 15px;
+  border-bottom: 1px solid var(--line, #d7d2c8);
+  background: color-mix(in srgb, var(--panel-alt, #f6f3ed) 76%, var(--panel, #fff));
+}
+
+.floating-pad-header strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.floating-pad-header span,
+.floating-pad-footer {
+  color: var(--muted, #746f68);
+  font-size: 0.72rem;
+}
+
+.floating-pad-active-title {
+  color: var(--muted-strong, #5f5952);
+}
+
+.floating-pad-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.floating-pad-icon,
+.floating-pad-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 31px;
+  border: 1px solid var(--line, #d7d2c8);
+  border-radius: 999px;
+  background: var(--panel, #fff);
+  color: var(--text, #262321);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.floating-pad-icon {
+  padding: 0 10px;
+}
+
+.floating-pad-directory[aria-expanded="true"] {
+  border-color: var(--accent, #5d6bff);
+  background: color-mix(in srgb, var(--accent, #5d6bff) 12%, var(--panel, #fff));
+}
+
+.floating-pad-close {
+  width: 31px;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.floating-pad-icon:hover,
+.floating-pad-icon:focus-visible,
+.floating-pad-close:hover,
+.floating-pad-close:focus-visible {
+  border-color: var(--accent, #5d6bff);
+  background: color-mix(in srgb, var(--accent, #5d6bff) 9%, var(--panel, #fff));
+  outline: none;
+}
+
+.floating-pad-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  resize: none;
+  border: 0;
+  background: var(--panel, #fff);
+  color: var(--text, #262321);
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.58;
+  outline: none;
+}
+
+.floating-pad-panel.is-list-open .floating-pad-input,
+.floating-pad-panel.is-list-open .floating-pad-footer {
+  display: none;
+}
+
+.floating-pad-list-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 13px;
+  background: color-mix(in srgb, var(--panel-alt, #f6f3ed) 48%, var(--panel, #fff));
+}
+
+.floating-pad-list-panel[hidden] {
+  display: none;
+}
+
+.floating-pad-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.floating-pad-list-header strong {
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.floating-pad-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 1px;
+}
+
+.floating-pad-list-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.floating-pad-list-row:hover,
+.floating-pad-list-row:focus-within,
+.floating-pad-list-row.is-menu-open {
+  z-index: 5;
+}
+
+.floating-pad-list-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--line, #d7d2c8);
+  border-radius: 9px;
+  padding: 8px 46px 8px 9px;
+  background: var(--panel, #fff);
+  color: var(--text, #262321);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.floating-pad-list-item:hover,
+.floating-pad-list-item:focus-visible,
+.floating-pad-list-row.is-menu-open .floating-pad-list-item {
+  border-color: var(--accent, #5d6bff);
+  background: color-mix(in srgb, var(--accent, #5d6bff) 8%, var(--panel, #fff));
+  outline: none;
+}
+
+.floating-pad-rename-form {
+  display: block;
+  min-width: 0;
+}
+
+.floating-pad-rename-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 57px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--accent, #5d6bff);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent, #5d6bff) 8%, var(--panel, #fff));
+}
+
+.floating-pad-rename-card input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line, #d7d2c8);
+  border-radius: 9px;
+  padding: 0 10px;
+  background: var(--panel, #fff);
+  color: var(--text, #262321);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.floating-pad-rename-card input:focus {
+  border-color: var(--accent, #5d6bff);
+}
+
+.floating-pad-save {
+  height: 34px;
+  border: 1px solid var(--accent, #5d6bff);
+  border-radius: 9px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--accent, #5d6bff) 14%, var(--panel, #fff));
+  color: var(--text, #262321);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.floating-pad-list-item span {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-pad-list-item small {
+  color: var(--muted, #746f68);
+  font-size: 0.68rem;
+}
+
+.floating-pad-menu-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line, #d7d2c8);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel, #fff) 86%, transparent);
+  color: var(--muted, #746f68);
+  cursor: pointer;
+  font: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(4px);
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.floating-pad-menu-button svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+  fill: currentColor;
+}
+
+.floating-pad-list-row:hover .floating-pad-menu-button,
+.floating-pad-list-row:focus-within .floating-pad-menu-button,
+.floating-pad-list-row.is-menu-open .floating-pad-menu-button {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.floating-pad-menu-button:hover,
+.floating-pad-menu-button:focus-visible,
+.floating-pad-menu-button[aria-expanded="true"] {
+  border-color: var(--accent, #5d6bff);
+  background: color-mix(in srgb, var(--accent, #5d6bff) 10%, var(--panel, #fff));
+  color: var(--text, #262321);
+  outline: none;
+}
+
+.floating-pad-action-menu {
+  position: fixed;
+  z-index: 12004;
+  display: grid;
+  gap: 4px;
+  min-width: 168px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--line, #d7d2c8) 72%, var(--text, #262321));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel, #fff) 90%, var(--panel-alt, #f6f3ed));
+  box-shadow: 0 16px 36px rgba(22, 19, 15, 0.18);
+  pointer-events: auto;
+}
+
+.floating-pad-action-menu[hidden] {
+  display: none;
+}
+
+.floating-pad-menu-option {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text, #262321);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-align: left;
+}
+
+.floating-pad-menu-option:hover,
+.floating-pad-menu-option:focus-visible {
+  border-color: color-mix(in srgb, var(--accent, #5d6bff) 42%, transparent);
+  background: color-mix(in srgb, var(--accent, #5d6bff) 9%, var(--panel, #fff));
+  outline: none;
+}
+
+.floating-pad-menu-option.is-danger {
+  color: #b54747;
+}
+
+.floating-pad-list-row.is-delete-confirming .floating-pad-menu-button,
+.floating-pad-list-row.is-delete-confirming .floating-pad-list-item {
+  border-color: color-mix(in srgb, #b54747 48%, var(--line, #d7d2c8));
+}
+
+.floating-pad-list-row.is-delete-confirming .floating-pad-list-item {
+  background: color-mix(in srgb, #b54747 8%, var(--panel, #fff));
+}
+
+.floating-pad-input::placeholder {
+  color: color-mix(in srgb, var(--muted, #746f68) 72%, transparent);
+}
+
+.floating-pad-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  padding: 6px 13px;
+  border-top: 1px solid var(--line, #d7d2c8);
+  background: color-mix(in srgb, var(--panel-alt, #f6f3ed) 70%, var(--panel, #fff));
+}
+
+@media (max-width: 560px) {
+  .floating-pad-panel {
+    width: calc(100vw - 20px);
+    height: min(480px, calc(100vh - 20px));
+  }
+
+  .floating-pad-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .floating-pad-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

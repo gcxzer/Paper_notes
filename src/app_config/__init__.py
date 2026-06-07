@@ -1,31 +1,3 @@
-from app_config.ai_settings import (
-    AISettings,
-    BRAVE_SEARCH_API_KEY,
-    CODEX_PROVIDER,
-    OPENAI_PROVIDER,
-    ResolvedValue,
-    delete_local_openai_api_key,
-    resolve_brave_search_api_key,
-    resolve_ai_settings,
-    resolve_ai_provider,
-    resolve_openai_api_key,
-    resolve_openai_model,
-    resolve_tavily_api_key,
-    save_local_ai_settings,
-)
+from app_config.config import AppConfig, load_app_config
 
-__all__ = [
-    "AISettings",
-    "BRAVE_SEARCH_API_KEY",
-    "CODEX_PROVIDER",
-    "OPENAI_PROVIDER",
-    "ResolvedValue",
-    "delete_local_openai_api_key",
-    "resolve_brave_search_api_key",
-    "resolve_ai_settings",
-    "resolve_ai_provider",
-    "resolve_openai_api_key",
-    "resolve_openai_model",
-    "resolve_tavily_api_key",
-    "save_local_ai_settings",
-]
+__all__ = ["AppConfig", "load_app_config"]

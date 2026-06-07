@@ -9,7 +9,7 @@ for path in (SRC_DIR, UI_SRC_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from src.ui.backend.server import main  # noqa: E402
+from ui.backend.server import main  # noqa: E402
 
 
 if __name__ == "__main__":
