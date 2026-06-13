@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from tools.paper_notes.impl.formatting import normalize_text
+from app_infra.formatting import normalize_text
 from tools.paper_notes.impl.artifacts import _artifact_payload
 from tools.paper_notes.impl.common import (
     positive_float,

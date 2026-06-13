@@ -68,6 +68,26 @@ def read_paper_parameters() -> dict[str, Any]:
     }
 
 
+def search_paper_rag_parameters() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "note_id": {"type": "string", "description": "The note id whose PDF should be searched."},
+            "query": {"type": "string", "description": "Semantic question or search query for the paper."},
+            "similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+            "image_similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+            "bm25_similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+            "embedding_provider": {
+                "type": "string",
+                "description": "Embedding backend, usually ollama for local qwen3-embedding.",
+            },
+            "embedding_model": {"type": "string", "description": "Optional provider-specific embedding model."},
+        },
+        "required": ["note_id", "query"],
+        "additionalProperties": False,
+    }
+
+
 def write_note_parameters() -> dict[str, Any]:
     return {
         "type": "object",

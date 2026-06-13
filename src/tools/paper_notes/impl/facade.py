@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tools.paper_notes.impl.formatting import normalize_text
+from rag.service import RAGServiceError, get_rag_service
+from app_infra.formatting import normalize_text
 from tools.paper_notes.impl.annotations import create_annotation, delete_annotation, update_annotation
 from tools.paper_notes.impl.common import resolve_note, tool_error, truthy
 from tools.paper_notes.impl.media import write_note_from_paper_image
@@ -24,15 +25,6 @@ from tools.paper_notes.impl.notes import (
     write_note_section,
 )
 from tools.paper_notes.impl.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
-from tools.paper_notes.schemas import (
-    get_note_context_parameters,
-    manage_annotations_parameters,
-    read_paper_parameters,
-    review_note_parameters,
-    search_notes_parameters,
-    write_note_media_parameters,
-    write_note_parameters,
-)
 
 
 def _write_note_resources(args: dict[str, Any]) -> list[str]:
@@ -128,6 +120,46 @@ def read_paper(
     return tool_error("invalid_action", "action must be search_text, read_pages, render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
 
 
+def search_paper_rag(
+    args: dict[str, Any],
+    *,
+    library_path: Path | None = None,
+) -> dict[str, Any]:
+    note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
+    if "error" in note_result:
+        return note_result
+
+    note = note_result.get("note") if isinstance(note_result.get("note"), dict) else {}
+    note_id = normalize_text(note.get("id") or args.get("note_id"))
+    query = normalize_text(args.get("query"))
+    if not query:
+        return tool_error("query_required", "query is required.", note_id=note_id)
+
+    try:
+        payload = get_rag_service().query(
+            query=query,
+            note_id=note_id,
+            similarity_top_k=_positive_int(args.get("similarity_top_k"), default=5, maximum=20),
+            image_similarity_top_k=_positive_int(args.get("image_similarity_top_k"), default=3, maximum=20),
+            bm25_similarity_top_k=_positive_int(args.get("bm25_similarity_top_k"), default=5, maximum=20),
+            embedding_provider=normalize_text(args.get("embedding_provider") or "ollama") or "ollama",
+            embedding_model=_optional_text(args.get("embedding_model")),
+            library_path=library_path,
+        )
+    except RAGServiceError as error:
+        return tool_error(error.code, str(error), note_id=note_id)
+    except Exception as error:
+        return tool_error("rag_query_failed", f"RAG query failed: {type(error).__name__}: {error}", note_id=note_id)
+
+    if note_result.get("note_id_corrected"):
+        payload = {
+            **payload,
+            "requested_note_id": normalize_text(note_result.get("requested_note_id")),
+            "note_id_corrected": True,
+        }
+    return payload
+
+
 def _read_paper_args_with_note_id_correction(
     args: dict[str, Any],
     *,
@@ -160,6 +192,19 @@ def _with_note_id_correction(payload: dict[str, Any], correction: dict[str, str]
         "requested_note_id": correction["requested_note_id"],
         "note_id_corrected": True,
     }
+
+
+def _optional_text(value: Any) -> str | None:
+    text = normalize_text(value)
+    return text or None
+
+
+def _positive_int(value: Any, *, default: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(parsed, maximum))
 
 
 def write_note(

@@ -1,8 +1,31 @@
 # tools
 
-LangChain-native tool skeletons for Paper Notes.
+LangChain-native tools for the new Paper Notes agent runtime.
 
-Each tool package exposes `create_tools()` and returns `langchain_core.tools`
-instances. The current migration only recreates the tool folders and model
-visible tool names from `src_legacy/tools`; runtime wiring, permissions, and
-full handlers will be filled in incrementally.
+The public entry point is `tools.create_tools(...)`. It returns
+`langchain_core.tools.StructuredTool` instances and is used by
+`agent_runtime.AgentService`.
+
+## Current Tools
+
+- `search_notes`: search or list local paper metadata.
+- `get_note_context`: build compact note context from metadata, note HTML,
+  annotations, and optional PDF snippets.
+- `read_paper`: search PDF text, read pages, render pages, extract images, or
+  analyze a registered image artifact when an analyzer is available.
+- `search_paper_rag`: semantically retrieve passages from a note's local RAG
+  index.
+- `write_note`: update note HTML sections or note metadata.
+- `manage_annotations`: create, update, or delete Paper Notes annotations.
+- `write_note_media`: write note content from paper images or insert existing
+  image artifacts.
+- `review_note`: validate note HTML or preview a section diff without saving.
+
+## Boundaries
+
+- Tool schemas live in `tools.paper_notes.schemas`.
+- Model-visible tool construction lives in `tools.paper_notes.tool`.
+- Tool orchestration and action dispatch live in `tools.paper_notes.impl.facade`.
+- Domain logic belongs in `library`, `media`, `rag`, and `app_infra`.
+- The RAG system is exposed only as retrieval through `search_paper_rag`; it
+  should not generate final answers by itself.

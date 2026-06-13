@@ -5,8 +5,6 @@ from typing import Any
 
 from langchain_core.tools import BaseTool
 
-from tools.paper_notes import create_tools as create_paper_notes_tools
-
 
 def create_tools(
     *,
@@ -20,6 +18,8 @@ def create_tools(
     media_store: Any | None = None,
     paper_image_analyzer: Any | None = None,
 ) -> list[BaseTool]:
+    from tools.paper_notes import create_tools as create_paper_notes_tools
+
     return create_paper_notes_tools(
         library_path=library_path,
         annotations_dir=annotations_dir,

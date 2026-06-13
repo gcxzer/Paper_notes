@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from tools.paper_notes.impl.formatting import normalize_text
-from tools.paper_notes.impl.paths import PAPERS_DIR, PROJECT_ROOT, is_relative_to
-from tools.paper_notes.impl.storage import atomic_write_text
+from app_infra.formatting import normalize_text
+from app_infra.paths import PAPERS_DIR, PROJECT_ROOT, is_relative_to
+from app_infra.storage import atomic_write_text
 from tools.paper_notes.impl.artifacts import _attach_artifact
 from tools.paper_notes.impl.common import (
     positive_float,

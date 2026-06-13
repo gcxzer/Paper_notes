@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from tools.paper_notes.impl.formatting import normalize_text
-from tools.paper_notes.impl.paths import PROJECT_ROOT, is_relative_to
-from tools.paper_notes.impl.library_store import find_note, read_library
+from app_infra.formatting import normalize_text
+from app_infra.paths import PROJECT_ROOT, is_relative_to
+from library.store import find_note, read_library
 
 SAFE_HTML_TAGS = {
     "a",

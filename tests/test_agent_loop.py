@@ -3,13 +3,14 @@ from __future__ import annotations
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
-from app_config import AppConfig
 from agent_runtime import run_agent_loop
-from middleware import SUMMARY_MESSAGE_PREFIX, SummarizationMiddleware, create_summarization_middleware
-
-
-def _config_for_checkpoint(path) -> AppConfig:
-    return AppConfig(data={"checkpointer": {"type": "sqlite", "path": str(path)}}, path=None)
+from middleware import (
+    SUMMARY_MESSAGE_PREFIX,
+    ContextCompactionMiddleware,
+    SummarizationMiddleware,
+    compaction_trigger_tokens,
+    create_context_collapse_middleware,
+)
 
 
 def test_run_agent_loop_coerces_string_messages(tmp_path) -> None:
@@ -19,7 +20,6 @@ def test_run_agent_loop_coerces_string_messages(tmp_path) -> None:
         run_agent_loop(
             model,
             "hello",
-            app_config=_config_for_checkpoint(tmp_path / "checkpoints.sqlite"),
             thread_id="coerce-thread",
         )
     )
@@ -34,7 +34,6 @@ def test_run_agent_loop_uses_thread_id(tmp_path) -> None:
         run_agent_loop(
             model,
             "hello",
-            app_config=_config_for_checkpoint(tmp_path / "checkpoints.sqlite"),
             thread_id="memory-thread",
         )
     )
@@ -42,25 +41,25 @@ def test_run_agent_loop_uses_thread_id(tmp_path) -> None:
     assert chunks[-1]["messages"][-1].content == "remembered"
 
 
-def test_run_agent_loop_uses_sqlite_checkpointer(tmp_path) -> None:
+def test_run_agent_loop_does_not_create_sqlite_checkpoint(tmp_path) -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="saved")])
+    checkpoint_path = tmp_path / "checkpoints.sqlite"
 
     chunks = list(
         run_agent_loop(
             model,
             "hello",
-            app_config=_config_for_checkpoint(tmp_path / "checkpoints.sqlite"),
-            thread_id="sqlite-thread",
+            thread_id="jsonl-session-thread",
         )
     )
 
     assert chunks[-1]["messages"][-1].content == "saved"
-    assert (tmp_path / "checkpoints.sqlite").exists()
+    assert not checkpoint_path.exists()
 
 
-def test_run_agent_loop_accepts_summarization_middleware(tmp_path) -> None:
+def test_run_agent_loop_accepts_context_collapse_middleware(tmp_path) -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
-    summarization = create_summarization_middleware(
+    collapse = create_context_collapse_middleware(
         model=model,
         trigger=("messages", 100),
         keep=("messages", 20),
@@ -70,36 +69,35 @@ def test_run_agent_loop_accepts_summarization_middleware(tmp_path) -> None:
         run_agent_loop(
             model,
             "hello",
-            app_config=_config_for_checkpoint(tmp_path / "checkpoints.sqlite"),
-            middleware=[summarization],
-            thread_id="summarization-thread",
+            middleware=[collapse],
+            thread_id="context-collapse-thread",
         )
     )
 
     assert chunks[-1]["messages"][-1].content == "done"
 
 
-def test_create_summarization_middleware_uses_official_defaults() -> None:
+def test_create_context_collapse_middleware_uses_official_defaults() -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="summary")])
 
-    summarization = create_summarization_middleware(model)
+    collapse = create_context_collapse_middleware(model)
     direct = SummarizationMiddleware(model=model)
 
-    assert summarization.trigger == direct.trigger
-    assert summarization.keep == direct.keep
-    assert summarization.summary_prompt == direct.summary_prompt
-    assert summarization.trim_tokens_to_summarize == direct.trim_tokens_to_summarize
+    assert collapse.trigger == direct.trigger
+    assert collapse.keep == direct.keep
+    assert collapse.summary_prompt == direct.summary_prompt
+    assert collapse.trim_tokens_to_summarize == direct.trim_tokens_to_summarize
 
 
-def test_summarization_middleware_prefixes_new_summary() -> None:
+def test_context_collapse_middleware_prefixes_new_summary() -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="compressed history")])
-    summarization = create_summarization_middleware(
+    collapse = create_context_collapse_middleware(
         model,
         trigger=("messages", 3),
         keep=("messages", 1),
     )
 
-    update = summarization.before_model(
+    update = collapse.before_model(
         {
             "messages": [
                 HumanMessage(content="first"),
@@ -115,16 +113,16 @@ def test_summarization_middleware_prefixes_new_summary() -> None:
     assert summary_messages[0].content.startswith(SUMMARY_MESSAGE_PREFIX)
 
 
-def test_summarization_middleware_preserves_existing_summary_messages() -> None:
+def test_context_collapse_middleware_preserves_existing_summary_messages() -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="new compressed history")])
-    summarization = create_summarization_middleware(
+    collapse = create_context_collapse_middleware(
         model,
         trigger=("messages", 4),
         keep=("messages", 1),
     )
     existing_summary = HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nold compressed history")
 
-    update = summarization.before_model(
+    update = collapse.before_model(
         {
             "messages": [
                 existing_summary,
@@ -142,3 +140,37 @@ def test_summarization_middleware_preserves_existing_summary_messages() -> None:
     assert messages[1] is existing_summary
     assert messages[2].content.startswith(SUMMARY_MESSAGE_PREFIX)
     assert "new compressed history" in messages[2].content
+
+
+def test_compaction_trigger_tokens_reserves_context_space() -> None:
+    assert compaction_trigger_tokens(400_000) == 380_000
+    assert compaction_trigger_tokens(128_000, reserve_tokens=20_000) == 108_000
+
+
+def test_context_compaction_middleware_compacts_existing_summaries() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="dense summary")])
+    compaction = ContextCompactionMiddleware(
+        model,
+        context_window=100,
+        reserve_tokens=20,
+        token_counter=lambda messages: 100,
+    )
+    recent_message = HumanMessage(content="recent question")
+
+    update = compaction.before_model(
+        {
+            "messages": [
+                HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nold summary"),
+                HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nnewer summary"),
+                recent_message,
+            ]
+        },
+        runtime=None,
+    )
+
+    assert update is not None
+    messages = update["messages"]
+    assert isinstance(messages[0], RemoveMessage)
+    assert messages[1].content.startswith(SUMMARY_MESSAGE_PREFIX)
+    assert "dense summary" in messages[1].content
+    assert messages[2] is recent_message

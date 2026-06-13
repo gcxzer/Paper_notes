@@ -6,6 +6,14 @@ import library.store as library_module
 from library import read_library, sanitize_library, write_library
 
 
+def _disable_rag_indexing(monkeypatch):
+    monkeypatch.setattr(
+        library_module,
+        "_index_imported_pdf",
+        lambda **_: {"success": True, "ready": False, "indexKey": "test", "built": {}},
+    )
+
+
 def test_sanitize_library_strips_legacy_cloud_fields():
     library = sanitize_library({
         "categories": [],
@@ -57,6 +65,7 @@ def test_import_pdf_generates_note_outline_from_pdf_toc(tmp_path, monkeypatch):
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "DeepSeek V4\n1 Introduction\n1.1 Contributions\n2 Method")
@@ -107,6 +116,7 @@ def test_import_pdf_from_url_reuses_local_import_pipeline(tmp_path, monkeypatch)
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "URL import")
@@ -136,6 +146,7 @@ def test_import_pdf_from_url_uses_arxiv_metadata_title(tmp_path, monkeypatch):
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "URL import")

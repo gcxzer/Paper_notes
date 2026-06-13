@@ -11,6 +11,7 @@ from tools.paper_notes.schemas import (
     manage_annotations_parameters,
     read_paper_parameters,
     review_note_parameters,
+    search_paper_rag_parameters,
     search_notes_parameters,
     write_note_media_parameters,
     write_note_parameters,
@@ -74,6 +75,15 @@ def create_tools(
                 media_store=media_store,
                 paper_image_analyzer=paper_image_analyzer,
             ),
+        ),
+        StructuredTool(
+            name="search_paper_rag",
+            description=(
+                "Semantically search a note's PDF with the local RAG index. Prefer this for conceptual paper "
+                "questions, synthesis across sections, and queries where exact PDF text search may miss relevant passages."
+            ),
+            args_schema=search_paper_rag_parameters(),
+            func=lambda **kwargs: facade.search_paper_rag(dict(kwargs), library_path=library_path),
         ),
         StructuredTool(
             name="write_note",

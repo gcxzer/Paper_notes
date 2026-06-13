@@ -9,6 +9,7 @@ CURRENT_PAPER_NOTES_TOOLS = {
     "manage_annotations",
     "read_paper",
     "review_note",
+    "search_paper_rag",
     "search_notes",
     "write_note",
     "write_note_media",

@@ -1,45 +1,30 @@
 # Paper Notes
 
-Paper Notes is a local research workspace for reading PDFs, annotating papers,
-building HTML notes, and using an agent to work with your paper library.
+Paper Notes is a local research workspace for importing PDFs, keeping editable
+paper notes, and asking a LangChain agent to work with the paper library.
 
-## Preview
+This repository is currently being rewritten from the legacy implementation in
+`src_legacy/` into the new LangChain-based implementation in `src/`. The new
+project intentionally does not keep legacy frontend compatibility layers.
 
-Paper Notes opens a PDF and its matching HTML note side by side:
+## Current Shape
 
-![Paper Notes split reader preview](assets/paper-notes-reader-preview.png)
+- Backend: FastAPI routes in `src/ui/backend`.
+- Agent runtime: LangChain/LangGraph flow in `src/agent_runtime`.
+- Sessions: JSON/JSONL session storage in `.paper-notes/sessions/`.
+- Tools: LangChain `StructuredTool` instances from `src/tools`.
+- RAG: local Qdrant/BM25 indexes under `.paper-notes/rag/`, exposed to the
+  agent as the `search_paper_rag` tool.
+- Frontend: React + Vite SPA in `src/ui/frontend`.
+- Legacy reference: old code remains in `src_legacy/` only as migration source.
 
-The library view keeps imported papers, summaries, tags, collections, and paper
-actions in one place:
-
-![Paper Notes library preview](assets/paper-notes-library-preview.png)
-
-## Getting Started
-
-Clone the repository:
-
-```bash
-git clone https://github.com/gcxzer/Paper_notes.git
-cd Paper_notes
-```
-
-## Local Runtime
-
-Requirements:
+## Requirements
 
 - Python 3.12+
 - `uv`
 - Node.js and npm
-
-On macOS:
-
-```bash
-brew install uv
-brew install node
-```
-
-On other systems, install `uv` from [astral.sh/uv](https://docs.astral.sh/uv/)
-and install Node.js from [nodejs.org](https://nodejs.org/).
+- For the default RAG embedding path, a local Ollama embedding model or an
+  explicit embedding provider/model override
 
 Install dependencies:
 
@@ -48,158 +33,166 @@ npm install
 uv sync
 ```
 
-Install and start the local background service:
+## Development
+
+Start the backend:
 
 ```bash
-scripts/install-autostart.sh
+PYTHONPATH=src uv run python main.py
 ```
 
-Open `http://127.0.0.1:4173`.
+Backend default URL:
 
-After pulling new code:
+```text
+http://127.0.0.1:8765
+```
+
+Start the React frontend:
 
 ```bash
-git pull
-npm install
-uv sync
-scripts/install-autostart.sh
+npm run dev
 ```
 
-Remove the local background service:
+Frontend default URL:
+
+```text
+http://127.0.0.1:5173
+```
+
+Vite proxies `/api` and `/resources` to the backend during development.
+
+Build the frontend:
 
 ```bash
-scripts/uninstall-autostart.sh
+npm run build
 ```
 
-To also remove the generated Python environment:
+The build output is written to `dist/frontend`.
 
-```bash
-scripts/uninstall-autostart.sh --remove-venv
+## Frontend
+
+The current frontend is a new React implementation, not the old static
+HTML/CSS/JS frontend.
+
+Implemented now:
+
+- Library workspace shell with collections, search, sorting, paper cards, and a
+  details panel.
+- PDF import, link import, note rename, and summary save wired to new backend
+  routes.
+- Reader workspace with paper navigation, PDF surface, note surface, related
+  papers, RAG status, session list, and agent chat.
+- Responsive desktop/mobile layout.
+
+Stubbed for later wiring:
+
+- Collection creation and collection editing.
+- Tags editor.
+- Annotation editing UI.
+- Model/provider switcher.
+- Settings pages beyond the current shell.
+- Reader search and detailed PDF toolbar behavior.
+
+## Backend API
+
+Current new backend routes:
+
+- `GET /health`
+- `GET /api/library`
+- `POST /api/library/import/pdf`
+- `POST /api/library/import/url`
+- `POST /api/library/notes/{note_id}/rename`
+- `POST /api/library/notes/{note_id}/summary`
+- `GET /api/rag/status`
+- `POST /api/rag/index`
+- `POST /api/agent/run`
+- `GET /api/agent/sessions`
+- `GET /api/agent/sessions/{session_id}`
+- `GET /api/agent/sessions/{session_id}/context`
+- `POST /api/agent/sessions/{session_id}/rename`
+- `POST /api/agent/sessions/{session_id}/archive`
+- `POST /api/agent/sessions/{session_id}/state`
+- `DELETE /api/agent/sessions/{session_id}`
+
+`/resources` is mounted for local PDFs and generated HTML notes.
+
+## Import And RAG
+
+Imported PDFs are stored under `resources/Papers/`. Matching HTML notes are
+created under `resources/Paper-html/`, and note metadata is stored in
+`notes.json`.
+
+When a PDF is imported through the backend, Paper Notes attempts to build a RAG
+index for that note. RAG indexing can also be triggered manually through
+`POST /api/rag/index`.
+
+The agent does not load the whole RAG system by default. RAG retrieval is a
+normal model-visible tool:
+
+```text
+search_paper_rag
 ```
 
-## Import PDFs
+The model can call that tool when it needs semantic retrieval from a paper.
 
-1. Open `http://127.0.0.1:4173`.
-2. Click the `+` button in the library toolbar.
-3. Choose one or more PDF files.
+## Agent Runtime
 
-For each imported PDF, Paper Notes creates:
+The new agent entry point is `AgentService.run(...)` in
+`src/agent_runtime/service.py`. It:
 
-- `resources/Papers/<same name>.pdf`
-- `resources/Paper-html/<same name>.html`
-- `resources/Paper-annotations/<note id>.json` after annotations exist
-- one note entry in `notes.json`
+- creates or continues local sessions,
+- converts stored transcript messages into LangChain messages,
+- runs `run_agent_loop`,
+- exposes Paper Notes tools,
+- persists final messages back to JSONL transcripts,
+- exposes context budget status for the UI.
 
-The generated HTML note starts with the paper title and metadata, then seeds
-`.note-body` with the PDF outline when one is available. If the PDF has no
-embedded outline, Paper Notes tries to infer common section headings from the
-first pages.
+SQLite checkpointers are not part of the new runtime path. Session persistence
+is handled by `src/agent_sessions`.
 
-No fake summary, placeholder prose, or default section text is inserted.
+## Context Management
 
-## Reader And Notes
+Long context handling is split into two stages:
 
-Click a paper card or `Open Note` to open the split reader.
+- `ContextCollapseMiddleware` preserves existing `[summary]` messages and uses
+  LangChain summarization for ordinary messages.
+- `ContextCompactionMiddleware` only runs after summaries already exist and the
+  remaining context is still too large.
 
-- Left pane: PDF.js paper reader.
-- Middle pane: rendered HTML note.
-- Right pane: agent chat.
-- PDF and note panes scroll independently on desktop.
-- The dividers resize the PDF, note, and chat panes.
-- The PDF toolbar supports page jumping, zoom, internal PDF links, highlights,
-  underlines, sticky notes, annotation undo/redo, and PDF text copy.
-- Existing sticky note markers can be dragged to reposition them in any PDF
-  annotation mode.
-- HTML notes include an automatic contents menu from `h2`, `h3`, and `h4`
-  headings inside `.note-body`.
+Compaction thresholds use each provider/model capability profile from
+`src/model_providers/profiles`. The default reserve is 20,000 tokens, so the
+trigger point is:
 
-To edit a note manually, open the matching file in `resources/Paper-html/` and
-write normal HTML inside `.note-body`.
-
-```html
-<section class="note-body">
-  <h2>Main Idea</h2>
-  <p>Write your notes here.</p>
-
-  <h2>Method</h2>
-  <h3>Training Setup</h3>
-  <p>Details...</p>
-</section>
+```text
+model_context_window - 20,000
 ```
 
-Refresh the reader after editing the file. Static files are served with
-`Cache-Control: no-store`, so local note edits show up after refresh.
+## Tools
 
-## PDF Annotations
+Current Paper Notes tools:
 
-The split reader uses PDF.js instead of the browser's read-only PDF iframe.
-Use the PDF toolbar to switch modes:
+- `search_notes`
+- `get_note_context`
+- `read_paper`
+- `search_paper_rag`
+- `write_note`
+- `manage_annotations`
+- `write_note_media`
+- `review_note`
 
-- `Browse`: normal reading and scrolling.
-- `Highlight`: drag across PDF text to create a color highlight.
-- `Underline`: drag across text to add a colored underline.
-- `Note`: click a PDF page to add a sticky note.
-
-Existing sticky note markers can be dragged in any annotation mode. Annotation
-undo/redo covers created, deleted, edited, and repositioned annotations.
-
-Annotations are saved as JSON in `resources/Paper-annotations/`. The original
-PDF is not modified.
-
-## Agent Assistant
-
-The Reader `Ask` panel is backed by the local agent runtime. It can use local
-tools to search papers, read PDF text, inspect note HTML, render or extract PDF
-images, review safe note edits, generate image/file artifacts, search past
-sessions, maintain session todos, read/write curated memory, load skills, and
-run bounded Python code.
-
-Configuration lives in Settings:
-
-- `AI Provider`: choose the model provider and local auth/secrets.
-- `Tools`: change built-in tools between ask, read-only, block, or disabled.
-- `MCP`: connect external stdio or Streamable HTTP MCP servers. Enabled servers
-  appear under the `MCP` tool group, and secrets stay local in
-  `.paper-notes/secrets.env`.
-
-Current MCP support includes tool refresh, reconnect handling, per-server tool
-filters, and local artifact creation for MCP image, PDF, and safe text-like
-results. SSE transport, MCP OAuth, and running Paper Notes itself as an MCP
-server are out of scope for now.
-
-The Debug link under a completed answer opens saved run logs, progress events,
-tool activity, and undo/redo snapshots for tool-driven note changes.
+See `src/tools/README.md` for the tool boundary.
 
 ## Local Data
 
-Paper Notes keeps user data local:
+User data is local:
 
-Core library data:
-
-- `notes.json`: paper library metadata
+- `notes.json`: library metadata
 - `resources/Papers/`: imported PDFs
 - `resources/Paper-html/`: editable HTML notes
-- `resources/Paper-annotations/`: PDF annotation JSON
-
-Derived paper caches:
-
-- `resources/Paper-text/`: extracted PDF text cache
-- `resources/Paper-pages/`: rendered PDF page image cache
-- `resources/Paper-images/`: extracted PDF image cache
-
-Agent and app runtime state:
-
-- `.paper-notes/sessions/`: chat sessions and transcripts
-- `.paper-notes/compression/`: context compression checkpoints
-- `.paper-notes/snapshots/`: write snapshots used for undo/redo
-- `.paper-notes/approvals/`: local tool approval history
-- `.paper-notes/logs/`: debug logs and tool result records
-- `.paper-notes/memory/`: curated user/project memory
-- `.paper-notes/media/`: uploads and generated artifacts
-- `.paper-notes/skills/`: user-installed or user-authored skills
-- `.paper-notes/mcp-servers.json`: local MCP server configuration
-- `.paper-notes/tool-settings.json`: local tool permissions
-- `.paper-notes/secrets.env` and `.paper-notes/auth/`: local provider secrets/auth
+- `resources/Paper-annotations/`: annotation JSON
+- `.paper-notes/sessions/`: session index and JSONL transcripts
+- `.paper-notes/media/`: uploads and generated media artifacts
+- `.paper-notes/rag/`: Qdrant/BM25 RAG indexes and derived image data
 
 These runtime folders are ignored by Git.
 
@@ -207,74 +200,52 @@ These runtime folders are ignored by Git.
 
 ```text
 .
-├── main.py                     # Local server entry point
-├── notes.json                  # Local library metadata, generated at runtime
-├── package.json                # Frontend scripts and PDF.js dependency
+├── main.py                     # Backend entry point
+├── config.json                 # Local model defaults
+├── notes.json                  # Local paper library metadata
+├── package.json                # React/Vite scripts and frontend dependencies
 ├── pyproject.toml              # Python runtime dependencies
-├── scripts/                    # install/uninstall service helpers
+├── vite.config.mjs             # Vite config and backend proxy
 ├── src/
-│   ├── agent_memory/           # Curated local memory
-│   ├── agent_prompts/          # System prompt and context builder
-│   ├── agent_runtime/          # Agent service, loop, runner, control
-│   ├── agent_sessions/         # Chat session metadata and transcripts
-│   ├── app_config/             # AI settings and local secrets
-│   ├── app_infra/              # Paths, storage, shared formatting
-│   ├── context_compression/    # Context pruning and summaries
-│   ├── library/                # Library, note HTML, annotations
-│   ├── media/                  # Upload and generated media store
-│   ├── model_providers/        # OpenAI/Codex provider boundary
-│   ├── skills/                 # Local Paper Notes skills
-│   ├── telemetry/              # Progress, debug, and run records
-│   ├── tool_safety/            # Approvals, guardrails, snapshots
-│   ├── tools/                  # Tool registry and built-in tools
+│   ├── agent_prompts/          # Prompt composition
+│   ├── agent_runtime/          # LangChain agent service and loop
+│   ├── agent_sessions/         # JSON/JSONL session store
+│   ├── app_config/             # Config loader
+│   ├── app_infra/              # Paths, formatting, atomic storage
+│   ├── library/                # Library metadata, note HTML, annotations
+│   ├── media/                  # Media artifact store
+│   ├── middleware/             # Context collapse and compaction
+│   ├── model_providers/        # Provider factories and model capabilities
+│   ├── rag/                    # Indexing, retriever, RAG service
+│   ├── tools/                  # LangChain tools
 │   └── ui/
-│       ├── backend/            # HTTP API and static server routes
-│       └── frontend/
-│           ├── index.html
-│           ├── reader.html
-│           ├── note-template.html
-│           ├── scripts/
-│           │   ├── reader/     # Reader, PDF, chat, debug modules
-│           │   ├── site/       # Library page and settings modules
-│           │   ├── shared/     # Shared browser helpers
-│           │   └── note/       # Standalone note behavior
-│           └── styles/
-│               ├── reader/     # Reader CSS modules
-│               └── site/       # Library/settings CSS modules
-├── assets/                     # README/static image assets
-└── resources/                  # Local paper workspace data, ignored by Git
+│       ├── backend/            # FastAPI routes
+│       └── frontend/           # React app
+├── src_legacy/                 # Old implementation, migration reference only
+├── resources/                  # Local paper files
+└── .paper-notes/               # Local runtime state
 ```
 
-## Development
+## Verification
 
-Start the local server:
+Useful focused checks:
 
 ```bash
-uv run python main.py
+npm run build
+uv run ruff check src tests
+PYTHONPATH=src uv run pytest tests/test_library.py tests/test_agent_api_langchain.py tests/test_rag_backend.py -q
 ```
 
-or:
+Useful broader checks:
 
 ```bash
-npm start
-```
-
-Useful checks:
-
-```bash
-uv run --group dev pytest
 npm run lint
+npm run test
 npm run test:e2e
 ```
 
-Focused syntax checks:
-
-```bash
-uv run python -m py_compile $(find src -name '*.py' -not -path '*/__pycache__/*') main.py
-find src/ui/frontend/scripts -name '*.js' -print0 | xargs -0 -n1 node --check
-```
-
-Default port: `4173`.
+Some older tests still target the legacy frontend/runtime shape and are not the
+source of truth for the new rewrite until they are migrated.
 
 ## License
 

@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from tools.paper_notes.impl.formatting import normalize_text
-from tools.paper_notes.impl.paths import HTML_DIR, PROJECT_ROOT, is_relative_to
-from tools.paper_notes.impl.storage import atomic_write_text
-from tools.paper_notes.impl.library_store import find_note, normalize_tags, read_library, write_library
-from tools.paper_notes.impl.library_annotations import read_annotations as read_note_annotations
+from app_infra.formatting import normalize_text
+from app_infra.paths import HTML_DIR, PROJECT_ROOT, is_relative_to
+from app_infra.storage import atomic_write_text
+from library.store import find_note, normalize_tags, read_library, write_library
+from library.annotations import read_annotations as read_note_annotations
 from tools.paper_notes.impl.artifacts import _artifact_to_payload, _resolve_image_artifact_payload
 from tools.paper_notes.impl.common import (
     positive_int,

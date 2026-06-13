@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from tools.paper_notes.impl.formatting import normalize_text
-from tools.paper_notes.impl.library_annotations import read_annotations as read_note_annotations, write_annotations
+from app_infra.formatting import normalize_text
+from library.annotations import read_annotations as read_note_annotations, write_annotations
 from tools.paper_notes.impl.common import (
     positive_int,
     relative_project_path,
