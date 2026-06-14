@@ -11,7 +11,6 @@ _CROSS_ORIGIN_STRIPPED_HEADER_NAMES = frozenset({
     "x-api-key",
     "api-key",
     "openai-api-key",
-    "anthropic-api-key",
     "x-auth-token",
     "x-access-token",
     "mcp-session-id",

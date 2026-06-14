@@ -19,6 +19,7 @@ class _FakeResponses:
     def __init__(self, response):
         self.response = response
         self.payloads: list[dict] = []
+        self.stream_events = None
 
     def create(self, **payload):
         self.payloads.append(payload)
@@ -26,7 +27,7 @@ class _FakeResponses:
 
     def stream(self, **payload):
         self.payloads.append(payload)
-        return _FakeStream(self.response)
+        return _FakeStream(self.response, events=self.stream_events)
 
 
 class _FakeClient:
@@ -52,8 +53,9 @@ class _FakeMediaStore:
 
 
 class _FakeStream:
-    def __init__(self, response):
+    def __init__(self, response, *, events=None):
         self.response = response
+        self.events = events
 
     def __enter__(self):
         return self
@@ -62,7 +64,7 @@ class _FakeStream:
         return None
 
     def __iter__(self):
-        return iter([
+        return iter(self.events or [
             SimpleNamespace(type="response.output_text.delta", delta="Hel"),
             SimpleNamespace(type="response.output_text.delta", delta="lo"),
             SimpleNamespace(type="response.reasoning_summary_text.delta", delta="Reading context."),
@@ -122,6 +124,15 @@ def _image_generation_response():
     )
 
 
+def _empty_response():
+    return SimpleNamespace(
+        id="resp-empty",
+        status="completed",
+        output=[],
+        usage=None,
+    )
+
+
 def test_codex_chat_model_uses_responses_api_and_strengthened_host_tool_prompt():
     client = _FakeClient(_message_response("Final answer."))
     tool = StructuredTool.from_function(_lookup_note, name="lookup_note")
@@ -159,15 +170,63 @@ def test_codex_chat_model_maps_image_generation_to_artifact():
     message = model.invoke([HumanMessage(content="Generate an image.")])
 
     payload = client.responses.payloads[0]
-    image_tool = next(tool for tool in payload["tools"] if tool["type"] == "image_generation")
-    assert image_tool["size"] == "1024x1024"
-    assert image_tool["quality"] == "auto"
-    assert image_tool["output_format"] == "png"
+    assert all(tool.get("type") != "image_generation" for tool in payload.get("tools", []))
     assert message.content == ""
     assert message.response_metadata["artifacts"][0]["id"] == "gen_1"
     assert media_store.calls[0]["session_id"] == "session-1"
     assert media_store.calls[0]["file_format"] == "png"
     assert message.response_metadata["codex_work_trace"][0]["data"]["result"] == "[image data omitted]"
+
+
+def test_codex_chat_model_can_opt_into_native_image_generation_tool():
+    client = _FakeClient(_message_response("Done."))
+    model = CodexChatModel(
+        model="gpt-5.5",
+        client=client,
+        options={
+            "_paper_notes_codex_native_image_generation": True,
+            "_paper_notes_image_generation": {
+                "enabled": True,
+                "size": "1024x1024",
+                "quality": "auto",
+                "format": "png",
+            },
+        },
+    )
+
+    model.invoke([HumanMessage(content="Generate an image.")])
+
+    payload = client.responses.payloads[0]
+    image_tool = next(tool for tool in payload["tools"] if tool["type"] == "image_generation")
+    assert image_tool["size"] == "1024x1024"
+    assert image_tool["quality"] == "auto"
+    assert image_tool["output_format"] == "png"
+
+
+def test_codex_chat_model_does_not_forward_temperature_to_responses_api():
+    client = _FakeClient(_message_response("Final answer."))
+    model = CodexChatModel(
+        model="gpt-5.3-codex-spark",
+        client=client,
+        options={"temperature": 0},
+    )
+
+    message = model.invoke([HumanMessage(content="Translate this page to a file.")])
+
+    payload = client.responses.payloads[0]
+    assert message.content == "Final answer."
+    assert "temperature" not in payload
+
+
+def test_codex_chat_model_allows_empty_completed_response_for_agent_recovery():
+    client = _FakeClient(_empty_response())
+    model = CodexChatModel(model="gpt-5.3-codex-spark", client=client)
+
+    message = model.invoke([HumanMessage(content="Create a file.")])
+
+    assert message.content == ""
+    assert message.response_metadata["empty_response"] is True
+    assert message.response_metadata["status"] == "completed"
 
 
 def test_codex_chat_model_returns_langchain_tool_calls():
@@ -242,6 +301,37 @@ def test_codex_chat_model_streams_answer_and_trace_delta():
         if chunk.message.response_metadata.get("paper_notes_trace")
     ]
     assert traces[0]["delta"] == "Reading context."
+
+
+def test_codex_chat_model_backfills_empty_final_response_from_stream_items():
+    empty_final = _empty_response()
+    client = _FakeClient(empty_final)
+    client.responses.stream_events = [
+        SimpleNamespace(
+            type="response.output_item.done",
+            item=SimpleNamespace(
+                type="function_call",
+                id="fc_1",
+                call_id="call-1",
+                name="lookup_note",
+                arguments='{"query":"DeepSeek"}',
+                status="completed",
+            ),
+        )
+    ]
+    tool = StructuredTool.from_function(_lookup_note, name="lookup_note")
+    model = CodexChatModel(model="gpt-5.3-codex-spark", client=client).bind_tools([tool])
+
+    chunks = list(model._stream([HumanMessage(content="Look up DeepSeek.")]))
+
+    final_chunk = chunks[-1].message
+    assert final_chunk.tool_call_chunks == [{
+        "name": "lookup_note",
+        "args": '{"query":"DeepSeek"}',
+        "id": "call-1",
+        "index": 0,
+        "type": "tool_call_chunk",
+    }]
 
 
 def test_codex_auth_store_reads_current_codex_tokens(tmp_path):

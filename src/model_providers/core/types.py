@@ -7,17 +7,10 @@ from app_config import AppConfig
 
 
 PROVIDER_ALIASES = {
-    "anthropic": "anthropic",
-    "claude": "anthropic",
     "codex": "codex",
     "codex-oauth": "codex",
     "openai-codex": "codex",
     "deepseek": "deepseek",
-    "gemini": "google",
-    "google": "google",
-    "google-ai-studio": "google",
-    "google-genai": "google",
-    "google-gemini": "google",
     "openai": "openai",
 }
 

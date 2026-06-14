@@ -91,6 +91,54 @@ def test_agent_session_model_route_updates_model_and_metadata(monkeypatch, tmp_p
     assert session["metadata"]["deepseekThinkMode"] == "off"
 
 
+def test_agent_session_route_exposes_artifacts_from_response_metadata(monkeypatch, tmp_path):
+    client, service = _client(monkeypatch, tmp_path)
+    session = service.session_store.create_session(title="Generated file")
+    artifact = {
+        "id": "file_generated",
+        "kind": "text",
+        "mimeType": "text/markdown",
+        "fileName": "summary.md",
+        "url": "/api/media/file_generated",
+        "downloadUrl": "/api/media/file_generated/download",
+    }
+    service.session_store.replace_messages(
+        session.metadata.session_id,
+        [
+            {
+                "role": "assistant",
+                "content": "Created summary.md.",
+                "metadata": {"response_metadata": {"artifacts": [artifact]}},
+            }
+        ],
+    )
+
+    loaded = client.get(f"/api/agent/sessions/{session.metadata.session_id}").json()
+
+    assert loaded["session"]["messages"][0]["artifacts"] == [artifact]
+
+
+def test_agent_session_route_exposes_active_run(monkeypatch, tmp_path):
+    client, service = _client(monkeypatch, tmp_path)
+    session = service.session_store.create_session(title="Running task")
+    service.session_store.update_session_metadata(
+        session.metadata.session_id,
+        {
+            "activeRun": {
+                "requestId": "req-running",
+                "status": "running",
+                "message": "Generate an image",
+                "progress": {"requestId": "req-running", "status": "running", "detail": "Starting agent run."},
+            }
+        },
+    )
+
+    loaded = client.get(f"/api/agent/sessions/{session.metadata.session_id}").json()
+
+    assert loaded["session"]["activeRun"]["requestId"] == "req-running"
+    assert loaded["session"]["activeRun"]["progress"]["detail"] == "Starting agent run."
+
+
 def test_agent_session_routes_return_404_for_missing_session(monkeypatch, tmp_path):
     client, _service = _client(monkeypatch, tmp_path)
 

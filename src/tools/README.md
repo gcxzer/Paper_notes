@@ -13,6 +13,8 @@ The public entry point is `tools.create_tools(...)`. It returns
   annotations, and optional PDF snippets.
 - `read_paper`: search PDF text, read pages, render pages, extract images, or
   analyze a registered image artifact when an analyzer is available.
+- `read_workspace`: read, list, stat, or search files under the current
+  Paper_Notes workspace.
 - `search_paper_rag`: semantically retrieve passages from a note's ready local
   RAG index.
 - `write_note`: update note HTML sections or note metadata.

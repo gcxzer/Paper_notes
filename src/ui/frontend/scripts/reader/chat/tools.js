@@ -129,7 +129,7 @@ function renderToolRootMenu() {
       </div>
     </div>
     <div class="ask-tool-menu-section">
-      <button class="ask-tool-menu-option" type="button" data-tool-action="generate-image"${imageGenerationSupported ? "" : " disabled"} title="${escapeHtml(imageGenerationTitle)}">
+      <button class="ask-tool-menu-option" type="button" data-tool-action="generate-image" title="${escapeHtml(imageGenerationTitle)}">
         ${renderAskToolMenuIcon("image")}
         <span>
           <strong>Generate image</strong>
@@ -289,11 +289,6 @@ function showReaderToolSection(section) {
 
 function setReaderGenerationMode(mode, options = {}) {
   const nextMode = ["image", "file"].includes(normalizeText(mode)) ? normalizeText(mode) : "";
-  if (nextMode === "image" && !activeProviderSupportsImageArtifacts()) {
-    setReaderChatError(activeProviderImageGenerationUnsupportedMessage());
-    closeReaderToolMenu();
-    return;
-  }
   readerState.generationMode = nextMode;
   if (options.format) readerState.fileGenerationFormat = normalizeFileGenerationFormat(options.format);
   renderAttachmentTray();

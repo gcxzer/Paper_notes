@@ -9,6 +9,7 @@ CURRENT_PAPER_NOTES_TOOLS = {
     "get_note_context",
     "manage_annotations",
     "read_paper",
+    "read_workspace",
     "review_note",
     "search_paper_rag",
     "search_notes",
@@ -126,7 +127,6 @@ def test_extract_tool_names_supports_openai_shapes_and_langchain_tools():
             {"type": "function", "name": "read_paper"},
             {"type": "web_search"},
             {"type": "web_search_20260209", "name": "web_search"},
-            {"google_search": {}},
             {"not": "a tool"},
             create_tools()[1],
         ]

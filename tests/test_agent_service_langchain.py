@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import agent_runtime.service as service_module
 from langchain_core.language_models.fake_chat_models import FakeListChatModel, FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from agent_runtime import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
@@ -12,6 +13,7 @@ from agent_runtime.service import _with_generated_artifacts_on_latest_assistant
 from agent_runtime.streaming import events_from_langchain_chunk
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
+from model_providers import ModelProviderConfig
 
 
 def _config() -> AppConfig:
@@ -30,6 +32,11 @@ def _config() -> AppConfig:
     )
 
 
+class ToolCapableFakeMessagesListChatModel(FakeMessagesListChatModel):
+    def bind_tools(self, tools, *, tool_choice=None, **kwargs):
+        return self
+
+
 def test_agent_service_creates_session_and_persists_transcript(tmp_path):
     store = AgentSessionStore(tmp_path / "sessions")
     model = FakeMessagesListChatModel(responses=[AIMessage(content="Hello from LangChain.")])
@@ -45,6 +52,40 @@ def test_agent_service_creates_session_and_persists_transcript(tmp_path):
     assert [message["role"] for message in result.messages] == ["user", "assistant"]
     assert [message["content"] for message in result.messages] == ["Hello", "Hello from LangChain."]
     assert store.require_session(result.session_id).messages == result.messages
+
+
+def test_agent_service_recovers_from_unsupported_model_request_error(monkeypatch, tmp_path):
+    calls: list[dict] = []
+
+    def fake_loop(model, messages, **kwargs):
+        calls.append({"messages": list(messages), **kwargs})
+        if len(calls) == 1:
+            raise RuntimeError(
+                "Error code: 400 - {'error': {'message': \"Tool 'image_generation' is not supported "
+                "with gpt-5.3-codex-spark.\", 'type': 'invalid_request_error', 'param': 'tools'}}"
+            )
+        yield {"type": "values", "data": {"messages": [*messages, AIMessage(content="当前模型不能生成图片，但我可以先给你一版提示词。")]}}
+
+    monkeypatch.setattr(service_module, "run_agent_loop", fake_loop)
+    store = AgentSessionStore(tmp_path / "sessions")
+    model = FakeMessagesListChatModel(responses=[])
+    service = AgentService(app_config=_config(), session_store=store, chat_model=model, use_default_tools=False)
+
+    result = service.run(AgentServiceRequest(
+        message="生成一张小狗照片",
+        provider="codex-oauth",
+        model="gpt-5.3-codex-spark",
+        model_options={"_paper_notes_image_generation": {"enabled": True}, "temperature": 0},
+    ))
+
+    recovered_options = ModelProviderConfig.from_app_config(calls[1]["app_config"]).options
+    assert calls[1]["tools"] == []
+    assert "_paper_notes_image_generation" not in recovered_options
+    assert "temperature" not in recovered_options
+    assert any(message.name == "paper_notes_recovery" for message in calls[1]["messages"])
+    assert result.response == "当前模型不能生成图片，但我可以先给你一版提示词。"
+    assert [message["role"] for message in result.messages] == ["user", "assistant"]
+    assert result.messages[-1]["metadata"]["response_metadata"]["recovered_from_error"]
 
 
 def test_agent_service_streams_model_deltas_and_persists_transcript(tmp_path):
@@ -66,6 +107,65 @@ def test_agent_service_streams_model_deltas_and_persists_transcript(tmp_path):
     assert final.messages[-1]["runTrace"]["durationMs"] >= 0
     assert [message["content"] for message in store.require_session(final.session_id).messages] == ["Hello", "Hello stream."]
     assert store.require_session(final.session_id).messages[-1]["runTrace"]["status"] == "completed"
+
+
+def test_agent_service_stream_persists_active_run_before_model_finishes(tmp_path):
+    store = AgentSessionStore(tmp_path / "sessions")
+    model = FakeListChatModel(responses=["Recovered final."])
+    service = AgentService(app_config=_config(), session_store=store, chat_model=model, use_default_tools=False)
+
+    events = service.stream(AgentServiceRequest(
+        message="Generate something slow",
+        title="Recoverable stream",
+        enable_tools=False,
+        metadata={"requestId": "req-active"},
+    ))
+
+    first_event = next(events)
+    pending_session = service.session_store.require_session(store.list_sessions()[0].session_id)
+    active_run = pending_session.metadata.metadata["activeRun"]
+
+    assert first_event.event == "work_trace_item"
+    assert [message["role"] for message in pending_session.messages] == ["user"]
+    assert pending_session.messages[0]["content"] == "Generate something slow"
+    assert active_run["requestId"] == "req-active"
+    assert active_run["status"] == "running"
+    assert active_run["progress"]["detail"] == "Starting agent run."
+
+    final = next(event.data["result"] for event in events if event.event == "final")
+    completed_session = service.session_store.require_session(final.session_id)
+    assert "activeRun" not in completed_session.metadata.metadata
+    assert [message["role"] for message in completed_session.messages] == ["user", "assistant"]
+
+
+def test_agent_service_stream_recovers_from_unsupported_model_request_error(monkeypatch, tmp_path):
+    calls: list[dict] = []
+
+    def fake_loop(model, messages, **kwargs):
+        calls.append({"messages": list(messages), **kwargs})
+        if len(calls) == 1:
+            raise RuntimeError("Error code: 400 - unsupported parameter: temperature")
+        yield {"type": "values", "data": {"messages": [*messages, AIMessage(content="这个模型不支持该参数，我已改为直接回答。")]}}
+
+    monkeypatch.setattr(service_module, "run_agent_loop", fake_loop)
+    store = AgentSessionStore(tmp_path / "sessions")
+    model = FakeMessagesListChatModel(responses=[])
+    service = AgentService(app_config=_config(), session_store=store, chat_model=model, use_default_tools=False)
+
+    events = list(service.stream(AgentServiceRequest(
+        message="你好",
+        provider="openai",
+        model="gpt-5.5",
+        model_options={"temperature": 0},
+    )))
+
+    final = next(event.data["result"] for event in events if event.event == "final")
+    work_texts = [event.data.get("text") for event in events if event.event == "work_trace_item"]
+    assert any("unsupported request option" in text for text in work_texts if text)
+    assert calls[1]["tools"] == []
+    assert "temperature" not in ModelProviderConfig.from_app_config(calls[1]["app_config"]).options
+    assert final.response == "这个模型不支持该参数，我已改为直接回答。"
+    assert [message["role"] for message in final.messages] == ["user", "assistant"]
 
 
 def test_agent_service_preserves_existing_run_trace_on_next_stream(tmp_path):
@@ -213,34 +313,6 @@ def test_agent_service_hides_provider_reasoning_when_thinking_disabled(tmp_path)
     )
 
 
-def test_agent_service_hides_provider_reasoning_when_gemini_minimal_thinking(tmp_path):
-    store = AgentSessionStore(tmp_path / "sessions")
-    model = FakeMessagesListChatModel(responses=[
-        AIMessage(
-            content="Final answer.",
-            additional_kwargs={"reasoning_content": "Gemini thought summary."},
-            response_metadata={"model_provider": "gemini"},
-        )
-    ])
-    service = AgentService(app_config=_config(), session_store=store, chat_model=model, use_default_tools=False)
-
-    events = list(service.stream(AgentServiceRequest(
-        message="Explain.",
-        provider="gemini",
-        model="gemini-3-flash-preview",
-        model_options={"thinking_level": "minimal", "include_thoughts": False},
-        enable_tools=False,
-    )))
-
-    final = next(event.data["result"] for event in events if event.event == "final")
-    assert all(
-        event.data.get("text") != "Gemini thought summary."
-        for event in events
-        if event.event in {"work_trace_item", "work_trace_delta"}
-    )
-    assert all(event["message"] != "Gemini thought summary." for event in final.run_trace["events"])
-
-
 def test_agent_service_hides_codex_model_trace_when_summary_disabled(tmp_path):
     store = AgentSessionStore(tmp_path / "sessions")
     model = FakeMessagesListChatModel(responses=[
@@ -326,6 +398,26 @@ def test_streaming_model_trace_metadata_becomes_work_trace_delta():
     assert events[0].event == "work_trace_delta"
     assert events[0].data["traceType"] == "summary"
     assert events[0].data["delta"] == "Reading the visible page."
+
+
+def test_streaming_tool_events_mark_call_incomplete_until_result():
+    tool_call = AIMessage(
+        content="",
+        tool_calls=[{"name": "create_image_artifact", "args": {"prompt": "puppy"}, "id": "call-image-1"}],
+    )
+    tool_result = ToolMessage(content="created image", name="create_image_artifact", tool_call_id="call-image-1")
+
+    call_events = events_from_langchain_chunk({"type": "updates", "data": {"agent": {"messages": [tool_call]}}})
+    result_events = events_from_langchain_chunk({"type": "updates", "data": {"tools": {"messages": [tool_result]}}})
+
+    assert len(call_events) == 1
+    assert call_events[0].event == "work_trace_item"
+    assert call_events[0].data["traceType"] == "tool"
+    assert call_events[0].data["data"]["toolCallId"] == "call-image-1"
+    assert call_events[0].data["data"]["complete"] is False
+    assert len(result_events) == 1
+    assert result_events[0].data["data"]["toolCallId"] == "call-image-1"
+    assert result_events[0].data["data"]["complete"] is True
 
 
 def test_streaming_raw_reasoning_content_block_is_hidden():
@@ -509,6 +601,61 @@ def test_agent_service_attaches_generated_tool_artifact_to_latest_assistant():
     assert "metadata" not in updated[1]
 
 
+def test_agent_service_uses_generated_artifact_summary_when_final_text_is_empty(tmp_path):
+    artifact = {
+        "id": "file_1",
+        "kind": "text",
+        "source": "generated",
+        "mimeType": "text/markdown",
+        "fileName": "summary.md",
+        "url": "/api/media/file_1",
+        "downloadUrl": "/api/media/file_1/download",
+    }
+
+    def create_file_artifact(file_name: str, mime_type: str, content: str) -> dict:
+        assert file_name == "summary.md"
+        assert mime_type == "text/markdown"
+        assert content == "# Summary"
+        return {"success": True, "summary": "Created summary.md.", "artifacts": [artifact]}
+
+    model = ToolCapableFakeMessagesListChatModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "create_file_artifact",
+                    "args": {
+                        "file_name": "summary.md",
+                        "mime_type": "text/markdown",
+                        "content": "# Summary",
+                    },
+                    "id": "call-1",
+                    "type": "tool_call",
+                }],
+            ),
+            AIMessage(content=""),
+        ],
+    )
+    tool = StructuredTool.from_function(
+        func=create_file_artifact,
+        name="create_file_artifact",
+        description="Create a downloadable file artifact.",
+    )
+    service = AgentService(
+        app_config=_config(),
+        session_store=AgentSessionStore(tmp_path / "sessions"),
+        chat_model=model,
+        tools=[tool],
+        use_default_tools=False,
+    )
+
+    result = service.run(AgentServiceRequest(message="生成 markdown 文件"))
+
+    assert result.response == "Created summary.md."
+    assert result.messages[-1]["content"] == "Created summary.md."
+    assert result.messages[-1]["metadata"]["response_metadata"]["artifacts"] == [artifact]
+
+
 def test_agent_service_skips_tools_when_model_cannot_bind_them(tmp_path):
     store = AgentSessionStore(tmp_path / "sessions")
     model = FakeMessagesListChatModel(responses=[AIMessage(content="Plain answer.")])
@@ -543,15 +690,15 @@ def test_agent_service_request_model_overrides_session_metadata(tmp_path):
 
     result = service.run(
         AgentServiceRequest(
-            message="Use Claude",
-            provider="anthropic",
-            model="claude-sonnet-4-6",
+            message="Use DeepSeek",
+            provider="deepseek",
+            model="deepseek-v4-pro",
             enable_tools=False,
         )
     )
 
-    assert result.session.metadata.provider == "anthropic"
-    assert result.session.metadata.model == "claude-sonnet-4-6"
+    assert result.session.metadata.provider == "deepseek"
+    assert result.session.metadata.model == "deepseek-v4-pro"
 
 
 def test_agent_service_context_status_uses_model_profile_and_reserve(tmp_path):

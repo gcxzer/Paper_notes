@@ -40,6 +40,32 @@ from tools import ToolContext, create_tools
 
 
 ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
+RECOVERY_MESSAGE_NAME = "paper_notes_recovery"
+ACTIVE_RUN_METADATA_KEY = "activeRun"
+RECOVERABLE_REQUEST_OPTION_KEYS = {
+    "_paper_notes_image_generation",
+    "imageGeneration",
+    "image_generation",
+    "_paper_notes_native_web_search",
+    "_paper_notes_provider_native_web_search",
+    "native_web_search",
+    "web_search",
+    "temperature",
+    "top_p",
+    "reasoning",
+    "reasoning_effort",
+    "effort",
+    "summary",
+    "thinking",
+    "thinking_level",
+    "include_thoughts",
+    "max_tokens",
+    "max_completion_tokens",
+    "max_output_tokens",
+    "response_format",
+    "tool_choice",
+    "parallel_tool_calls",
+}
 AgentTool = BaseTool | dict[str, Any]
 
 
@@ -203,29 +229,70 @@ class AgentService:
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
         ]
-
-        chunks = list(
-            run_agent_loop(
-                model,
-                input_messages,
-                tools=tools,
-                app_config=model_config,
-                system_prompt=request.system_prompt,
-                thread_id=session.metadata.session_id,
-                run_config=request.run_config,
-                stream_mode=request.stream_mode,
-            )
+        session = self._persist_active_run(
+            session,
+            request,
+            input_messages=input_messages,
+            provider=provider,
+            model=model_name,
         )
-        final_messages = _messages_from_final_chunk(chunks) or input_messages
+
+        try:
+            chunks = list(
+                run_agent_loop(
+                    model,
+                    input_messages,
+                    tools=tools,
+                    app_config=model_config,
+                    system_prompt=request.system_prompt,
+                    thread_id=session.metadata.session_id,
+                    run_config=request.run_config,
+                    stream_mode=request.stream_mode,
+                )
+            )
+            final_messages = _messages_from_final_chunk(chunks) or input_messages
+        except Exception as error:
+            if not _is_recoverable_model_request_error(error):
+                self._finish_active_run(session.metadata.session_id, request, status="failed", error=error)
+                raise
+            recovery_config = _model_config_for_recovery(model_config)
+            recovery_messages = _messages_with_recovery_instruction(
+                input_messages,
+                error,
+                provider=provider,
+                model=model_name,
+            )
+            try:
+                chunks = list(
+                    run_agent_loop(
+                        self._chat_model(recovery_config),
+                        recovery_messages,
+                        tools=[],
+                        app_config=recovery_config,
+                        system_prompt=request.system_prompt,
+                        thread_id=session.metadata.session_id,
+                        run_config=request.run_config,
+                        stream_mode=request.stream_mode,
+                    )
+                )
+            except BaseException as recovery_error:
+                self._finish_active_run(session.metadata.session_id, request, status="failed", error=recovery_error)
+                raise
+            final_messages = _recovered_final_messages(chunks, recovery_messages, input_messages, error)
+        except BaseException as error:
+            self._finish_active_run(session.metadata.session_id, request, status="failed", error=error)
+            raise
         persisted_messages = _with_generated_artifacts_on_latest_assistant(
             _messages_to_transcript(final_messages),
-            start_index=len(session.messages),
+            start_index=max(0, len(session.messages) - 1),
         )
         persisted_messages = _merge_existing_transcript_fields(
             persisted_messages,
             session.messages,
         )
+        response_text = _last_assistant_text(final_messages) or _last_assistant_transcript_text(persisted_messages)
         updated_session = self.session_store.replace_messages(session.metadata.session_id, persisted_messages)
+        self._finish_active_run(session.metadata.session_id, request, status="completed")
         updated_session = self.session_store.update_session_model(
             session.metadata.session_id,
             provider=provider or None,
@@ -235,7 +302,7 @@ class AgentService:
             session_id=session.metadata.session_id,
             session=updated_session,
             completed=True,
-            response=_last_assistant_text(final_messages),
+            response=response_text,
             messages=updated_session.messages,
             created_session=created_session,
             chunks=chunks,
@@ -253,6 +320,13 @@ class AgentService:
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
         ]
+        session = self._persist_active_run(
+            session,
+            request,
+            input_messages=input_messages,
+            provider=provider,
+            model=model_name,
+        )
 
         chunks: list[Any] = []
         started_at = _now_utc()
@@ -267,29 +341,95 @@ class AgentService:
         start_trace_event = _run_trace_event_from_stream_event(start_event)
         if start_trace_event:
             run_events.append(start_trace_event)
+        self._update_active_run_progress(session.metadata.session_id, request, events=run_events, status="running")
         yield start_event
-        for chunk in run_agent_loop(
-            model,
-            input_messages,
-            tools=tools,
-            app_config=model_config,
-            system_prompt=request.system_prompt,
-            thread_id=session.metadata.session_id,
-            run_config=request.run_config,
-            stream_mode=LANGCHAIN_AGENT_STREAM_MODES,
-            stream_version="v2",
-        ):
-            chunks.append(chunk)
-            for event in events_from_langchain_chunk(chunk):
-                if not provider_reasoning_enabled and _is_provider_reasoning_stream_event(event):
-                    continue
-                _stamp_stream_event(event)
-                trace_event = _run_trace_event_from_stream_event(event)
-                if trace_event:
-                    run_events.append(trace_event)
-                yield event
+        try:
+            for chunk in run_agent_loop(
+                model,
+                input_messages,
+                tools=tools,
+                app_config=model_config,
+                system_prompt=request.system_prompt,
+                thread_id=session.metadata.session_id,
+                run_config=request.run_config,
+                stream_mode=LANGCHAIN_AGENT_STREAM_MODES,
+                stream_version="v2",
+            ):
+                chunks.append(chunk)
+                for event in events_from_langchain_chunk(chunk):
+                    if not provider_reasoning_enabled and _is_provider_reasoning_stream_event(event):
+                        continue
+                    _stamp_stream_event(event)
+                    trace_event = _run_trace_event_from_stream_event(event)
+                    if trace_event:
+                        run_events.append(trace_event)
+                        self._update_active_run_progress(
+                            session.metadata.session_id,
+                            request,
+                            events=run_events,
+                            status="running",
+                        )
+                    yield event
+            final_messages = _messages_from_final_chunk(chunks) or input_messages
+        except Exception as error:
+            if not _is_recoverable_model_request_error(error):
+                self._finish_active_run(session.metadata.session_id, request, status="failed", error=error)
+                raise
+            recovery_event = AgentStreamEvent("work_trace_item", {
+                "text": "Provider rejected an unsupported request option; asking the model to respond without that capability.",
+                "traceType": "status",
+                "source": "runtime",
+            })
+            _stamp_stream_event(recovery_event)
+            trace_event = _run_trace_event_from_stream_event(recovery_event)
+            if trace_event:
+                run_events.append(trace_event)
+                self._update_active_run_progress(session.metadata.session_id, request, events=run_events, status="running")
+            yield recovery_event
+            recovery_config = _model_config_for_recovery(model_config)
+            recovery_messages = _messages_with_recovery_instruction(
+                input_messages,
+                error,
+                provider=provider,
+                model=model_name,
+            )
+            chunks = []
+            provider_reasoning_enabled = _provider_reasoning_enabled(recovery_config)
+            try:
+                for chunk in run_agent_loop(
+                    self._chat_model(recovery_config),
+                    recovery_messages,
+                    tools=[],
+                    app_config=recovery_config,
+                    system_prompt=request.system_prompt,
+                    thread_id=session.metadata.session_id,
+                    run_config=request.run_config,
+                    stream_mode=LANGCHAIN_AGENT_STREAM_MODES,
+                    stream_version="v2",
+                ):
+                    chunks.append(chunk)
+                    for event in events_from_langchain_chunk(chunk):
+                        if not provider_reasoning_enabled and _is_provider_reasoning_stream_event(event):
+                            continue
+                        _stamp_stream_event(event)
+                        trace_event = _run_trace_event_from_stream_event(event)
+                        if trace_event:
+                            run_events.append(trace_event)
+                            self._update_active_run_progress(
+                                session.metadata.session_id,
+                                request,
+                                events=run_events,
+                                status="running",
+                            )
+                        yield event
+            except BaseException as recovery_error:
+                self._finish_active_run(session.metadata.session_id, request, status="failed", error=recovery_error)
+                raise
+            final_messages = _recovered_final_messages(chunks, recovery_messages, input_messages, error)
+        except BaseException as error:
+            self._finish_active_run(session.metadata.session_id, request, status="failed", error=error)
+            raise
 
-        final_messages = _messages_from_final_chunk(chunks) or input_messages
         finished_at = _now_utc()
         for event in _work_trace_events_from_messages(
             final_messages,
@@ -318,14 +458,16 @@ class AgentService:
         )
         persisted_messages = _with_generated_artifacts_on_latest_assistant(
             _messages_to_transcript(final_messages),
-            start_index=len(session.messages),
+            start_index=max(0, len(session.messages) - 1),
         )
         persisted_messages = _merge_existing_transcript_fields(
             persisted_messages,
             session.messages,
         )
         persisted_messages = _with_assistant_run_trace(persisted_messages, run_trace)
+        response_text = _last_assistant_text(final_messages) or _last_assistant_transcript_text(persisted_messages)
         updated_session = self.session_store.replace_messages(session.metadata.session_id, persisted_messages)
+        self._finish_active_run(session.metadata.session_id, request, status="completed")
         updated_session = self.session_store.update_session_model(
             session.metadata.session_id,
             provider=provider or None,
@@ -336,7 +478,7 @@ class AgentService:
                 session_id=session.metadata.session_id,
                 session=updated_session,
                 completed=True,
-                response=_last_assistant_text(final_messages),
+                response=response_text,
                 messages=updated_session.messages,
                 created_session=created_session,
                 chunks=chunks,
@@ -605,11 +747,308 @@ class AgentService:
         if callable(shutdown):
             shutdown()
 
+    def _persist_active_run(
+        self,
+        session: AgentSession,
+        request: AgentServiceRequest,
+        *,
+        input_messages: list[BaseMessage],
+        provider: str,
+        model: str,
+    ) -> AgentSession:
+        transcript = _messages_to_transcript(input_messages)
+        transcript = _merge_existing_transcript_fields(transcript, session.messages)
+        persisted = self.session_store.replace_messages(session.metadata.session_id, transcript)
+        metadata = _active_run_metadata(
+            request,
+            provider=provider,
+            model=model,
+            status="running",
+        )
+        if metadata:
+            self.session_store.update_session_metadata(session.metadata.session_id, {ACTIVE_RUN_METADATA_KEY: metadata})
+            persisted = self.session_store.require_session(session.metadata.session_id)
+        return persisted
+
+    def _update_active_run_progress(
+        self,
+        session_id: str,
+        request: AgentServiceRequest,
+        *,
+        events: list[dict[str, Any]],
+        status: str,
+    ) -> None:
+        request_id = _request_id(request)
+        if not request_id:
+            return
+        current = self.session_store.get_session(session_id)
+        active_run = _active_run_for_request(current, request_id)
+        if not active_run:
+            return
+        active_run = dict(active_run)
+        active_run["status"] = status
+        active_run["progress"] = _active_run_progress_payload(request_id, status=status, events=events)
+        self.session_store.update_session_metadata(session_id, {ACTIVE_RUN_METADATA_KEY: active_run})
+
+    def _finish_active_run(
+        self,
+        session_id: str,
+        request: AgentServiceRequest,
+        *,
+        status: str,
+        error: BaseException | None = None,
+    ) -> None:
+        request_id = _request_id(request)
+        if not request_id:
+            return
+        current = self.session_store.get_session(session_id)
+        active_run = _active_run_for_request(current, request_id)
+        if not active_run:
+            return
+        metadata = dict(current.metadata.metadata)
+        if status == "completed":
+            metadata.pop(ACTIVE_RUN_METADATA_KEY, None)
+        else:
+            failed = dict(active_run)
+            failed["status"] = status
+            failed["finishedAt"] = _isoformat_utc(_now_utc())
+            if error is not None:
+                failed["error"] = _short_exception_text(error)
+            metadata[ACTIVE_RUN_METADATA_KEY] = failed
+        self.session_store.update_session_metadata(session_id, metadata, replace=True)
+
 
 def _request_message_content(request: AgentServiceRequest) -> Any:
     if request.message:
         return request.message
     return ATTACHMENT_ONLY_MESSAGE
+
+
+def _request_id(request: AgentServiceRequest) -> str:
+    return str(request.metadata.get("requestId") or request.metadata.get("request_id") or "").strip()
+
+
+def _active_run_metadata(
+    request: AgentServiceRequest,
+    *,
+    provider: str,
+    model: str,
+    status: str,
+) -> dict[str, Any]:
+    request_id = _request_id(request)
+    if not request_id:
+        return {}
+    started_at = _isoformat_utc(_now_utc())
+    message = _content_text(_request_message_content(request)).strip()
+    return {
+        "requestId": request_id,
+        "status": status,
+        "startedAt": started_at,
+        "provider": provider,
+        "model": model,
+        "noteId": request.note_id or "",
+        "message": message[:500],
+        "progress": _active_run_progress_payload(request_id, status=status, events=[]),
+    }
+
+
+def _active_run_for_request(session: AgentSession | None, request_id: str) -> dict[str, Any]:
+    if session is None:
+        return {}
+    metadata = session.metadata.metadata if isinstance(session.metadata.metadata, dict) else {}
+    active_run = metadata.get(ACTIVE_RUN_METADATA_KEY)
+    if not isinstance(active_run, dict):
+        return {}
+    if str(active_run.get("requestId") or active_run.get("request_id") or "").strip() != request_id:
+        return {}
+    return active_run
+
+
+def _active_run_progress_payload(
+    request_id: str,
+    *,
+    status: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    visible_events = [
+        {
+            "stage": str(event.get("stage") or event.get("type") or "").strip(),
+            "detail": str(event.get("message") or "").strip(),
+            "at": str(event.get("at") or "").strip(),
+        }
+        for event in events
+        if str(event.get("message") or "").strip()
+    ]
+    work_items = [
+        {
+            "type": str(event.get("stage") or event.get("type") or "status").strip() or "status",
+            "text": str(event.get("message") or "").strip(),
+            "at": str(event.get("at") or "").strip(),
+            "source": str((event.get("data") if isinstance(event.get("data"), dict) else {}).get("source") or "runtime"),
+            "data": event.get("data") if isinstance(event.get("data"), dict) else {},
+            "complete": _run_trace_event_work_item_complete(event),
+        }
+        for event in events
+        if str(event.get("message") or "").strip()
+    ]
+    detail = visible_events[-1]["detail"] if visible_events else "Starting agent run."
+    stage = visible_events[-1]["stage"] if visible_events else "starting"
+    return {
+        "requestId": request_id,
+        "status": status,
+        "stage": stage or status,
+        "detail": detail,
+        "visibleEvents": visible_events,
+        "events": list(events),
+        "workTrace": {"status": status, "items": work_items},
+    }
+
+
+def _run_trace_event_work_item_complete(event: dict[str, Any]) -> bool:
+    if str(event.get("type") or "").strip() == "work_trace_delta":
+        return False
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    for payload in (nested, data):
+        if payload.get("statusComplete") is False or payload.get("complete") is False:
+            return False
+        if payload.get("statusComplete") is True or payload.get("complete") is True:
+            return True
+    return True
+
+
+def _is_recoverable_model_request_error(error: Exception) -> bool:
+    text = _exception_text(error).lower()
+    if not text:
+        return False
+    has_request_failure = any(
+        marker in text
+        for marker in (
+            "invalid_request_error",
+            "bad request",
+            "error code: 400",
+            "status code: 400",
+            "unsupported",
+            "not supported",
+        )
+    )
+    if not has_request_failure:
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "tool",
+            "tools",
+            "parameter",
+            "image_generation",
+            "web_search",
+            "temperature",
+            "reasoning",
+            "tool_choice",
+            "response_format",
+            "max_output_tokens",
+        )
+    )
+
+
+def _model_config_for_recovery(config: AppConfig) -> AppConfig:
+    data = copy.deepcopy(config.data)
+    models = data.get("models") if isinstance(data.get("models"), dict) else {}
+    default_key = str(models.get("default") or "main")
+    section = dict(models.get(default_key) if isinstance(models.get(default_key), dict) else {})
+    options = dict(section.get("options") if isinstance(section.get("options"), dict) else {})
+    for key in RECOVERABLE_REQUEST_OPTION_KEYS:
+        options.pop(key, None)
+    section["options"] = options
+    models[default_key] = section
+    data["models"] = models
+    return AppConfig(data=data, path=config.path)
+
+
+def _messages_with_recovery_instruction(
+    input_messages: list[BaseMessage],
+    error: Exception,
+    *,
+    provider: str,
+    model: str,
+) -> list[BaseMessage]:
+    return [
+        *input_messages,
+        HumanMessage(
+            content=_model_request_recovery_instruction(error, provider=provider, model=model),
+            name=RECOVERY_MESSAGE_NAME,
+        ),
+    ]
+
+
+def _model_request_recovery_instruction(error: Exception, *, provider: str, model: str) -> str:
+    label = " / ".join(part for part in (provider, model) if part)
+    detail = _short_exception_text(error)
+    return (
+        "The previous provider request failed before an assistant reply because the current "
+        f"{label or 'provider/model'} rejected an unsupported tool, capability, or optional request parameter.\n"
+        f"Provider error: {detail}\n\n"
+        "Answer the user's latest real request directly in natural language using the conversation and visible "
+        "context. Do not call tools in this recovery reply. If the user asked for an unavailable artifact or "
+        "capability, explain the limitation plainly and offer the closest useful text-only help, such as a prompt, "
+        "outline, or next step. Match the user's language."
+    )
+
+
+def _recovered_final_messages(
+    chunks: list[Any],
+    recovery_messages: list[BaseMessage],
+    original_input_messages: list[BaseMessage],
+    error: Exception,
+) -> list[BaseMessage]:
+    final_messages = _messages_from_final_chunk(chunks) or recovery_messages
+    stripped = _without_recovery_messages(final_messages)
+    if _last_assistant_text(stripped) is not None:
+        return _mark_latest_assistant_recovered(stripped, error)
+    return [
+        *original_input_messages,
+        AIMessage(
+            content=_generic_recovery_response(error),
+            response_metadata={"recovered_from_error": _short_exception_text(error)},
+        ),
+    ]
+
+
+def _without_recovery_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
+    return [
+        message
+        for message in messages
+        if not (isinstance(message, HumanMessage) and str(getattr(message, "name", "") or "") == RECOVERY_MESSAGE_NAME)
+    ]
+
+
+def _mark_latest_assistant_recovered(messages: list[BaseMessage], error: Exception) -> list[BaseMessage]:
+    updated = list(messages)
+    for index in range(len(updated) - 1, -1, -1):
+        message = updated[index]
+        if not isinstance(message, AIMessage):
+            continue
+        metadata = dict(getattr(message, "response_metadata", None) or {})
+        metadata.setdefault("recovered_from_error", _short_exception_text(error))
+        updated[index] = message.model_copy(update={"response_metadata": metadata})
+        break
+    return updated
+
+
+def _generic_recovery_response(error: Exception) -> str:
+    return (
+        "The current model could not use one of the requested capabilities for this turn. "
+        f"Provider detail: {_short_exception_text(error)}"
+    )
+
+
+def _short_exception_text(error: Exception, *, limit: int = 500) -> str:
+    text = _exception_text(error)
+    return text if len(text) <= limit else f"{text[:limit - 3]}..."
+
+
+def _exception_text(error: Exception) -> str:
+    return " ".join(str(error or "").split())
 
 
 def _provider_model_names(config: AppConfig, *, fallback_provider: str = "", fallback_model: str = "") -> tuple[str, str]:
@@ -737,7 +1176,7 @@ def _with_provider_native_web_search(
     native_tool = _provider_native_web_search_tool(provider)
     if native_tool is None:
         return tools
-    filtered = [tool for tool in tools if _tool_name(tool) not in {"web_search", "google_search"}]
+    filtered = [tool for tool in tools if _tool_name(tool) != "web_search"]
     return [native_tool, *filtered]
 
 
@@ -757,10 +1196,6 @@ def _provider_for_native_web_search(
 def _provider_native_web_search_tool(provider: str) -> dict[str, Any] | None:
     if provider == "openai":
         return {"type": "web_search"}
-    if provider == "anthropic":
-        return {"type": "web_search_20260209", "name": "web_search"}
-    if provider == "google":
-        return {"google_search": {}}
     return None
 
 
@@ -829,8 +1264,6 @@ def _truthy(value: Any) -> bool:
 
 def _tool_name(tool: AgentTool) -> str:
     if isinstance(tool, dict):
-        if "google_search" in tool or "googleSearch" in tool:
-            return "google_search"
         function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
         name = function.get("name") or tool.get("name") or tool.get("type")
     else:
@@ -1008,9 +1441,6 @@ def _web_search_trace_data_from_message(message: AIMessage) -> dict[str, Any]:
     if isinstance(additional_kwargs, dict):
         for item in additional_kwargs.get("tool_outputs") or []:
             _collect_web_search_trace_from_block(item, calls=calls, sources=sources, queries=queries, seen_urls=seen_urls)
-    metadata = getattr(message, "response_metadata", None)
-    if isinstance(metadata, dict):
-        _collect_gemini_grounding_metadata(metadata.get("grounding_metadata"), calls=calls, sources=sources, queries=queries, seen_urls=seen_urls)
     if not calls:
         return {}
     data: dict[str, Any] = {"web_search_call_count": len(calls)}
@@ -1046,31 +1476,6 @@ def _collect_web_search_trace_from_block(
         _collect_sources_from_value(block, sources=sources, seen_urls=seen_urls)
     for annotation in block.get("annotations") or []:
         _collect_source_from_mapping(annotation, sources=sources, seen_urls=seen_urls)
-
-
-def _collect_gemini_grounding_metadata(
-    metadata: Any,
-    *,
-    calls: list[Any],
-    sources: list[dict[str, str]],
-    queries: list[str],
-    seen_urls: set[str],
-) -> None:
-    if not isinstance(metadata, dict):
-        return
-    raw_queries = metadata.get("web_search_queries") or metadata.get("webSearchQueries") or []
-    if isinstance(raw_queries, list) and raw_queries:
-        calls.append({"queries": raw_queries})
-        for query in raw_queries:
-            _append_web_search_query(query, queries, set(queries))
-    chunks = metadata.get("grounding_chunks") or metadata.get("groundingChunks") or []
-    if isinstance(chunks, list):
-        for chunk in chunks:
-            if not isinstance(chunk, dict):
-                continue
-            web = chunk.get("web")
-            if isinstance(web, dict):
-                _collect_source_from_mapping(web, sources=sources, seen_urls=seen_urls)
 
 
 def _collect_sources_from_value(value: Any, *, sources: list[dict[str, str]], seen_urls: set[str], depth: int = 0) -> None:
@@ -1286,11 +1691,18 @@ def _with_generated_artifacts_on_latest_assistant(
     if not messages:
         return messages
     artifacts: list[dict[str, Any]] = []
+    summaries: list[str] = []
     seen: set[str] = set()
     for message in messages[max(0, start_index):]:
         if message.get("role") != "tool":
             continue
-        for artifact in _generated_artifacts_from_tool_message(message):
+        payload = _generated_artifact_tool_payload(message)
+        if not payload:
+            continue
+        summary = _content_text(payload.get("summary"))
+        if summary.strip():
+            summaries.append(summary.strip())
+        for artifact in _generated_artifacts_from_payload(payload):
             artifact_id = str(artifact.get("id") or artifact.get("artifactId") or "")
             if artifact_id and artifact_id in seen:
                 continue
@@ -1304,16 +1716,25 @@ def _with_generated_artifacts_on_latest_assistant(
         if updated[index].get("role") != "assistant" or updated[index].get("tool_calls"):
             continue
         updated[index] = _message_with_response_metadata_artifacts(updated[index], artifacts)
+        updated[index] = _message_with_generated_artifact_fallback_content(updated[index], summaries, artifacts)
         break
     return updated
 
 
 def _generated_artifacts_from_tool_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+    return _generated_artifacts_from_payload(_generated_artifact_tool_payload(message))
+
+
+def _generated_artifact_tool_payload(message: dict[str, Any]) -> dict[str, Any]:
     if str(message.get("name") or "") not in {"create_file_artifact", "create_image_artifact"}:
-        return []
+        return {}
     payload = _tool_message_payload(message.get("content"))
     if not isinstance(payload, dict):
-        return []
+        return {}
+    return payload
+
+
+def _generated_artifacts_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     raw_artifacts = payload.get("artifacts")
     if isinstance(raw_artifacts, list):
@@ -1361,6 +1782,27 @@ def _message_with_response_metadata_artifacts(message: dict[str, Any], artifacts
     response_metadata["artifacts"] = merged
     metadata["response_metadata"] = response_metadata
     updated["metadata"] = metadata
+    return updated
+
+
+def _message_with_generated_artifact_fallback_content(
+    message: dict[str, Any],
+    summaries: list[str],
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if _content_text(message.get("content")).strip():
+        return message
+    updated = dict(message)
+    summary = next((item for item in summaries if item.strip()), "")
+    if not summary:
+        names = [
+            str(artifact.get("fileName") or artifact.get("file_name") or "").strip()
+            for artifact in artifacts
+            if isinstance(artifact, dict)
+        ]
+        names = [name for name in names if name]
+        summary = f"Created {', '.join(names)}." if names else "Created the requested artifact."
+    updated["content"] = summary
     return updated
 
 
@@ -1492,6 +1934,14 @@ def _last_assistant_text(messages: list[BaseMessage]) -> str | None:
     for message in reversed(messages):
         if isinstance(message, AIMessage):
             return _content_text(message.content)
+    return None
+
+
+def _last_assistant_transcript_text(messages: list[dict[str, Any]]) -> str | None:
+    for message in reversed(messages):
+        if message.get("role") != "assistant" or message.get("tool_calls"):
+            continue
+        return _content_text(message.get("content"))
     return None
 
 

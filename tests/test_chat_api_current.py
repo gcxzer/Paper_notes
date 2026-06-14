@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -7,7 +8,7 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel, F
 from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 
-from agent_runtime import AgentService
+from agent_runtime import AgentService, AgentServiceRequest
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from media import MediaStore
@@ -42,6 +43,16 @@ def _client(monkeypatch, tmp_path, responses: list[AIMessage] | None = None, cha
     monkeypatch.setattr(agent_api, "_AGENT_SERVICE", service)
     monkeypatch.setattr(chat_api, "_MEDIA_STORE", MediaStore(tmp_path / "media"))
     return TestClient(create_app()), service
+
+
+def _sse_event_payload(body: str, event_name: str) -> dict[str, Any]:
+    for frame in body.split("\n\n"):
+        lines = frame.splitlines()
+        if f"event: {event_name}" not in lines:
+            continue
+        data_line = next((line for line in lines if line.startswith("data: ")), "")
+        return json.loads(data_line.removeprefix("data: "))
+    raise AssertionError(f"Missing SSE event: {event_name}")
 
 
 def test_app_registers_chat_context_routes(monkeypatch, tmp_path):
@@ -81,6 +92,37 @@ def test_chat_stream_endpoint_emits_start_final_and_done(monkeypatch, tmp_path):
     assert "req-stream" in body
 
 
+def test_chat_stream_persists_selected_text_context_without_attachments(monkeypatch, tmp_path):
+    client, service = _client(monkeypatch, tmp_path)
+    selected_context = {
+        "type": "selected_text",
+        "text": "stochastic",
+        "page": "8",
+        "wordCount": 1,
+    }
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={
+            "message": "Translate this",
+            "requestId": "req-selection",
+            "enableTools": False,
+            "metadata": {"selectedTextContext": selected_context},
+            "selectionText": "stochastic",
+            "currentPage": 8,
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    final = _sse_event_payload(body, "final")
+    user_message = final["messages"][0]
+    persisted = service.session_store.require_session(final["sessionId"]).messages[0]
+    assert user_message["metadata"]["selectedTextContext"] == selected_context
+    assert persisted["metadata"]["selectedTextContext"] == selected_context
+
+
 def test_chat_stream_endpoint_emits_model_deltas_before_final(monkeypatch, tmp_path):
     client, _service = _client(monkeypatch, tmp_path, chat_model=FakeListChatModel(responses=["Typed response."]))
 
@@ -94,6 +136,38 @@ def test_chat_stream_endpoint_emits_model_deltas_before_final(monkeypatch, tmp_p
     assert "Typed response." in body
     assert '"runTrace"' in body
     assert '"status":"completed"' in body
+
+
+def test_chat_stream_worker_persists_final_message_without_client_reader(monkeypatch, tmp_path):
+    _client_instance, service = _client(monkeypatch, tmp_path, chat_model=FakeListChatModel(responses=["Background final."]))
+    request = AgentServiceRequest(
+        message="Keep running",
+        title="Background stream",
+        enable_tools=False,
+        metadata={"requestId": "req-background"},
+    )
+
+    events = chat_api._start_chat_stream_worker(
+        service,
+        request,
+        attachments=[],
+        visible_text="Keep running",
+        body_for_run={},
+        request_id="req-background",
+        session_id="",
+    )
+    queued = []
+    while True:
+        item = events.get(timeout=5)
+        if item is chat_api._STREAM_QUEUE_DONE:
+            break
+        queued.append(item)
+
+    final = next(item.payload for item in queued if item.event == "final")
+    persisted = service.session_store.require_session(final["sessionId"])
+    assert final["response"] == "Background final."
+    assert [message["content"] for message in persisted.messages] == ["Keep running", "Background final."]
+    assert "activeRun" not in persisted.metadata.metadata
 
 
 def test_chat_request_options_are_forwarded_to_model_config(monkeypatch, tmp_path):
@@ -129,6 +203,17 @@ def test_chat_request_options_are_forwarded_to_model_config(monkeypatch, tmp_pat
     assert response.json()["response"] == "Options response."
     assert captured[0].options["reasoning"] == {"effort": "high", "summary": "auto"}
     assert captured[0].options["temperature"] == 0
+
+
+def test_chat_image_generation_prompt_falls_back_when_tool_is_unavailable():
+    prompt = chat_api._system_prompt(
+        {"imageGeneration": {"enabled": True}},
+        tools=[],
+        model="gpt-5.3-codex-spark",
+    )
+
+    assert "`create_image_artifact` is not available" in prompt
+    assert "Respond directly to the user in natural language" in prompt
 
 
 def test_chat_image_generation_options_and_artifacts_are_forwarded(monkeypatch, tmp_path):

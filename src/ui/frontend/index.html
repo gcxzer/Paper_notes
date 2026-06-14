@@ -421,40 +421,6 @@
           </div>
         </article>
 
-        <article class="ai-provider-row anthropic-settings-panel" id="anthropicSettingsPanel">
-          <div class="ai-provider-icon" aria-hidden="true">A</div>
-          <div class="provider-settings-copy">
-            <div class="ai-provider-title-row">
-              <strong id="anthropicKeyTitle">Anthropic</strong>
-              <span class="ai-provider-status-badge" id="anthropicStatusBadge">Not configured</span>
-            </div>
-            <span id="anthropicKeyDetail">Add an Anthropic API key to enable Claude.</span>
-          </div>
-          <div class="ai-provider-actions">
-            <span class="ai-provider-default-badge" id="anthropicDefaultBadge" hidden>Default</span>
-            <button class="toolbar-button" type="button" id="setAnthropicDefaultButton">Set default</button>
-            <button class="toolbar-button" type="button" id="addAnthropicKeyButton">Add key</button>
-            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteAnthropicKeyButton" hidden>Delete key</button>
-          </div>
-        </article>
-
-        <article class="ai-provider-row gemini-settings-panel" id="geminiSettingsPanel">
-          <div class="ai-provider-icon" aria-hidden="true">G</div>
-          <div class="provider-settings-copy">
-            <div class="ai-provider-title-row">
-              <strong id="geminiKeyTitle">Google Gemini</strong>
-              <span class="ai-provider-status-badge" id="geminiStatusBadge">Not configured</span>
-            </div>
-            <span id="geminiKeyDetail">Add a Gemini API key to enable Google Gemini.</span>
-          </div>
-          <div class="ai-provider-actions">
-            <span class="ai-provider-default-badge" id="geminiDefaultBadge" hidden>Default</span>
-            <button class="toolbar-button" type="button" id="setGeminiDefaultButton">Set default</button>
-            <button class="toolbar-button" type="button" id="addGeminiKeyButton">Add key</button>
-            <button class="toolbar-button toolbar-button-danger" type="button" id="deleteGeminiKeyButton" hidden>Delete key</button>
-          </div>
-        </article>
-
         <article class="ai-provider-row deepseek-settings-panel" id="deepSeekSettingsPanel">
           <div class="ai-provider-icon" aria-hidden="true">DS</div>
           <div class="provider-settings-copy">
@@ -510,8 +476,6 @@
         <select id="aiProviderInput" autocomplete="off">
           <option value="openai">OpenAI API key</option>
           <option value="codex-oauth">Codex OAuth</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="gemini">Google Gemini</option>
           <option value="deepseek">DeepSeek</option>
         </select>
       </label>

@@ -494,12 +494,22 @@ async function resumeActiveChatRunForCurrentSession() {
     renderReaderChatComposerState();
     return;
   }
-  if (await recoverReaderChatFromSession({ sessionId: activeRun.sessionId })) return;
-  setReaderChatPending(true, activeRun.sessionId);
-  startReaderChatProgress(activeRun.requestId, activeRun.sessionId);
+  if (await recoverReaderChatFromSession({
+    sessionId: activeRun.sessionId,
+    latestUserText: activeRun.latestUserText || ""
+  })) return;
+  const runKey = chatSessionRunKey(activeRun.sessionId);
+  if (activeRun.progress) {
+    readerState.chatProgressRequestIdsBySession[runKey] = activeRun.requestId;
+    setReaderChatProgress(activeRun.progress, runKey);
+  } else {
+    startReaderChatProgress(activeRun.requestId, runKey);
+  }
+  setReaderChatPending(true, runKey);
   scheduleReaderChatRecoveryPoll({
     sessionId: activeRun.sessionId,
     requestId: activeRun.requestId,
+    latestUserText: activeRun.latestUserText || "",
     delay: 1200
   });
   syncCurrentChatRunState();
@@ -700,7 +710,17 @@ async function recoverReaderChatFromSession({ sessionId = "", latestUserText = "
       const latestUser = [...messages].reverse().find((message) => message?.role === "user");
       if (normalizeText(latestUser?.text || latestUser?.content) !== expectedUserText) return false;
     }
-    if (!hasCompletedAssistantAfterLatestUser(messages)) return false;
+    if (!hasCompletedAssistantAfterLatestUser(messages)) {
+      const session = upsertReaderChatSession(payload.session);
+      const activeRun = normalizeActiveChatRun(session?.activeRun || payload.session?.activeRun || payload.session?.metadata?.activeRun);
+      if (activeRun) {
+        const runKey = chatSessionRunKey(targetSessionId);
+        readerState.chatProgressRequestIdsBySession[runKey] = activeRun.requestId;
+        if (activeRun.progress) setReaderChatProgress(activeRun.progress, runKey);
+        setReaderChatPending(true, runKey);
+      }
+      return false;
+    }
     const session = upsertReaderChatSession(payload.session);
     const recoveredSessionId = session?.id || payload.session?.id || targetSessionId;
     setCurrentChatSessionId(recoveredSessionId);

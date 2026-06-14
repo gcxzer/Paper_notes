@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import queue
+import threading
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, AsyncIterator
 
@@ -18,6 +21,13 @@ from ui.backend.agent_api import get_agent_service, _metadata_payload
 
 
 _MEDIA_STORE: MediaStore | None = None
+_STREAM_QUEUE_DONE = object()
+
+
+@dataclass(slots=True)
+class _QueuedSSE:
+    event: str
+    payload: dict[str, Any]
 
 
 class ChatAPIError(ValueError):
@@ -110,16 +120,15 @@ def handle_chat_request(
     except ValueError as error:
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "invalid_request", str(error)) from error
 
-    if attachments:
-        session = _persist_user_attachment_metadata(
-            agent_service,
-            result.session_id,
-            attachments=attachments,
-            visible_text=visible_text,
-            body=body,
-        )
-        result.session = session
-        result.messages = session.messages
+    session = _persist_latest_user_request_metadata(
+        agent_service,
+        result.session_id,
+        attachments=attachments,
+        visible_text=visible_text,
+        body=body,
+    )
+    result.session = session
+    result.messages = session.messages
     return _chat_result_payload(result, request_id=_optional_text(body.get("requestId") or body.get("request_id")))
 
 
@@ -235,21 +244,54 @@ async def _chat_sse_events(body: Any) -> AsyncIterator[bytes]:
         agent_service, request, attachments, visible_text = _prepare_chat_run(body_for_run)
         session_id = request.session_id or ""
         session = agent_service.session_store.get_session(session_id) if session_id else None
+        events = _start_chat_stream_worker(
+            agent_service,
+            request,
+            attachments=attachments,
+            visible_text=visible_text,
+            body_for_run=body_for_run,
+            request_id=request_id,
+            session_id=session_id,
+        )
         yield _sse_frame("start", {
             "requestId": request_id,
             "sessionId": session_id,
             "session": _metadata_payload(session.metadata) if session is not None else None,
         })
-        final_payload: dict[str, Any] | None = None
-        stream = agent_service.stream(request)
         while True:
-            stream_event = await asyncio.to_thread(_next_stream_event, stream)
-            if stream_event is None:
+            queued = await asyncio.to_thread(events.get)
+            if queued is _STREAM_QUEUE_DONE:
                 break
-            if stream_event.event == "final":
-                result = stream_event.data.get("result")
-                if attachments:
-                    persisted_session = _persist_user_attachment_metadata(
+            if isinstance(queued, _QueuedSSE):
+                yield _sse_frame(queued.event, queued.payload)
+    except Exception as error:
+        code = error.code if isinstance(error, ChatAPIError) else "chat_failed"
+        yield _sse_frame("error", {"requestId": request_id, "code": code, "error": str(error) or "Chat failed."})
+        yield _sse_frame("done", {"requestId": request_id})
+
+
+def _start_chat_stream_worker(
+    agent_service: AgentService,
+    request: AgentServiceRequest,
+    *,
+    attachments: list[dict[str, Any]],
+    visible_text: str,
+    body_for_run: dict[str, Any],
+    request_id: str,
+    session_id: str,
+) -> queue.Queue[Any]:
+    events: queue.Queue[Any] = queue.Queue()
+
+    def enqueue(event: str, payload: dict[str, Any]) -> None:
+        events.put(_QueuedSSE(event, payload))
+
+    def worker() -> None:
+        final_payload: dict[str, Any] | None = None
+        try:
+            for stream_event in agent_service.stream(request):
+                if stream_event.event == "final":
+                    result = stream_event.data.get("result")
+                    persisted_session = _persist_latest_user_request_metadata(
                         agent_service,
                         result.session_id,
                         attachments=attachments,
@@ -258,25 +300,26 @@ async def _chat_sse_events(body: Any) -> AsyncIterator[bytes]:
                     )
                     result.session = persisted_session
                     result.messages = persisted_session.messages
-                final_payload = _chat_result_payload(result, request_id=request_id)
-                yield _sse_frame("final", final_payload)
-                continue
-            payload = dict(stream_event.data)
-            payload.setdefault("requestId", request_id)
-            payload.setdefault("sessionId", session_id)
-            yield _sse_frame(stream_event.event, payload)
-        yield _sse_frame("done", {
-            "requestId": request_id,
-            "sessionId": final_payload.get("sessionId", session_id) if final_payload else session_id,
-        })
-    except Exception as error:
-        code = error.code if isinstance(error, ChatAPIError) else "chat_failed"
-        yield _sse_frame("error", {"requestId": request_id, "code": code, "error": str(error) or "Chat failed."})
-        yield _sse_frame("done", {"requestId": request_id})
+                    final_payload = _chat_result_payload(result, request_id=request_id)
+                    enqueue("final", final_payload)
+                    continue
+                payload = dict(stream_event.data)
+                payload.setdefault("requestId", request_id)
+                payload.setdefault("sessionId", session_id)
+                enqueue(stream_event.event, payload)
+            enqueue("done", {
+                "requestId": request_id,
+                "sessionId": final_payload.get("sessionId", session_id) if final_payload else session_id,
+            })
+        except Exception as error:
+            code = error.code if isinstance(error, ChatAPIError) else "chat_failed"
+            enqueue("error", {"requestId": request_id, "code": code, "error": str(error) or "Chat failed."})
+            enqueue("done", {"requestId": request_id, "sessionId": session_id})
+        finally:
+            events.put(_STREAM_QUEUE_DONE)
 
-
-def _next_stream_event(stream: Any) -> Any:
-    return next(stream, None)
+    threading.Thread(target=worker, name=f"paper-notes-chat-{request_id or 'run'}", daemon=True).start()
+    return events
 
 
 def _prepare_chat_run(
@@ -527,7 +570,7 @@ def _is_compaction_marker(message: dict[str, Any]) -> bool:
     return message.get("role") == "divider" and isinstance(metadata, dict) and metadata.get("type") == "context_compaction_marker"
 
 
-def _persist_user_attachment_metadata(
+def _persist_latest_user_request_metadata(
     service: AgentService,
     session_id: str,
     *,
@@ -536,24 +579,54 @@ def _persist_user_attachment_metadata(
     body: dict[str, Any],
 ) -> Any:
     session = service.session_store.require_session(session_id)
+    request_metadata = _user_message_request_metadata(body)
+    if not attachments and not request_metadata:
+        return session
     messages = [dict(message) for message in session.messages]
     for index in range(len(messages) - 1, -1, -1):
         if messages[index].get("role") != "user":
             continue
         metadata = dict(messages[index].get("metadata") or {})
-        request_metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
         metadata.update(request_metadata)
-        generation = body.get("imageGeneration") or body.get("image_generation")
-        if isinstance(generation, dict):
-            metadata["generation"] = generation
-        selected_text_context = request_metadata.get("selectedTextContext") if isinstance(request_metadata, dict) else None
-        if isinstance(selected_text_context, dict):
-            metadata["selectedTextContext"] = selected_text_context
-        messages[index]["metadata"] = metadata
-        messages[index]["attachments"] = attachments
-        messages[index]["text"] = visible_text
+        if metadata:
+            messages[index]["metadata"] = metadata
+        if attachments:
+            messages[index]["attachments"] = attachments
+            messages[index]["text"] = visible_text
         break
     return service.session_store.replace_messages(session_id, messages)
+
+
+def _user_message_request_metadata(body: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(body.get("metadata")) if isinstance(body.get("metadata"), dict) else {}
+    generation = _request_generation_metadata(body)
+    if generation:
+        existing_generation = metadata.get("generation") if isinstance(metadata.get("generation"), dict) else {}
+        metadata["generation"] = {**existing_generation, **generation}
+
+    selected_text_context = body.get("selectedTextContext") or body.get("selected_text_context")
+    if isinstance(selected_text_context, dict):
+        metadata.setdefault("selectedTextContext", selected_text_context)
+    if not isinstance(metadata.get("selectedTextContext"), dict):
+        selection_text = _optional_text(body.get("selectionText") or body.get("selection_text"))
+        if selection_text:
+            context: dict[str, Any] = {"type": "selected_text", "text": selection_text}
+            current_page = _optional_text(body.get("currentPage") or body.get("current_page"))
+            if current_page:
+                context["page"] = current_page
+            metadata["selectedTextContext"] = context
+    return metadata
+
+
+def _request_generation_metadata(body: dict[str, Any]) -> dict[str, Any]:
+    generation: dict[str, Any] = {}
+    image_generation = _image_generation_options(body)
+    if image_generation:
+        generation["imageGeneration"] = image_generation
+    file_generation = _file_generation_options(body)
+    if file_generation:
+        generation["fileGeneration"] = file_generation
+    return generation
 
 
 def _message_content(message: str, attachments: list[dict[str, Any]], media_store: MediaStore) -> Any:
@@ -738,36 +811,73 @@ def _session_title(body: dict[str, Any], message: str) -> str:
 
 
 def _system_prompt(body: dict[str, Any], *, tools: list[Any] | None = None, model: str = "") -> str:
+    resolved_tools = tools or []
     return build_agent_instructions(
-        tools=tools or [],
+        tools=resolved_tools,
         context=_agent_prompt_context(body),
-        extra_instructions=_generation_mode_instructions(body),
+        extra_instructions=_generation_mode_instructions(body, tools=resolved_tools),
         model=model,
     )
 
 
-def _generation_mode_instructions(body: dict[str, Any]) -> str:
+def _generation_mode_instructions(body: dict[str, Any], *, tools: list[Any] | None = None) -> str:
     instructions: list[str] = []
+    tool_names = _tool_names(tools or [])
     if _image_generation_options(body):
-        instructions.append(
-            "The frontend image generation mode is selected for this turn. Treat it as a strong preference "
-            "to create a downloadable image if the user request is compatible. Call `create_image_artifact` "
-            "with `prompt`, `mode`, and optional `input_artifact_ids`; do not only describe the image. After "
-            "the tool succeeds, briefly describe the result and mention the artifact id if useful, but do not "
-            "write raw download URLs or sandbox links; the UI will attach the generated artifact card."
-        )
+        if "create_image_artifact" in tool_names:
+            instructions.append(
+                "The frontend image generation mode is selected for this turn. Treat it as a strong preference "
+                "to create a downloadable image if the user request is compatible. Call `create_image_artifact` "
+                "with `prompt`, `mode`, and optional `input_artifact_ids`; do not only describe the image. After "
+                "the tool succeeds, briefly describe the result and mention the artifact id if useful, but do not "
+                "write raw download URLs or sandbox links; the UI will attach the generated artifact card."
+            )
+        else:
+            instructions.append(
+                "The frontend image generation mode is selected for this turn, but `create_image_artifact` is not "
+                "available for the current provider/model. Do not call unsupported image tools, do not fabricate "
+                "image files, artifact ids, download URLs, Markdown image tags, data URLs, SVG/HTML stand-ins, or "
+                "local temp paths. Respond directly to the user in natural language: explain that this current "
+                "model cannot generate downloadable images in Paper Notes, and offer a useful text prompt, plan, "
+                "or a suggestion to switch to an image-capable OpenAI or Codex model."
+            )
     file_generation = _file_generation_options(body)
     if file_generation:
         mime_type = str(file_generation.get("mime_type") or "text/markdown")
-        instructions.append(
-            "The frontend file generation mode is selected for this turn. Treat it as a strong preference "
-            "to create a downloadable file if the user request is compatible. Call `create_file_artifact` "
-            "with `file_name`, `mime_type`, and `content`; prefer "
-            f"`{mime_type}` unless the user asks for a different allowed text format. Do not only paste the "
-            "file contents in chat. After the tool succeeds, briefly describe the file and mention the artifact "
-            "id if useful, but do not write raw download URLs or sandbox links; the UI will attach the file card."
-        )
+        if "create_file_artifact" in tool_names:
+            instructions.append(
+                "The frontend file generation mode is selected for this turn. Treat it as a strong preference "
+                "to create a downloadable file if the user request is compatible. Call `create_file_artifact` "
+                "with `file_name`, `mime_type`, and `content`; prefer "
+                f"`{mime_type}` unless the user asks for a different allowed text format. Do not only paste the "
+                "file contents in chat. If the file content depends on the current paper, page, note, or selected "
+                "text and you need more source material, first call the relevant local Paper Notes reading/search "
+                "tool, then call `create_file_artifact` in the same turn. After the tool succeeds, briefly describe "
+                "the file and mention the artifact id if useful, but do not write raw download URLs or sandbox links; "
+                "the UI will attach the file card."
+            )
+        else:
+            instructions.append(
+                "The frontend file generation mode is selected for this turn, but `create_file_artifact` is not "
+                "available. Do not fabricate artifact ids, download URLs, sandbox links, or local paths. Respond "
+                "directly in chat, explain that a downloadable file cannot be created in this run, and provide the "
+                f"requested `{mime_type}` content inline if that is still useful."
+            )
     return "\n".join(instructions)
+
+
+def _tool_names(tools: list[Any]) -> set[str]:
+    names: set[str] = set()
+    for tool in tools:
+        if isinstance(tool, dict):
+            function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+            name = function.get("name") or tool.get("name") or tool.get("type")
+        else:
+            name = getattr(tool, "name", "")
+        text = str(name or "").strip()
+        if text:
+            names.add("web_search" if text.startswith("web_search_") else text)
+    return names
 
 
 def _agent_prompt_context(body: dict[str, Any]) -> AgentPromptContext | None:

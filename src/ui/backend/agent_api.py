@@ -143,8 +143,50 @@ def _session_payload(session: Any) -> dict[str, Any]:
     return {
         **metadata,
         "metadata": raw_metadata,
-        "messages": _jsonable(session.messages),
+        "messages": _session_messages_payload(session.messages),
     }
+
+
+def _session_messages_payload(messages: Any) -> list[Any]:
+    raw_messages = _jsonable(messages)
+    if not isinstance(raw_messages, list):
+        return []
+    return [_session_message_payload(message) for message in raw_messages]
+
+
+def _session_message_payload(message: Any) -> Any:
+    if not isinstance(message, dict):
+        return message
+    payload = dict(message)
+    artifacts = _message_artifacts(payload)
+    if artifacts:
+        payload["artifacts"] = artifacts
+    return payload
+
+
+def _message_artifacts(message: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[Any] = []
+    if isinstance(message.get("artifacts"), list):
+        candidates.append(message.get("artifacts"))
+    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    response_metadata = metadata.get("response_metadata") if isinstance(metadata.get("response_metadata"), dict) else {}
+    if isinstance(response_metadata.get("artifacts"), list):
+        candidates.append(response_metadata.get("artifacts"))
+    artifacts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        for artifact in candidate:
+            if not isinstance(artifact, dict):
+                continue
+            artifact_id = str(artifact.get("id") or artifact.get("artifactId") or "")
+            if artifact_id and artifact_id in seen:
+                continue
+            if artifact_id:
+                seen.add(artifact_id)
+            artifacts.append(dict(artifact))
+    return artifacts
 
 
 def _metadata_payload(metadata: Any) -> dict[str, Any]:
@@ -172,6 +214,7 @@ def _metadata_payload(metadata: Any) -> dict[str, Any]:
         payload.get("projectName") or payload.get("project_name") or extra.get("projectName") or extra.get("project_name")
     )
     state = _text(payload.get("state")) or ("archived" if payload.get("archived") else "active")
+    active_run = extra.get("activeRun") if isinstance(extra.get("activeRun"), dict) else None
     return {
         **payload,
         "id": session_id,
@@ -191,8 +234,7 @@ def _metadata_payload(metadata: Any) -> dict[str, Any]:
         "trashedAt": _text(extra.get("trashedAt") or extra.get("trashed_at")),
         "deepseekThinkMode": _text(extra.get("deepseekThinkMode") or extra.get("deepseek_think_mode")),
         "gptThinkMode": _text(extra.get("gptThinkMode") or extra.get("gpt_think_mode")),
-        "geminiThinkMode": _text(extra.get("geminiThinkMode") or extra.get("gemini_think_mode")),
-        "anthropicThinkMode": _text(extra.get("anthropicThinkMode") or extra.get("anthropic_think_mode")),
+        "activeRun": active_run,
         "state": state,
         "archived": state == "archived",
         "trashed": state == "trashed",

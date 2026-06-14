@@ -9,6 +9,7 @@ from langchain_core.tools import StructuredTool
 from app_config.ai_settings import CODEX_PROVIDER, OPENAI_PROVIDER, resolve_openai_api_key
 from app_infra.formatting import normalize_text
 from media import MediaStore, MediaStoreError
+from model_providers.profiles import capabilities_for_provider_model
 from model_providers.providers.codex_provider import (
     DEFAULT_CODEX_BASE_URL,
     _codex_default_headers,
@@ -36,7 +37,12 @@ def create_tools(
     image_generation: dict[str, Any] | None = None,
     attachments: list[dict[str, Any]] | None = None,
 ) -> list[StructuredTool]:
-    if media_store is None or normalize_text(provider_name).lower() not in {OPENAI_PROVIDER, CODEX_PROVIDER}:
+    provider = normalize_text(provider_name).lower()
+    if (
+        media_store is None
+        or provider not in {OPENAI_PROVIDER, CODEX_PROVIDER}
+        or not capabilities_for_provider_model(provider, model).supports_image_artifact_generation
+    ):
         return []
     return [
         StructuredTool(

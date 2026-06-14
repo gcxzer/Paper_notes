@@ -6,14 +6,11 @@ import pytest
 
 from app_config.secrets import write_env_values
 from model_providers.core.types import ModelProviderConfig
-from model_providers.providers import anthropic_provider, deepseek_provider, google_provider, openai_provider
+from model_providers.providers import deepseek_provider, openai_provider
 
 
 API_ENV_NAMES = (
-    "ANTHROPIC_API_KEY",
     "DEEPSEEK_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
     "OPENAI_API_KEY",
 )
 
@@ -65,64 +62,6 @@ def test_openai_provider_passes_reasoning_options(monkeypatch, tmp_path):
     assert captured["use_responses_api"] is True
     assert captured["output_version"] == "responses/v1"
     assert captured["reasoning"] == {"effort": "none"}
-
-
-def test_anthropic_provider_passes_local_api_key(monkeypatch, tmp_path):
-    _isolate_provider_env(monkeypatch, tmp_path)
-    write_env_values(tmp_path / "secrets.env", {"ANTHROPIC_API_KEY": "sk-local-anthropic"})
-    captured = _capture_constructor(monkeypatch, anthropic_provider, "ChatAnthropic")
-
-    anthropic_provider.create_anthropic_chat_model(ModelProviderConfig("anthropic", "claude-test", {}))
-
-    assert captured["model_name"] == "claude-test"
-    assert captured["api_key"] == "sk-local-anthropic"
-
-
-def test_anthropic_provider_passes_thinking_options(monkeypatch, tmp_path):
-    _isolate_provider_env(monkeypatch, tmp_path)
-    write_env_values(tmp_path / "secrets.env", {"ANTHROPIC_API_KEY": "sk-local-anthropic"})
-    captured = _capture_constructor(monkeypatch, anthropic_provider, "ChatAnthropic")
-
-    anthropic_provider.create_anthropic_chat_model(ModelProviderConfig(
-        "anthropic",
-        "claude-test",
-        {
-            "thinking": {"type": "disabled"},
-            "output_config": {"effort": "low"},
-        },
-    ))
-
-    assert captured["thinking"] == {"type": "disabled"}
-    assert captured["output_config"] == {"effort": "low"}
-
-
-def test_google_provider_passes_local_gemini_api_key(monkeypatch, tmp_path):
-    _isolate_provider_env(monkeypatch, tmp_path)
-    write_env_values(tmp_path / "secrets.env", {"GEMINI_API_KEY": "sk-local-gemini"})
-    captured = _capture_constructor(monkeypatch, google_provider, "ChatGoogleGenerativeAI")
-
-    google_provider.create_google_chat_model(ModelProviderConfig("gemini", "gemini-test", {}))
-
-    assert captured["model"] == "gemini-test"
-    assert captured["api_key"] == "sk-local-gemini"
-
-
-def test_google_provider_passes_thinking_options(monkeypatch, tmp_path):
-    _isolate_provider_env(monkeypatch, tmp_path)
-    write_env_values(tmp_path / "secrets.env", {"GEMINI_API_KEY": "sk-local-gemini"})
-    captured = _capture_constructor(monkeypatch, google_provider, "ChatGoogleGenerativeAI")
-
-    google_provider.create_google_chat_model(ModelProviderConfig(
-        "gemini",
-        "gemini-3-flash-preview",
-        {
-            "thinking_level": "minimal",
-            "include_thoughts": False,
-        },
-    ))
-
-    assert captured["thinking_level"] == "minimal"
-    assert captured["include_thoughts"] is False
 
 
 def test_deepseek_provider_passes_local_api_key(monkeypatch, tmp_path):

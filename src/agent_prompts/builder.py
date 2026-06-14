@@ -47,8 +47,6 @@ def extract_tool_names(tools: Sequence[Any]) -> set[str]:
 
 def _extract_tool_name(tool: Any) -> str:
     if isinstance(tool, dict):
-        if "google_search" in tool or "googleSearch" in tool:
-            return "web_search"
         function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
         name = function.get("name") or tool.get("name") or tool.get("type")
     else:

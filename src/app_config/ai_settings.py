@@ -9,48 +9,32 @@ from app_config.secrets import default_env_paths, default_secrets_path, parse_en
 
 
 AI_PROVIDER = "PAPER_NOTES_AI_PROVIDER"
-ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
-ANTHROPIC_MODEL = "ANTHROPIC_MODEL"
 CODEX_MODEL = "CODEX_MODEL"
 DEEPSEEK_API_KEY = "DEEPSEEK_API_KEY"
 DEEPSEEK_MODEL = "DEEPSEEK_MODEL"
-GEMINI_API_KEY = "GEMINI_API_KEY"
-GEMINI_MODEL = "GEMINI_MODEL"
-GOOGLE_API_KEY = "GOOGLE_API_KEY"
 OPENAI_API_KEY = "OPENAI_API_KEY"
 OPENAI_MODEL = "OPENAI_MODEL"
 TAVILY_API_KEY = "TAVILY_API_KEY"
 BRAVE_SEARCH_API_KEY = "BRAVE_SEARCH_API_KEY"
 
 OPENAI_PROVIDER = "openai"
-ANTHROPIC_PROVIDER = "anthropic"
 CODEX_PROVIDER = "codex-oauth"
 DEEPSEEK_PROVIDER = "deepseek"
-GEMINI_PROVIDER = "gemini"
 SUPPORTED_AI_PROVIDERS = frozenset({
     OPENAI_PROVIDER,
-    ANTHROPIC_PROVIDER,
     CODEX_PROVIDER,
     DEEPSEEK_PROVIDER,
-    GEMINI_PROVIDER,
 })
 AI_PROVIDER_ALIASES = {
     "": "",
     "api-key": OPENAI_PROVIDER,
     "openai-api-key": OPENAI_PROVIDER,
     OPENAI_PROVIDER: OPENAI_PROVIDER,
-    "claude": ANTHROPIC_PROVIDER,
-    ANTHROPIC_PROVIDER: ANTHROPIC_PROVIDER,
     "codex": CODEX_PROVIDER,
     CODEX_PROVIDER: CODEX_PROVIDER,
     "openai-codex": CODEX_PROVIDER,
     "deep-seek": DEEPSEEK_PROVIDER,
     DEEPSEEK_PROVIDER: DEEPSEEK_PROVIDER,
-    "google": GEMINI_PROVIDER,
-    "google-ai-studio": GEMINI_PROVIDER,
-    "google-gemini": GEMINI_PROVIDER,
-    "google-genai": GEMINI_PROVIDER,
-    GEMINI_PROVIDER: GEMINI_PROVIDER,
 }
 
 
@@ -167,9 +151,7 @@ def resolve_ai_settings(
     provider = _auto_selected_provider(
         resolve_ai_provider(secrets_path=path, env_paths=paths),
         openai_key_configured=resolve_openai_api_key(secrets_path=path, env_paths=paths).configured,
-        anthropic_key_configured=resolve_anthropic_api_key(secrets_path=path, env_paths=paths).configured,
         deepseek_key_configured=resolve_deepseek_api_key(secrets_path=path, env_paths=paths).configured,
-        gemini_key_configured=resolve_gemini_api_key(secrets_path=path, env_paths=paths).configured,
         codex_configured=auth.logged_in,
     )
     key = resolve_api_key_for_provider(provider.value, secrets_path=path, env_paths=paths)
@@ -221,12 +203,8 @@ def resolve_api_key_for_provider(
     env_paths: tuple[Path, ...] | None = None,
 ) -> ResolvedValue:
     normalized = normalize_ai_provider(provider)
-    if normalized == ANTHROPIC_PROVIDER:
-        return resolve_anthropic_api_key(secrets_path=secrets_path, env_paths=env_paths)
     if normalized == DEEPSEEK_PROVIDER:
         return resolve_deepseek_api_key(secrets_path=secrets_path, env_paths=env_paths)
-    if normalized == GEMINI_PROVIDER:
-        return resolve_gemini_api_key(secrets_path=secrets_path, env_paths=env_paths)
     if normalized == CODEX_PROVIDER:
         return ResolvedValue()
     return resolve_openai_api_key(secrets_path=secrets_path, env_paths=env_paths)
@@ -240,29 +218,12 @@ def resolve_openai_api_key(
     return resolve_setting_value(OPENAI_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
 
 
-def resolve_anthropic_api_key(
-    *,
-    secrets_path: str | Path | None = None,
-    env_paths: tuple[Path, ...] | None = None,
-) -> ResolvedValue:
-    return resolve_setting_value(ANTHROPIC_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
-
-
 def resolve_deepseek_api_key(
     *,
     secrets_path: str | Path | None = None,
     env_paths: tuple[Path, ...] | None = None,
 ) -> ResolvedValue:
     return resolve_setting_value(DEEPSEEK_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
-
-
-def resolve_gemini_api_key(
-    *,
-    secrets_path: str | Path | None = None,
-    env_paths: tuple[Path, ...] | None = None,
-) -> ResolvedValue:
-    gemini = resolve_setting_value(GEMINI_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
-    return gemini if gemini.value else resolve_setting_value(GOOGLE_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
 
 
 def resolve_tavily_api_key(
@@ -344,11 +305,7 @@ def delete_local_ai_api_key(
 ) -> AISettings:
     path = Path(secrets_path) if secrets_path is not None else default_secrets_path()
     normalized = normalize_ai_provider(provider) or OPENAI_PROVIDER
-    if normalized == GEMINI_PROVIDER:
-        updates = {GEMINI_API_KEY: None, GOOGLE_API_KEY: None}
-    elif normalized == ANTHROPIC_PROVIDER:
-        updates = {ANTHROPIC_API_KEY: None}
-    elif normalized == DEEPSEEK_PROVIDER:
+    if normalized == DEEPSEEK_PROVIDER:
         updates = {DEEPSEEK_API_KEY: None}
     elif normalized == OPENAI_PROVIDER:
         updates = {OPENAI_API_KEY: None}
@@ -367,21 +324,13 @@ def model_env_name(provider: str) -> str:
     normalized = normalize_ai_provider(provider)
     if normalized == CODEX_PROVIDER:
         return CODEX_MODEL
-    if normalized == ANTHROPIC_PROVIDER:
-        return ANTHROPIC_MODEL
     if normalized == DEEPSEEK_PROVIDER:
         return DEEPSEEK_MODEL
-    if normalized == GEMINI_PROVIDER:
-        return GEMINI_MODEL
     return OPENAI_MODEL
 
 
 def api_key_env_name(provider: str) -> str:
     normalized = normalize_ai_provider(provider)
-    if normalized == GEMINI_PROVIDER:
-        return GEMINI_API_KEY
-    if normalized == ANTHROPIC_PROVIDER:
-        return ANTHROPIC_API_KEY
     if normalized == DEEPSEEK_PROVIDER:
         return DEEPSEEK_API_KEY
     return OPENAI_API_KEY
@@ -389,8 +338,6 @@ def api_key_env_name(provider: str) -> str:
 
 def local_key_configured(local_values: Mapping[str, str], provider: str) -> bool:
     normalized = normalize_ai_provider(provider)
-    if normalized == GEMINI_PROVIDER:
-        return bool(local_values.get(GEMINI_API_KEY, "").strip() or local_values.get(GOOGLE_API_KEY, "").strip())
     if normalized == CODEX_PROVIDER:
         return False
     return bool(local_values.get(api_key_env_name(normalized), "").strip())
@@ -398,8 +345,6 @@ def local_key_configured(local_values: Mapping[str, str], provider: str) -> bool
 
 def environment_key_configured(provider: str) -> bool:
     normalized = normalize_ai_provider(provider)
-    if normalized == GEMINI_PROVIDER:
-        return bool(_env_value(GEMINI_API_KEY) or _env_value(GOOGLE_API_KEY))
     if normalized == CODEX_PROVIDER:
         return False
     return bool(_env_value(api_key_env_name(normalized)))
@@ -409,9 +354,7 @@ def _auto_selected_provider(
     provider: ResolvedValue,
     *,
     openai_key_configured: bool,
-    anthropic_key_configured: bool,
     deepseek_key_configured: bool,
-    gemini_key_configured: bool,
     codex_configured: bool,
 ) -> ResolvedValue:
     if provider.source not in {"default", "auto", "missing"}:
@@ -419,12 +362,8 @@ def _auto_selected_provider(
     available = []
     if openai_key_configured:
         available.append(OPENAI_PROVIDER)
-    if anthropic_key_configured:
-        available.append(ANTHROPIC_PROVIDER)
     if deepseek_key_configured:
         available.append(DEEPSEEK_PROVIDER)
-    if gemini_key_configured:
-        available.append(GEMINI_PROVIDER)
     if codex_configured:
         available.append(CODEX_PROVIDER)
     if len(available) == 1 and provider.value != available[0]:

@@ -5,8 +5,6 @@ from model_providers.profiles.types import ModelCapabilities, ModelOption, Model
 
 OPENAI_PROVIDER = "openai"
 CODEX_PROVIDER = "codex-oauth"
-ANTHROPIC_PROVIDER = "anthropic"
-GEMINI_PROVIDER = "gemini"
 DEEPSEEK_PROVIDER = "deepseek"
 
 DEFAULT_FALLBACK_CONTEXT_LENGTH = 256_000
@@ -25,17 +23,6 @@ CODEX_CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-5.4": 258_000,
 }
 
-ANTHROPIC_CONTEXT_WINDOWS: dict[str, int] = {
-    "claude-opus-4-7": 1_000_000,
-    "claude-sonnet-4-6": 1_000_000,
-    "claude-haiku-4-5": 200_000,
-}
-
-GEMINI_CONTEXT_WINDOWS: dict[str, int] = {
-    "gemini-3-flash-preview": 1_048_576,
-    "gemini-3-pro-preview": 1_048_576,
-}
-
 DEEPSEEK_CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-flash": 1_000_000,
     "deepseek-v4-pro": 1_000_000,
@@ -44,8 +31,6 @@ DEEPSEEK_CONTEXT_WINDOWS: dict[str, int] = {
 CONTEXT_WINDOW_TABLES_BY_PROVIDER: dict[str, dict[str, int]] = {
     OPENAI_PROVIDER: OPENAI_CONTEXT_WINDOWS,
     CODEX_PROVIDER: CODEX_CONTEXT_WINDOWS,
-    ANTHROPIC_PROVIDER: ANTHROPIC_CONTEXT_WINDOWS,
-    GEMINI_PROVIDER: GEMINI_CONTEXT_WINDOWS,
     DEEPSEEK_PROVIDER: DEEPSEEK_CONTEXT_WINDOWS,
 }
 
@@ -68,24 +53,6 @@ CODEX_CAPABILITIES = ModelCapabilities(
     supports_web_search=True,
     image_input_mode="native",
     context_window=CODEX_CONTEXT_WINDOWS["gpt-5.5"],
-)
-
-ANTHROPIC_CAPABILITIES = ModelCapabilities(
-    supports_tools=True,
-    supports_vision=True,
-    supports_image_generation=False,
-    supports_web_search=True,
-    image_input_mode="native",
-    context_window=ANTHROPIC_CONTEXT_WINDOWS["claude-sonnet-4-6"],
-)
-
-GEMINI_CAPABILITIES = ModelCapabilities(
-    supports_tools=True,
-    supports_vision=True,
-    supports_image_generation=False,
-    supports_web_search=True,
-    image_input_mode="native",
-    context_window=GEMINI_CONTEXT_WINDOWS["gemini-3-flash-preview"],
 )
 
 DEEPSEEK_CAPABILITIES = ModelCapabilities(
@@ -144,35 +111,6 @@ CODEX_PROFILE = ModelProviderProfile(
     ),
 )
 
-ANTHROPIC_PROFILE = ModelProviderProfile(
-    name=ANTHROPIC_PROVIDER,
-    display_name="Anthropic",
-    auth_type="api_key",
-    description="Uses an Anthropic API key with LangChain's Anthropic chat model.",
-    default_model="claude-sonnet-4-6",
-    aliases=("claude",),
-    default_capabilities=ANTHROPIC_CAPABILITIES,
-    models=(
-        ModelOption("claude-opus-4-7", "Claude Opus 4.7", "Opus 4.7", "Most capable Claude model for complex reasoning, coding, and vision", ANTHROPIC_CAPABILITIES.with_context_window(ANTHROPIC_CONTEXT_WINDOWS["claude-opus-4-7"])),
-        ModelOption("claude-sonnet-4-6", "Claude Sonnet 4.6", "Sonnet 4.6", "Balanced Claude model for everyday agent work", ANTHROPIC_CAPABILITIES.with_context_window(ANTHROPIC_CONTEXT_WINDOWS["claude-sonnet-4-6"])),
-        ModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5", "Haiku 4.5", "Fastest Claude model with strong tool and vision support", ANTHROPIC_CAPABILITIES.with_context_window(ANTHROPIC_CONTEXT_WINDOWS["claude-haiku-4-5"])),
-    ),
-)
-
-GEMINI_PROFILE = ModelProviderProfile(
-    name=GEMINI_PROVIDER,
-    display_name="Google Gemini",
-    auth_type="api_key",
-    description="Uses a Google AI Studio Gemini API key with LangChain's Gemini chat model.",
-    default_model="gemini-3-flash-preview",
-    aliases=("google", "google-gemini", "google-ai-studio"),
-    default_capabilities=GEMINI_CAPABILITIES,
-    models=(
-        ModelOption("gemini-3-flash-preview", "Gemini 3 Flash Preview", "3 Flash", "Frontier Gemini 3 model balanced for speed and intelligence", GEMINI_CAPABILITIES.with_context_window(GEMINI_CONTEXT_WINDOWS["gemini-3-flash-preview"])),
-        ModelOption("gemini-3-pro-preview", "Gemini 3 Pro Preview", "3 Pro", "Most capable Gemini 3 model for complex reasoning and agentic work", GEMINI_CAPABILITIES.with_context_window(GEMINI_CONTEXT_WINDOWS["gemini-3-pro-preview"])),
-    ),
-)
-
 DEEPSEEK_PROFILE = ModelProviderProfile(
     name=DEEPSEEK_PROVIDER,
     display_name="DeepSeek",
@@ -186,4 +124,4 @@ DEEPSEEK_PROFILE = ModelProviderProfile(
     ),
 )
 
-BUILTIN_PROFILES = (OPENAI_PROFILE, CODEX_PROFILE, ANTHROPIC_PROFILE, GEMINI_PROFILE, DEEPSEEK_PROFILE)
+BUILTIN_PROFILES = (OPENAI_PROFILE, CODEX_PROFILE, DEEPSEEK_PROFILE)

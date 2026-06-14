@@ -10,6 +10,7 @@ from tools.paper_notes.schemas import (
     get_note_context_parameters,
     manage_annotations_parameters,
     read_paper_parameters,
+    read_workspace_parameters,
     review_note_parameters,
     search_paper_rag_parameters,
     search_notes_parameters,
@@ -62,7 +63,8 @@ def create_tools(
             name="read_paper",
             description=(
                 "Read paper source material for a note. Use action=search_text for focused snippets, read_pages for "
-                "page text, render_page for a page image, extract_images for figures, or analyze_image for a registered artifact."
+                "page text, render_page for a page image, extract_images for figures, or analyze_image for a "
+                "registered artifact."
             ),
             args_schema=read_paper_parameters(),
             func=lambda **kwargs: facade.read_paper(
@@ -75,6 +77,16 @@ def create_tools(
                 media_store=media_store,
                 paper_image_analyzer=paper_image_analyzer,
             ),
+        ),
+        StructuredTool(
+            name="read_workspace",
+            description=(
+                "Read, list, stat, or search files under the current Paper_Notes workspace. Use this for explicit "
+                "local paths such as .paper-notes generated artifacts, session JSONL files, resources, notes.json, "
+                "or source files. It cannot read outside the workspace."
+            ),
+            args_schema=read_workspace_parameters(),
+            func=lambda **kwargs: facade.read_workspace(dict(kwargs)),
         ),
         StructuredTool(
             name="search_paper_rag",

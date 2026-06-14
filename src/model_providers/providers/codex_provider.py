@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -43,7 +44,6 @@ CODEX_RESPONSES_OPTIONS = {
     "prompt_cache_key",
     "reasoning",
     "service_tier",
-    "temperature",
     "text",
     "top_p",
     "truncation",
@@ -135,8 +135,22 @@ class CodexChatModel(BaseChatModel):
 
         streamed_content = False
         final_response: Any | None = None
+        terminal_response: Any | None = None
+        collected_output_items: list[Any] = []
+        collected_text_deltas: list[str] = []
         with stream_factory(**payload) as stream:
             for event in stream:
+                event_type = str(_get_attr(event, "type", "") or "")
+                if event_type in {"response.output_item.done", "response.output_item.completed"}:
+                    item = _get_attr(event, "item", None)
+                    if item is not None:
+                        collected_output_items.append(item)
+                elif event_type in {"response.output_text.delta", "response.text.delta"}:
+                    delta = str(_get_attr(event, "delta", "") or "")
+                    if delta:
+                        collected_text_deltas.append(delta)
+                elif event_type in {"response.completed", "response.incomplete", "response.failed"}:
+                    terminal_response = _get_attr(event, "response", None) or terminal_response
                 for chunk in _stream_chunk_from_responses_event(event):
                     if str(chunk.message.content or ""):
                         streamed_content = True
@@ -144,6 +158,11 @@ class CodexChatModel(BaseChatModel):
             get_final_response = getattr(stream, "get_final_response", None)
             if callable(get_final_response):
                 final_response = get_final_response()
+        final_response = _backfill_stream_output(
+            final_response or terminal_response,
+            collected_output_items=collected_output_items,
+            collected_text_deltas=collected_text_deltas,
+        )
         if final_response is None:
             raise RuntimeError("Codex Responses stream completed without a final response.")
         yield _final_generation_chunk_from_response(final_response, suppress_content=streamed_content, options=options, model=self.model)
@@ -199,7 +218,7 @@ def _responses_payload(
     response_tools = _responses_tools(tools)
     if _native_web_search_enabled(options):
         response_tools.append({"type": "web_search"})
-    image_generation_tool = _image_generation_tool(options)
+    image_generation_tool = _image_generation_tool(options) if _native_image_generation_enabled(options) else None
     if image_generation_tool:
         response_tools.append(image_generation_tool)
     if response_tools:
@@ -340,6 +359,15 @@ def _native_web_search_enabled(options: dict[str, Any]) -> bool:
     return False
 
 
+def _native_image_generation_enabled(options: dict[str, Any]) -> bool:
+    value = options.get("_paper_notes_codex_native_image_generation")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return False
+
+
 def _image_generation_tool(options: dict[str, Any]) -> dict[str, Any] | None:
     config = _image_generation_options(options)
     if not config:
@@ -378,7 +406,7 @@ def _image_generation_options(options: dict[str, Any]) -> dict[str, Any]:
 def _message_from_responses_response(response: Any, *, options: dict[str, Any], model: str) -> AIMessage:
     content, tool_calls, info = _parse_responses_response(response, options=options, model=model)
     if not content and not tool_calls and not info.get("artifacts"):
-        raise RuntimeError("Codex completed without a user-visible response.")
+        info["empty_response"] = True
     return AIMessage(
         content="" if tool_calls else content,
         tool_calls=tool_calls,
@@ -485,6 +513,37 @@ def _final_generation_chunk_from_response(
         ),
         generation_info=dict(message.response_metadata or {}),
     )
+
+
+def _backfill_stream_output(
+    response: Any | None,
+    *,
+    collected_output_items: list[Any],
+    collected_text_deltas: list[str],
+) -> Any | None:
+    if response is None:
+        if not collected_output_items and not collected_text_deltas:
+            return None
+        response = SimpleNamespace(id="", status="completed", output=[], output_text="", usage=None)
+    output = _get_attr(response, "output", None)
+    if isinstance(output, list) and output:
+        return response
+    if collected_output_items:
+        _set_attr(response, "output", list(collected_output_items))
+        return response
+    if collected_text_deltas:
+        text = "".join(collected_text_deltas)
+        _set_attr(response, "output", [
+            SimpleNamespace(
+                type="message",
+                role="assistant",
+                status="completed",
+                content=[SimpleNamespace(type="output_text", text=text)],
+            )
+        ])
+        if not _get_attr(response, "output_text", ""):
+            _set_attr(response, "output_text", text)
+    return response
 
 
 def _tool_call_chunks_from_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -730,6 +789,16 @@ def _get_attr(item: Any, name: str, default: Any = None) -> Any:
     if isinstance(item, dict):
         return item.get(name, default)
     return getattr(item, name, default)
+
+
+def _set_attr(item: Any, name: str, value: Any) -> None:
+    if isinstance(item, dict):
+        item[name] = value
+        return
+    try:
+        setattr(item, name, value)
+    except Exception:
+        pass
 
 
 def _json_safe(value: Any) -> Any:

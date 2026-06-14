@@ -426,17 +426,37 @@ function normalizeReaderChatSession(rawSession) {
     model: normalizeText(rawSession?.model),
     deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode),
     gptThinkMode: normalizeText(metadata.gptThinkMode || metadata.gpt_think_mode),
-    geminiThinkMode: normalizeText(metadata.geminiThinkMode || metadata.gemini_think_mode),
-    anthropicThinkMode: normalizeText(metadata.anthropicThinkMode || metadata.anthropic_think_mode),
     updatedAt: normalizeText(rawSession?.updatedAt || rawSession?.createdAt),
     createdAt: normalizeText(rawSession?.createdAt),
     archivedAt: normalizeText(rawSession?.archivedAt || metadata.archivedAt || metadata.archived_at),
     trashedAt: normalizeText(rawSession?.trashedAt),
     lastMessagePreview: normalizeText(rawSession?.lastMessagePreview),
     messageCount: Number(rawSession?.messageCount) || 0,
+    activeRun: normalizeActiveChatRun(rawSession?.activeRun || metadata.activeRun || metadata.active_run),
     state,
     archived: state === "archived",
     trashed: state === "trashed"
+  };
+}
+
+function normalizeActiveChatRun(rawRun) {
+  if (!rawRun || typeof rawRun !== "object" || Array.isArray(rawRun)) return null;
+  const requestId = normalizeText(rawRun.requestId || rawRun.request_id);
+  const status = normalizeText(rawRun.status || "running").toLowerCase();
+  if (!requestId || !["pending", "running", "starting"].includes(status)) return null;
+  const rawProgress = rawRun.progress && typeof rawRun.progress === "object" ? rawRun.progress : null;
+  const progress = typeof normalizeChatProgress === "function"
+    ? normalizeChatProgress(rawProgress)
+    : rawProgress;
+  return {
+    requestId,
+    status,
+    startedAt: normalizeText(rawRun.startedAt || rawRun.started_at),
+    noteId: normalizeText(rawRun.noteId || rawRun.note_id),
+    provider: normalizeProviderName(rawRun.provider),
+    model: normalizeText(rawRun.model),
+    message: normalizeText(rawRun.message || rawRun.latestUserText || rawRun.latest_user_text),
+    progress
   };
 }
 
@@ -579,8 +599,6 @@ function normalizeReaderWebSearchProviders(raw) {
     native_provider: {
       openaiCodex: enabledEntry(nativeRaw.openaiCodex || nativeRaw.openai_codex),
       openaiAPIKey: enabledEntry(nativeRaw.openaiAPIKey || nativeRaw.openai_api_key),
-      anthropic: enabledEntry(nativeRaw.anthropic || nativeRaw.Anthropic),
-      gemini: enabledEntry(nativeRaw.gemini || nativeRaw.Gemini || nativeRaw.googleGemini),
     },
     custom_provider: {
       Tavily: enabledEntry(customRaw.Tavily || customRaw.tavily),
@@ -621,12 +639,6 @@ function readerNativeWebSearchEnabledForCurrentProvider(settings) {
   }
   if (provider === "openai") {
     return Boolean(native.openaiAPIKey?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
-  }
-  if (provider === "anthropic") {
-    return Boolean(native.anthropic?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
-  }
-  if (provider === "gemini") {
-    return Boolean(native.gemini?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
   }
   return false;
 }
@@ -827,98 +839,9 @@ function currentGptThinkMode(model = currentReaderModel(), provider = currentRea
   return normalizeGptThinkMode(readerState.gptThinkMode?.enabled ? readerState.gptThinkMode.effort : "off", model, provider);
 }
 
-function normalizeGeminiThinkMode(rawMode, model = currentReaderModel()) {
-  const normalizedModel = normalizeText(model);
-  const mode = normalizeText(rawMode).toLowerCase();
-  if (normalizedModel === "gemini-3-pro-preview") {
-    const effort = ["low", "high"].includes(mode) ? mode : "high";
-    return { enabled: true, effort };
-  }
-  if (!mode || mode === "off" || mode === "minimal" || mode === "none" || mode === "false") {
-    return { enabled: false, effort: "medium" };
-  }
-  const effort = ["low", "medium", "high"].includes(mode) ? mode : "medium";
-  return { enabled: true, effort };
-}
-
-function readStoredGeminiThinkMode() {
-  try {
-    return normalizeGeminiThinkMode(localStorage.getItem(GEMINI_THINK_MODE_KEY) || "", "gemini-3-flash-preview");
-  } catch (error) {
-    return { enabled: false, effort: "medium" };
-  }
-}
-
-function writeStoredGeminiThinkMode(mode, model = currentReaderModel()) {
-  const normalized = normalizeGeminiThinkMode(mode, model);
-  try {
-    localStorage.setItem(GEMINI_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
-  } catch (error) {
-    console.warn("Failed to save Gemini think mode.", error);
-  }
-  return normalized;
-}
-
-function providerSupportsGeminiThinkMode(provider) {
-  return normalizeProviderName(provider) === "gemini";
-}
-
-function currentGeminiThinkMode(model = currentReaderModel()) {
-  const sessionMode = normalizeText(currentReaderSession()?.geminiThinkMode);
-  if (sessionMode) return normalizeGeminiThinkMode(sessionMode, model);
-  return normalizeGeminiThinkMode(readerState.geminiThinkMode?.enabled ? readerState.geminiThinkMode.effort : "off", model);
-}
-
-function anthropicThinkEffortsForModel(model = currentReaderModel()) {
-  const normalizedModel = normalizeText(model);
-  if (normalizedModel === "claude-opus-4-7") return ["low", "medium", "high", "xhigh", "max"];
-  if (normalizedModel === "claude-sonnet-4-6") return ["low", "medium", "high", "max"];
-  return [];
-}
-
-function normalizeAnthropicThinkMode(rawMode, model = currentReaderModel()) {
-  const efforts = anthropicThinkEffortsForModel(model);
-  const mode = normalizeText(rawMode).toLowerCase();
-  if (!efforts.length || !mode || mode === "off" || mode === "none" || mode === "false") {
-    return { enabled: false, effort: "medium" };
-  }
-  const effort = efforts.includes(mode) ? mode : "medium";
-  return { enabled: true, effort };
-}
-
-function readStoredAnthropicThinkMode() {
-  try {
-    return normalizeAnthropicThinkMode(localStorage.getItem(ANTHROPIC_THINK_MODE_KEY) || "");
-  } catch (error) {
-    return { enabled: false, effort: "medium" };
-  }
-}
-
-function writeStoredAnthropicThinkMode(mode, model = currentReaderModel()) {
-  const normalized = normalizeAnthropicThinkMode(mode, model);
-  try {
-    localStorage.setItem(ANTHROPIC_THINK_MODE_KEY, normalized.enabled ? normalized.effort : "off");
-  } catch (error) {
-    console.warn("Failed to save Anthropic think mode.", error);
-  }
-  return normalized;
-}
-
-function providerSupportsAnthropicThinkMode(provider, model = currentReaderModel()) {
-  return normalizeProviderName(provider) === "anthropic" && anthropicThinkEffortsForModel(model).length > 0;
-}
-
-function currentAnthropicThinkMode(model = currentReaderModel()) {
-  const sessionMode = normalizeText(currentReaderSession()?.anthropicThinkMode);
-  if (sessionMode) return normalizeAnthropicThinkMode(sessionMode, model);
-  return normalizeAnthropicThinkMode(readerState.anthropicThinkMode?.enabled ? readerState.anthropicThinkMode.effort : "off", model);
-}
-
 function syncReaderThinkModesFromStorage() {
   readerState.deepSeekThinkMode = readStoredDeepSeekThinkMode();
   readerState.gptThinkMode = readStoredGptThinkMode(currentReaderModel(), currentReaderProvider());
-  readerState.geminiThinkMode = readStoredGeminiThinkMode();
-  readerState.anthropicThinkMode = readStoredAnthropicThinkMode();
 }
 
 syncReaderThinkModesFromStorage();
@@ -1275,7 +1198,7 @@ function providerAllowsSavedModel(provider, model, options = null) {
   const normalizedProvider = normalizeProviderName(provider);
   const catalogOptions = options || (providerProfileFor(provider)?.models || []);
   if (catalogOptions.some((option) => option.value === selected)) return true;
-  return normalizedProvider !== "codex-oauth" && normalizedProvider !== "gemini";
+  return normalizedProvider !== "codex-oauth";
 }
 
 function defaultModelForProvider(provider) {
@@ -1303,10 +1226,6 @@ function currentReaderModel() {
   }
   return defaultModelForProvider(provider)
     || (normalizeProviderName(readerState.aiSettings?.provider) === provider ? normalizeText(readerState.aiSettings?.model) : "");
-}
-
-function geminiModelIsSupported(model) {
-  return ["gemini-3-flash-preview", "gemini-3-pro-preview"].includes(normalizeText(model));
 }
 
 function currentReaderProvider() {
@@ -1462,7 +1381,7 @@ function writeActiveChatRunStore(store) {
   }
 }
 
-function rememberActiveChatRun(sessionId, requestId) {
+function rememberActiveChatRun(sessionId, requestId, latestUserText = "") {
   const normalizedSessionId = normalizeText(sessionId);
   const normalizedRequestId = normalizeText(requestId);
   if (!normalizedSessionId || !normalizedRequestId) return;
@@ -1470,6 +1389,7 @@ function rememberActiveChatRun(sessionId, requestId) {
   store[normalizedSessionId] = {
     requestId: normalizedRequestId,
     noteId: currentChatNoteId(),
+    latestUserText: normalizeText(latestUserText),
     updatedAt: new Date().toISOString()
   };
   writeActiveChatRunStore(store);
@@ -1488,8 +1408,25 @@ function activeChatRunForSession(sessionId = getChatSessionId()) {
   if (!normalizedSessionId) return null;
   const entry = readActiveChatRunStore()[normalizedSessionId];
   const requestId = normalizeText(entry?.requestId);
-  if (!requestId || normalizeText(entry?.noteId) !== currentChatNoteId()) return null;
-  return { sessionId: normalizedSessionId, requestId };
+  if (requestId && normalizeText(entry?.noteId) === currentChatNoteId()) {
+    return {
+      sessionId: normalizedSessionId,
+      requestId,
+      latestUserText: normalizeText(entry?.latestUserText)
+    };
+  }
+  const session = readerState.currentChatSession?.id === normalizedSessionId
+    ? readerState.currentChatSession
+    : readerState.chatSessions.find((item) => item?.id === normalizedSessionId);
+  const activeRun = normalizeActiveChatRun(session?.activeRun);
+  if (!activeRun) return null;
+  if (activeRun.noteId && activeRun.noteId !== currentChatNoteId()) return null;
+  return {
+    sessionId: normalizedSessionId,
+    requestId: activeRun.requestId,
+    latestUserText: activeRun.message,
+    progress: activeRun.progress
+  };
 }
 
 function migrateChatRunState(fromRunKey, toSessionId) {

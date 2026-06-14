@@ -89,6 +89,11 @@ TOOL_GUIDANCE_BY_NAME = {
         "Use read_paper for exact PDF text search, page text, page rendering, figure extraction, or registered "
         "paper image analysis. Use this as the fallback for papers that have not been indexed for RAG."
     ),
+    "read_workspace": (
+        "Use read_workspace for explicit local paths under the current Paper_Notes workspace, including "
+        ".paper-notes generated artifacts, session JSONL files, resources, notes.json, and source files. "
+        "Prefer specialized note/PDF tools for paper semantics, but use read_workspace when the user gives a file path."
+    ),
     "search_paper_rag": (
         "Use search_paper_rag only for semantic retrieval over a note's already indexed PDF. Do not assume imports "
         "create indexes automatically. If it reports index_not_ready, continue with read_paper."
@@ -120,7 +125,8 @@ TOOL_GUIDANCE_BY_NAME = {
         "Use create_file_artifact when the user asks for a generated, saved, exported, or downloadable text file."
     ),
     "create_image_artifact": (
-        "Use create_image_artifact when the user asks for a generated/downloadable image, diagram, visual, or image edit."
+        "Use create_image_artifact when the user asks for a generated/downloadable image, diagram, visual, "
+        "or image edit."
     ),
     "web_search": (
         "Use web_search for current external web facts, source attribution, and information outside the local "

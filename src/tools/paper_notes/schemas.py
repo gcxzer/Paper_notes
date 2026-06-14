@@ -68,6 +68,44 @@ def read_paper_parameters() -> dict[str, Any]:
     }
 
 
+def read_workspace_parameters() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["read", "list", "search", "stat"],
+                "description": "Workspace read action. Defaults to read.",
+            },
+            "path": {
+                "type": "string",
+                "description": (
+                    "Relative or absolute path under the current Paper_Notes workspace, such as "
+                    ".paper-notes/media/generated/file.md, resources/Paper-html/Note.html, notes.json, or src/app.py."
+                ),
+            },
+            "query": {"type": "string", "description": "Text query for action=search."},
+            "glob": {"type": "string", "description": "Optional glob for list/search, such as *.md or **/*.json."},
+            "recursive": {"type": "boolean", "description": "Whether list/search should recurse into subdirectories."},
+            "offset": {"type": "integer", "minimum": 1, "description": "First line to read for action=read."},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Maximum entries, matches, or lines to return.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 50000,
+                "description": "Maximum text characters to return for read, or per match for search.",
+            },
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
 def search_paper_rag_parameters() -> dict[str, Any]:
     return {
         "type": "object",
@@ -144,11 +182,17 @@ def manage_annotations_parameters() -> dict[str, Any]:
         "properties": {
             "action": {"type": "string", "enum": ["create", "update", "delete"]},
             "note_id": {"type": "string", "description": "The note id whose annotation should change."},
-            "annotation_id": {"type": "string", "description": "Annotation id for update/delete, or optional id for create."},
+            "annotation_id": {
+                "type": "string",
+                "description": "Annotation id for update/delete, or optional id for create.",
+            },
             "annotation_type": {"type": "string", "enum": ["highlight", "underline", "area", "note"]},
             "comment": {"type": "string", "description": "Annotation comment."},
             "quote": {"type": "string", "description": "Quoted PDF text for create/update annotation."},
-            "query": {"type": "string", "description": "PDF text to locate when creating an annotation without explicit coordinates."},
+            "query": {
+                "type": "string",
+                "description": "PDF text to locate when creating an annotation without explicit coordinates.",
+            },
             "color": {"type": "string", "enum": ["yellow", "green", "blue", "red", "purple"]},
             "page": {"type": "integer", "minimum": 1, "description": "PDF page for annotation create/update."},
             "x": {"type": "number", "minimum": 0, "maximum": 1},
@@ -182,7 +226,8 @@ def write_note_media_parameters() -> dict[str, Any]:
                 "type": "string",
                 "description": (
                     "Image artifact id or a path anywhere under Paper_Notes/.paper-notes/media, including subfolders. "
-                    "Do not use Desktop/Downloads/arbitrary local paths; ask the user to move/copy local images into .paper-notes/media or a subfolder first."
+                    "Do not use Desktop/Downloads/arbitrary local paths; ask the user to move/copy local images "
+                    "into .paper-notes/media or a subfolder first."
                 ),
             },
             "page": {"type": "integer", "minimum": 1, "description": "PDF page for write_from_image."},

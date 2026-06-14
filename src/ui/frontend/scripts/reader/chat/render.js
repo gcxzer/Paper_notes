@@ -97,7 +97,6 @@ function compactWorkTraceItems(items) {
     const identityIndex = identity
       ? compacted.findIndex((existing) => (
         existing.type === type
-        && existing.source === source
         && workTraceItemIdentity(existing) === identity
       ))
       : -1;
@@ -107,7 +106,7 @@ function compactWorkTraceItems(items) {
         ...existing,
         ...item,
         type,
-        source,
+        source: source || existing.source,
         text: text.length >= normalizeText(existing.text).length ? text : normalizeText(existing.text),
         complete: item.complete === true || (existing.complete === true && item.complete !== false),
       };
@@ -145,6 +144,12 @@ function workTraceItemIdentity(item) {
     || data.item?.id
     || data.item?.itemId
     || data.item?.item_id
+    || data.toolCallId
+    || data.tool_call_id
+    || data.toolCall?.id
+    || data.toolCall?.tool_call_id
+    || data.tool_call?.id
+    || data.tool_call?.tool_call_id
   );
 }
 
@@ -721,7 +726,7 @@ function progressInlineRows(progress) {
     });
   }
   const seen = new Set();
-  return sortTraceItemsChronologically(rows).map((row) => {
+  const output = sortTraceItemsChronologically(rows).map((row) => {
     const detail = sanitizeChatProgressDetail(row.detail);
     if (!detail) return null;
     const type = progressInlineType(row.type);
@@ -731,6 +736,13 @@ function progressInlineRows(progress) {
     seen.add(key);
     return { type, detail, at: normalizeText(row.at), complete: row.complete === true };
   }).filter(Boolean);
+  if (output.length <= 1) return output;
+  return output.filter((row) => !isStartingProgressInlineRow(row));
+}
+
+function isStartingProgressInlineRow(row) {
+  return progressInlineType(row?.type) === "status"
+    && ["Starting agent run.", "Agent run started."].includes(sanitizeChatProgressDetail(row?.detail));
 }
 
 function activeProgressToolRowIndex(rows) {

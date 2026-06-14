@@ -26,6 +26,7 @@ from tools.paper_notes.impl.notes import (
     write_note_section,
 )
 from tools.paper_notes.impl.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
+from tools.paper_notes.impl.workspace import read_workspace as read_workspace_file
 
 
 def _write_note_resources(args: dict[str, Any]) -> list[str]:
@@ -119,6 +120,10 @@ def read_paper(
             "question": args.get("query") or args.get("question") or "Analyze this paper image.",
         })
     return tool_error("invalid_action", "action must be search_text, read_pages, render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
+
+
+def read_workspace(args: dict[str, Any]) -> dict[str, Any]:
+    return read_workspace_file(args)
 
 
 def search_paper_rag(

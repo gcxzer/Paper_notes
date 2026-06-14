@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from model_providers.profiles.builtin import (
-    ANTHROPIC_PROVIDER,
     CODEX_PROVIDER,
     CONTEXT_WINDOW_TABLES_BY_PROVIDER,
     DEEPSEEK_PROVIDER,
     DEFAULT_FALLBACK_CONTEXT_LENGTH,
-    GEMINI_PROVIDER,
     OPENAI_PROVIDER,
     BUILTIN_PROFILES,
     OPENAI_CONTEXT_WINDOWS,
@@ -44,12 +42,6 @@ def normalize_provider_profile_name(name: object) -> str:
         "codex": CODEX_PROVIDER,
         CODEX_PROVIDER: CODEX_PROVIDER,
         "openai-codex": CODEX_PROVIDER,
-        "claude": ANTHROPIC_PROVIDER,
-        ANTHROPIC_PROVIDER: ANTHROPIC_PROVIDER,
-        "google": GEMINI_PROVIDER,
-        "google-gemini": GEMINI_PROVIDER,
-        "google-ai-studio": GEMINI_PROVIDER,
-        GEMINI_PROVIDER: GEMINI_PROVIDER,
         "deep-seek": DEEPSEEK_PROVIDER,
         DEEPSEEK_PROVIDER: DEEPSEEK_PROVIDER,
     }
@@ -104,7 +96,7 @@ def _normalize_provider_alias(name: object) -> str:
 
 
 def _provider_allows_custom_model(provider: object) -> bool:
-    return normalize_provider_profile_name(provider) not in {CODEX_PROVIDER, GEMINI_PROVIDER}
+    return normalize_provider_profile_name(provider) != CODEX_PROVIDER
 
 
 for _profile in BUILTIN_PROFILES:

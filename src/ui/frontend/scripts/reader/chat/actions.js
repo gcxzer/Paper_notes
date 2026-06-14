@@ -38,27 +38,6 @@ function readerRequestOptions() {
         : { effort: "none" },
     };
   }
-  if (providerSupportsGeminiThinkMode(normalizedProvider)) {
-    const model = currentReaderModel();
-    const thinkMode = currentGeminiThinkMode(model);
-    if (model === "gemini-3-pro-preview") {
-      return { thinking_level: thinkMode.effort, include_thoughts: true };
-    }
-    if (!thinkMode.enabled) {
-      return { thinking_level: "minimal", include_thoughts: false };
-    }
-    return { thinking_level: thinkMode.effort, include_thoughts: true };
-  }
-  if (providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())) {
-    const thinkMode = currentAnthropicThinkMode(currentReaderModel());
-    if (!thinkMode.enabled) {
-      return { thinking: { type: "disabled" } };
-    }
-    return {
-      thinking: { type: "adaptive", display: "summarized" },
-      output_config: { effort: thinkMode.effort },
-    };
-  }
   if (normalizedProvider !== "deepseek") return {};
   const thinkMode = currentDeepSeekThinkMode();
   if (!thinkMode.enabled) {
@@ -319,13 +298,6 @@ async function sendReaderChatMessage(options = {}) {
     setReaderChatError("No saved session is available to edit.");
     return;
   }
-  if (!editing && generationPayload.imageGeneration?.enabled && !activeProviderSupportsImageArtifacts()) {
-    readerState.generationMode = "";
-    renderAttachmentTray();
-    renderReaderToolControls();
-    setReaderChatError(activeProviderImageGenerationUnsupportedMessage());
-    return;
-  }
   const requestId = createRequestId();
   const context = readerChatContext();
   if (selectedPdfText) {
@@ -354,6 +326,7 @@ async function sendReaderChatMessage(options = {}) {
   setReaderChatPending(true, sessionRunKey);
   startReaderChatProgress(requestId, sessionRunKey);
   if (activeSessionId) {
+    rememberActiveChatRun(activeSessionId, requestId, text);
     scheduleReaderChatRecoveryPoll({ sessionId: activeSessionId, requestId, latestUserText: text });
   }
   const abortController = new AbortController();
@@ -368,8 +341,6 @@ async function sendReaderChatMessage(options = {}) {
     const providerForRequest = currentReaderProvider();
     const normalizedProviderForRequest = normalizeProviderName(providerForRequest);
     const gptThinkModeForRequest = currentGptThinkMode(currentReaderModel(), normalizedProviderForRequest);
-    const geminiThinkModeForRequest = currentGeminiThinkMode(currentReaderModel());
-    const anthropicThinkModeForRequest = currentAnthropicThinkMode(currentReaderModel());
     const requestBody = {
       requestId,
       message: text,
@@ -396,12 +367,6 @@ async function sendReaderChatMessage(options = {}) {
         ...(providerSupportsGptThinkMode(normalizedProviderForRequest)
           ? { gptThinkMode: gptThinkModeForRequest.enabled ? gptThinkModeForRequest.effort : "off" }
           : {}),
-        ...(providerSupportsGeminiThinkMode(normalizedProviderForRequest)
-          ? { geminiThinkMode: geminiThinkModeForRequest.enabled ? geminiThinkModeForRequest.effort : "off" }
-          : {}),
-        ...(providerSupportsAnthropicThinkMode(normalizedProviderForRequest, currentReaderModel())
-          ? { anthropicThinkMode: anthropicThinkModeForRequest.enabled ? anthropicThinkModeForRequest.effort : "off" }
-          : {}),
       }
     };
     if (!activeSessionId) writeStoredReaderModelSelection(requestBody.provider, requestBody.model);
@@ -421,7 +386,7 @@ async function sendReaderChatMessage(options = {}) {
             sessionWithRequestModelSelection(data?.session, requestBody, startedSessionId)
           );
           setCurrentChatSessionId(startedSession?.id || startedSessionId);
-          rememberActiveChatRun(startedSessionId, requestId);
+          rememberActiveChatRun(startedSessionId, requestId, text);
           scheduleReaderChatRecoveryPoll({ sessionId: startedSessionId, requestId, latestUserText: text });
         }
       });
@@ -469,7 +434,7 @@ async function sendReaderChatMessage(options = {}) {
   } catch (error) {
     if (error?.name === "AbortError") {
       detachedByAbort = true;
-      if (activeSessionId) rememberActiveChatRun(activeSessionId, requestId);
+      if (activeSessionId) rememberActiveChatRun(activeSessionId, requestId, text);
       return;
     }
     if (readerState.chatProgressRequestIdsBySession[sessionRunKey] !== requestId) return;

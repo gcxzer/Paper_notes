@@ -55,10 +55,15 @@ def test_generated_image_tool_is_available_only_for_openai_and_codex(tmp_path):
 
     openai_names = [tool.name for tool in create_tools(media_store=store, provider_name="openai", model="gpt-5.5")]
     codex_names = [tool.name for tool in create_tools(media_store=store, provider_name="codex-oauth", model="gpt-5.5")]
+    spark_names = [
+        tool.name
+        for tool in create_tools(media_store=store, provider_name="codex-oauth", model="gpt-5.3-codex-spark")
+    ]
     deepseek_names = [tool.name for tool in create_tools(media_store=store, provider_name="deepseek", model="deepseek-v4")]
 
     assert "create_file_artifact" in openai_names
     assert "create_image_artifact" in openai_names
     assert "create_image_artifact" in codex_names
+    assert "create_image_artifact" not in spark_names
     assert "create_file_artifact" in deepseek_names
     assert "create_image_artifact" not in deepseek_names

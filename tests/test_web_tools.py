@@ -135,8 +135,6 @@ def test_agent_service_filters_disabled_tools(tmp_path):
     ("provider", "model", "native_tool"),
     [
         ("openai", "gpt-5.5", {"type": "web_search"}),
-        ("anthropic", "claude-sonnet-4-6", {"type": "web_search_20260209", "name": "web_search"}),
-        ("gemini", "gemini-3-flash-preview", {"google_search": {}}),
     ],
 )
 def test_agent_service_adds_provider_native_web_search(provider, model, native_tool, tmp_path):

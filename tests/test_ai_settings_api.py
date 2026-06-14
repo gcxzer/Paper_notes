@@ -37,14 +37,9 @@ def _logged_in_codex_status() -> dict[str, object]:
 def _isolate_ai_env(monkeypatch, tmp_path) -> None:
     for name in (
         "PAPER_NOTES_AI_PROVIDER",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
         "CODEX_MODEL",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_MODEL",
-        "GEMINI_API_KEY",
-        "GEMINI_MODEL",
-        "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "OPENAI_MODEL",
         "TAVILY_API_KEY",
@@ -93,20 +88,20 @@ def test_update_ai_settings_saves_local_model_and_key_without_returning_key(monk
     assert values["OPENAI_API_KEY"] == "sk-test-secret"
 
 
-def test_update_ai_settings_can_save_provider_key_without_changing_default(monkeypatch, tmp_path):
+def test_update_ai_settings_can_save_deepseek_key_without_changing_default(monkeypatch, tmp_path):
     _isolate_ai_env(monkeypatch, tmp_path)
     secrets_path = tmp_path / "secrets.env"
     update_ai_settings({"provider": "openai"}, secrets_path=secrets_path)
 
     payload = update_ai_settings(
-        {"provider": "openai", "apiKeyProvider": "gemini", "apiKey": "gemini-secret"},
+        {"provider": "openai", "apiKeyProvider": "deepseek", "apiKey": "deepseek-secret"},
         secrets_path=secrets_path,
     )
 
     assert payload["provider"] == "openai"
     values = parse_env_file(secrets_path)
     assert values["PAPER_NOTES_AI_PROVIDER"] == "openai"
-    assert values["GEMINI_API_KEY"] == "gemini-secret"
+    assert values["DEEPSEEK_API_KEY"] == "deepseek-secret"
     assert "OPENAI_API_KEY" not in values
 
 
@@ -156,8 +151,6 @@ def test_model_providers_returns_catalog_and_configured_status(monkeypatch, tmp_
     assert providers["openai"]["model"] == "gpt-test"
     assert providers["openai"]["models"][-1]["value"] == "gpt-test"
     assert providers["codex-oauth"]["configured"] is False
-    assert providers["anthropic"]["model"] == "claude-sonnet-4-6"
-    assert providers["gemini"]["model"] == "gemini-3-flash-preview"
     assert providers["deepseek"]["model"] == "deepseek-v4-flash"
 
 
@@ -195,8 +188,6 @@ def test_ai_settings_routes_are_registered_and_redact_keys(monkeypatch, tmp_path
     assert {provider["name"] for provider in catalog.json()["providers"]} >= {
         "openai",
         "codex-oauth",
-        "anthropic",
-        "gemini",
         "deepseek",
     }
     assert deleted.status_code == 200

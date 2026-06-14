@@ -670,7 +670,6 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
   const relatedByIdentity = () => itemIdentity
     ? trace.items.findIndex((item) => (
       item.type === itemType
-      && item.source === source
       && workTraceItemIdentity(item) === itemIdentity
     ))
     : -1;
@@ -682,7 +681,7 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
       trace.items[relatedIndex] = {
         ...previous,
         text: text.length >= previousText.length ? text : previousText,
-        source,
+        source: source || previous.source,
         at,
         data: itemData,
         complete,

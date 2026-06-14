@@ -301,7 +301,7 @@ test("settings modal stays within the mobile viewport and keeps provider list sc
       body: JSON.stringify({
         provider: "openai",
         providerSource: "default",
-        supportedProviders: ["openai", "codex-oauth", "anthropic", "gemini", "deepseek"],
+        supportedProviders: ["openai", "codex-oauth", "deepseek"],
         configured: false,
         ready: false,
         model: "gpt-5.5",
@@ -321,8 +321,6 @@ test("settings modal stays within the mobile viewport and keeps provider list sc
         providers: [
           { name: "openai", displayName: "OpenAI API key", configured: false, ready: false, models: [{ value: "gpt-5.5", label: "GPT-5.5" }] },
           { name: "codex-oauth", displayName: "Codex OAuth", configured: false, ready: false, models: [{ value: "gpt-5.5", label: "GPT-5.5" }] },
-          { name: "anthropic", displayName: "Anthropic", configured: false, ready: false, models: [{ value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" }] },
-          { name: "gemini", displayName: "Gemini", configured: false, ready: false, models: [{ value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" }] },
           { name: "deepseek", displayName: "DeepSeek", configured: false, ready: false, models: [{ value: "deepseek-chat", label: "DeepSeek Chat" }] },
         ],
       }),
@@ -397,7 +395,7 @@ test("floating scratchpad persists content and position across library and reade
   expect(panelBox.height).toBeGreaterThan(500);
   await expect(page.locator(".floating-pad-list-panel")).toBeHidden();
   await expect(page.locator(".floating-pad-panel")).not.toHaveClass(/is-list-open/);
-  await page.locator(".floating-pad-input").fill("scratch idea\n\ncompare DeepSeek and Claude session UX");
+  await page.locator(".floating-pad-input").fill("scratch idea\n\ncompare DeepSeek and Codex session UX");
   await expect(page.locator(".floating-pad-status")).toHaveText("Saved");
   await expect(page.locator(".floating-pad-active-title")).toHaveText("Pad 1");
   await page.locator("[data-floating-pad-clear]").click();
@@ -573,6 +571,10 @@ async function installPdfTextFixture(page) {
 async function installAgentMocks(page, options = {}) {
   const requests = [];
   const extraArtifacts = Array.isArray(options.artifacts) ? options.artifacts : [];
+  const agentSessions = Array.isArray(options.agentSessions) ? options.agentSessions : [];
+  const agentSessionDetails = options.agentSessionDetails && typeof options.agentSessionDetails === "object"
+    ? options.agentSessionDetails
+    : null;
   const streamGate = options.streamGate;
   const progressWorkItems = Array.isArray(options.workTraceItems) && options.workTraceItems.length
     ? options.workTraceItems
@@ -587,8 +589,20 @@ async function installAgentMocks(page, options = {}) {
     ];
 
   await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: agentSessions }) });
   });
+  if (agentSessionDetails) {
+    await page.route(/\/api\/agent\/sessions\/[^/]+$/, async (route) => {
+      const sessionId = agentSessionIdFromRoute(route);
+      const detail = agentSessionDetails[sessionId];
+      const session = typeof detail === "function" ? await detail(route) : detail;
+      if (!session) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Session not found" }) });
+        return;
+      }
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ session }) });
+    });
+  }
 
   await page.route("**/api/model/providers", async (route) => {
     await route.fulfill({
@@ -1895,6 +1909,84 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await askPane.getByText("Worked for").click();
   await expect(askPane.locator(".ask-run-summary-events").getByText("Starting agent run.")).toBeVisible();
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
+});
+
+test("reader resumes an active chat run from session metadata", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  const now = "2026-05-13T10:00:00.000Z";
+  let detailCalls = 0;
+  const runningSession = {
+    id: "e2e-active-run-session",
+    sessionId: "e2e-active-run-session",
+    title: "Running image task",
+    noteId: E2E_NOTE_ID,
+    currentNoteId: E2E_NOTE_ID,
+    provider: "openai",
+    model: "gpt-5.5",
+    updatedAt: now,
+    messageCount: 1,
+    activeRun: {
+      requestId: "req-resume-active-run",
+      status: "running",
+      noteId: E2E_NOTE_ID,
+      message: "生成一张小狗的图片",
+      progress: {
+        requestId: "req-resume-active-run",
+        status: "running",
+        stage: "tool",
+        detail: "Generating image...",
+        visibleEvents: [{ stage: "tool", detail: "Generating image...", at: now }],
+        events: [{ type: "tool", stage: "tool", detail: "Generating image...", at: now }],
+        workTrace: {
+          status: "running",
+          items: [{ type: "tool", text: "Generating image...", at: now, source: "runtime", complete: true }],
+        },
+      },
+    },
+    messages: [{ role: "user", text: "生成一张小狗的图片" }],
+  };
+  const finalSession = {
+    ...runningSession,
+    activeRun: null,
+    messageCount: 2,
+    messages: [
+      { role: "user", text: "生成一张小狗的图片" },
+      {
+        role: "assistant",
+        text: "图片生成完成。",
+        runTrace: {
+          requestId: "req-resume-active-run",
+          startedAt: now,
+          finishedAt: "2026-05-13T10:00:08.000Z",
+          durationMs: 8000,
+          status: "completed",
+          events: [{ type: "tool", stage: "tool", message: "Generating image...", at: now, data: {} }],
+        },
+      },
+    ],
+  };
+  await installAgentMocks(page, {
+    agentSessions: [runningSession],
+    agentSessionDetails: {
+      "e2e-active-run-session": async () => {
+        detailCalls += 1;
+        return detailCalls <= 2 ? runningSession : finalSession;
+      },
+    },
+  });
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page).toHaveTitle("Paper Reader");
+  await showAskPane(page);
+
+  await page.evaluate(() => loadReaderChatSession("e2e-active-run-session", { closeMenu: false }));
+
+  const askPane = page.locator("#askPane");
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Stop");
+  await expect(askPane.locator(".ask-message-progress-inline").filter({ hasText: "Generating image..." })).toBeVisible();
+  await expect(askPane.getByText("图片生成完成。")).toBeVisible({ timeout: 8000 });
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Send");
+  await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
 });
 
 test("reader ask send button stops a pending request locally", async ({ page }) => {
@@ -4275,7 +4367,7 @@ test("reader ask tools send generation modes and render generated file cards", a
   expect(requests.at(-1).imageGeneration).toBeUndefined();
 });
 
-test("reader disables image generation for Codex Spark", async ({ page }) => {
+test("reader lets Codex Spark send image generation requests for model fallback", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
   await page.route("**/api/model/providers", async (route) => {
@@ -4325,11 +4417,11 @@ test("reader disables image generation for Codex Spark", async ({ page }) => {
   await page.evaluate(() => window.setReaderToolMenuOpen(true));
   await expect(page.locator("#readerToolPopover")).toBeVisible();
   const generateImage = page.locator("[data-tool-action='generate-image']");
-  await expect(generateImage).toBeDisabled();
+  await expect(generateImage).toBeEnabled();
   await expect(generateImage).toHaveAttribute("title", /does not support image generation/);
   const addScreenshot = page.locator("[data-tool-action='add-screenshot']");
   await expect(addScreenshot).toBeDisabled();
   await expect(addScreenshot).toHaveAttribute("title", /does not support image input/);
-  await generateImage.click({ force: true });
-  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
+  await generateImage.click();
+  await expect(page.locator("#readerAttachmentTray")).toContainText("Image generation");
 });

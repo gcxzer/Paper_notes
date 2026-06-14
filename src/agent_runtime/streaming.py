@@ -271,12 +271,18 @@ def _tool_call_events(message: AIMessage, *, source: str) -> list[AgentStreamEve
     for tool_call in message.tool_calls:
         name = str(tool_call.get("name") or "tool").strip()
         args = _tool_args_summary(tool_call.get("args"))
+        tool_call_id = str(tool_call.get("id") or tool_call.get("tool_call_id") or "").strip()
         text = f"Calling tool: {name}{f' with args {args}' if args else ''}"
         events.append(AgentStreamEvent("work_trace_item", {
             "text": text,
             "traceType": "tool",
             "source": source or "model",
-            "data": {"toolName": name, "toolCall": _json_safe(tool_call)},
+            "data": {
+                "toolName": name,
+                "toolCallId": tool_call_id,
+                "toolCall": _json_safe(tool_call),
+                "complete": False,
+            },
         }))
     return events
 
@@ -290,6 +296,7 @@ def _tool_result_event(message: ToolMessage, *, source: str) -> AgentStreamEvent
         "data": {
             "toolName": name,
             "toolCallId": str(message.tool_call_id or ""),
+            "complete": True,
         },
     })
 
