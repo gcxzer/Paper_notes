@@ -68,6 +68,7 @@ class AgentContextStatus:
     remaining_tokens: int
     reserve_tokens: int
     collapse_trigger_tokens: int
+    collapse_trigger_messages: int
     compaction_trigger_tokens: int
     collapse_ready: bool
     compaction_ready: bool
@@ -92,6 +93,7 @@ class AgentContextStatus:
             "remainingTokens": self.remaining_tokens,
             "reserveTokens": self.reserve_tokens,
             "collapseTriggerTokens": self.collapse_trigger_tokens,
+            "collapseTriggerMessages": self.collapse_trigger_messages,
             "compactionTriggerTokens": self.compaction_trigger_tokens,
             "collapseReady": self.collapse_ready,
             "compactionReady": self.compaction_ready,
@@ -211,6 +213,8 @@ class AgentService:
         context_window = resolve_context_length_for_model(provider_name, model_name)
         reserve_tokens = _context_reserve_tokens(model_config)
         trigger_tokens = compaction_trigger_tokens(context_window, reserve_tokens)
+        collapse_trigger_messages = _context_collapse_trigger_messages(model_config)
+        collapse_trigger_tokens = _context_collapse_trigger_tokens(model_config)
         messages = _messages_from_transcript(session.messages)
         tools = self._tools_for_request(request)
         message_tokens = count_tokens_approximately(messages)
@@ -227,10 +231,11 @@ class AgentService:
             tool_tokens=tool_tokens,
             remaining_tokens=remaining_tokens,
             reserve_tokens=reserve_tokens,
-            collapse_trigger_tokens=trigger_tokens,
+            collapse_trigger_tokens=collapse_trigger_tokens,
+            collapse_trigger_messages=collapse_trigger_messages,
             compaction_trigger_tokens=trigger_tokens,
-            collapse_ready=total_tokens >= trigger_tokens,
-            compaction_ready=total_tokens >= trigger_tokens and _has_summary_message(messages),
+            collapse_ready=len(session.messages) >= collapse_trigger_messages or total_tokens >= collapse_trigger_tokens,
+            compaction_ready=total_tokens >= trigger_tokens and _has_compactable_history(messages),
             compaction_enabled=True,
             message_count=len(session.messages),
         )
@@ -425,11 +430,38 @@ def _context_reserve_tokens(config: AppConfig) -> int:
     return DEFAULT_COMPACTION_RESERVE_TOKENS
 
 
-def _has_summary_message(messages: list[BaseMessage]) -> bool:
-    return any(
-        isinstance(message.content, str) and message.content.strip().startswith("[summary]")
-        for message in messages
-    )
+def _context_collapse_trigger_messages(config: AppConfig) -> int:
+    for key in ("context_collapse.trigger_messages", "contextCollapse.triggerMessages"):
+        value = config.get(key, None)
+        if value is None:
+            continue
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 40
+
+
+def _context_collapse_trigger_tokens(config: AppConfig) -> int:
+    for key in ("context_collapse.trigger_tokens", "contextCollapse.triggerTokens"):
+        value = config.get(key, None)
+        if value is None:
+            continue
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 40_000
+
+
+def _has_compactable_history(messages: list[BaseMessage]) -> bool:
+    user_indices = [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message, HumanMessage)
+        and not (isinstance(message.content, str) and message.content.strip().startswith("[summary]"))
+    ]
+    return len(user_indices) >= 2 and user_indices[-2] > 0
 
 
 __all__ = [

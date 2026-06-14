@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 
 from agent_runtime import run_agent_loop
+from agent_runtime.agent_loop import _with_context_management
+from app_config import AppConfig
 from middleware import (
     SUMMARY_MESSAGE_PREFIX,
+    ContextCollapseMiddleware,
     ContextCompactionMiddleware,
     SummarizationMiddleware,
+    ToolOutputPlaceholderMiddleware,
+    ToolOutputTruncationMiddleware,
     compaction_trigger_tokens,
     create_context_collapse_middleware,
 )
@@ -89,6 +96,105 @@ def test_create_context_collapse_middleware_uses_official_defaults() -> None:
     assert collapse.trim_tokens_to_summarize == direct.trim_tokens_to_summarize
 
 
+def test_context_management_inserts_message_based_collapse_middleware() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
+    app_config = AppConfig(
+        data={
+            "models": {"default": "main", "main": {"provider": "openai", "name": "gpt-5.5"}},
+            "context_collapse": {"trigger_messages": 12, "trigger_tokens": 40_000},
+        },
+        path=None,
+    )
+
+    middleware = _with_context_management(model=model, middleware=None, app_config=app_config)
+
+    collapse = next(item for item in middleware if isinstance(item, ContextCollapseMiddleware))
+    assert collapse.trigger == [("messages", 12), ("tokens", 40_000)]
+    assert collapse.keep == ("messages", 1)
+    assert collapse.keep_to_previous_user_question is True
+
+
+def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
+    app_config = AppConfig(
+        data={
+            "models": {"default": "main", "main": {"provider": "openai", "name": "gpt-5.5"}},
+            "tool_output": {
+                "root_dir": str(tmp_path / "tool-outputs"),
+                "default_max_tokens": 1234,
+                "placeholder_keep_recent": 3,
+                "tool_limits": {"read_paper": 4321},
+            },
+        },
+        path=None,
+    )
+
+    middleware = _with_context_management(model=model, middleware=None, app_config=app_config)
+
+    truncation = next(item for item in middleware if isinstance(item, ToolOutputTruncationMiddleware))
+    placeholder = next(item for item in middleware if isinstance(item, ToolOutputPlaceholderMiddleware))
+    assert middleware.index(truncation) < middleware.index(placeholder)
+    assert truncation.root_dir == (tmp_path / "tool-outputs").resolve()
+    assert truncation.default_max_tokens == 1234
+    assert truncation.tool_limits == {"read_paper": 4321}
+    assert placeholder.keep_recent == 3
+
+
+def test_tool_output_truncation_middleware_writes_oversized_outputs(tmp_path) -> None:
+    middleware = ToolOutputTruncationMiddleware(
+        root_dir=tmp_path,
+        default_max_tokens=160,
+        tool_limits={"large_tool": 160},
+    )
+    content = "0123456789 " * 200
+    request = SimpleNamespace(
+        tool=SimpleNamespace(name="large_tool"),
+        tool_call={"name": "large_tool", "id": "call-1"},
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda _request: ToolMessage(content=content, tool_call_id="call-1"),
+    )
+
+    saved_files = list(tmp_path.glob("*.txt"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_text(encoding="utf-8") == content
+    assert isinstance(result, ToolMessage)
+    assert f"Full output path: {saved_files[0]}" in result.content
+    assert "Estimated tokens:" in result.content
+    assert "Beginning of output:" in result.content
+    assert "01234567" in result.content
+    assert content not in result.content
+
+
+def test_tool_output_placeholder_middleware_omits_old_outputs() -> None:
+    middleware = ToolOutputPlaceholderMiddleware(keep_recent=2)
+    old = ToolMessage(
+        content="Full output path: /tmp/full-output.txt\n" + ("old output " * 100),
+        name="read_paper",
+        tool_call_id="old-call",
+    )
+    middle = ToolMessage(content="middle output", name="search_notes", tool_call_id="middle-call")
+    recent = ToolMessage(content="recent output", name="write_note", tool_call_id="recent-call")
+
+    update = middleware.before_model(
+        {"messages": [HumanMessage(content="question"), old, middle, recent]},
+        runtime=None,
+    )
+
+    assert update is not None
+    messages = update["messages"]
+    assert isinstance(messages[0], RemoveMessage)
+    replaced_old = messages[2]
+    assert isinstance(replaced_old, ToolMessage)
+    assert replaced_old.tool_call_id == "old-call"
+    assert replaced_old.content.startswith("[tool output omitted]")
+    assert "Full output path: /tmp/full-output.txt" in replaced_old.content
+    assert "old output old output" not in replaced_old.content
+    assert messages[3:] == [middle, recent]
+
+
 def test_context_collapse_middleware_prefixes_new_summary() -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="compressed history")])
     collapse = create_context_collapse_middleware(
@@ -111,6 +217,38 @@ def test_context_collapse_middleware_prefixes_new_summary() -> None:
     assert update is not None
     summary_messages = [message for message in update["messages"] if isinstance(message, HumanMessage)]
     assert summary_messages[0].content.startswith(SUMMARY_MESSAGE_PREFIX)
+
+
+def test_context_collapse_middleware_can_keep_to_previous_user_question() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="older compressed history")])
+    collapse = create_context_collapse_middleware(
+        model,
+        trigger=("messages", 5),
+        keep=("messages", 1),
+        keep_to_previous_user_question=True,
+    )
+    previous_question = HumanMessage(content="previous user question")
+    previous_answer = AIMessage(content="previous assistant answer")
+    current_question = HumanMessage(content="current user question")
+
+    update = collapse.before_model(
+        {
+            "messages": [
+                HumanMessage(content="old user question"),
+                AIMessage(content="old assistant answer"),
+                previous_question,
+                previous_answer,
+                current_question,
+            ]
+        },
+        runtime=None,
+    )
+
+    assert update is not None
+    messages = update["messages"]
+    assert isinstance(messages[0], RemoveMessage)
+    assert messages[1].content.startswith(SUMMARY_MESSAGE_PREFIX)
+    assert messages[2:] == [previous_question, previous_answer, current_question]
 
 
 def test_context_collapse_middleware_preserves_existing_summary_messages() -> None:
@@ -143,11 +281,11 @@ def test_context_collapse_middleware_preserves_existing_summary_messages() -> No
 
 
 def test_compaction_trigger_tokens_reserves_context_space() -> None:
-    assert compaction_trigger_tokens(400_000) == 380_000
+    assert compaction_trigger_tokens(400_000) == 387_000
     assert compaction_trigger_tokens(128_000, reserve_tokens=20_000) == 108_000
 
 
-def test_context_compaction_middleware_compacts_existing_summaries() -> None:
+def test_context_compaction_middleware_compacts_history_before_previous_user_message() -> None:
     model = FakeMessagesListChatModel(responses=[AIMessage(content="dense summary")])
     compaction = ContextCompactionMiddleware(
         model,
@@ -155,14 +293,22 @@ def test_context_compaction_middleware_compacts_existing_summaries() -> None:
         reserve_tokens=20,
         token_counter=lambda messages: 100,
     )
-    recent_message = HumanMessage(content="recent question")
+    old_summary = HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nold summary")
+    old_question = HumanMessage(content="old question")
+    old_answer = AIMessage(content="old answer")
+    previous_question = HumanMessage(content="previous question")
+    previous_answer = AIMessage(content="previous answer")
+    current_question = HumanMessage(content="current question")
 
     update = compaction.before_model(
         {
             "messages": [
-                HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nold summary"),
-                HumanMessage(content=f"{SUMMARY_MESSAGE_PREFIX}\n\nnewer summary"),
-                recent_message,
+                old_summary,
+                old_question,
+                old_answer,
+                previous_question,
+                previous_answer,
+                current_question,
             ]
         },
         runtime=None,
@@ -173,4 +319,4 @@ def test_context_compaction_middleware_compacts_existing_summaries() -> None:
     assert isinstance(messages[0], RemoveMessage)
     assert messages[1].content.startswith(SUMMARY_MESSAGE_PREFIX)
     assert "dense summary" in messages[1].content
-    assert messages[2] is recent_message
+    assert messages[2:] == [previous_question, previous_answer, current_question]

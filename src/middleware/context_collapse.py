@@ -18,9 +18,22 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 
 SUMMARY_MESSAGE_PREFIX = "[summary]"
+DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES = 40
+DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS = 40_000
+DEFAULT_CONTEXT_COLLAPSE_KEEP = ("messages", 1)
+DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION = True
 
 
 class ContextCollapseMiddleware(SummarizationMiddleware):
+    def __init__(
+        self,
+        *args: Any,
+        keep_to_previous_user_question: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.keep_to_previous_user_question = keep_to_previous_user_question
+
     def before_model(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
         messages = state["messages"]
         self._ensure_message_ids(messages)
@@ -90,6 +103,13 @@ class ContextCollapseMiddleware(SummarizationMiddleware):
             )
         ]
 
+    def _determine_cutoff_index(self, messages: list[AnyMessage]) -> int:
+        if self.keep_to_previous_user_question:
+            cutoff_index = _previous_user_question_index(messages)
+            if cutoff_index is not None:
+                return cutoff_index
+        return super()._determine_cutoff_index(messages)
+
 
 def create_context_collapse_middleware(
     model: str | BaseChatModel,
@@ -114,6 +134,17 @@ def _partition_preserving_summaries(
     return messages_to_summarize, preserved_summaries, conversation_messages[cutoff_index:]
 
 
+def _previous_user_question_index(messages: list[AnyMessage]) -> int | None:
+    user_indices = [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message, HumanMessage) and not _is_summary_message(message)
+    ]
+    if len(user_indices) < 2:
+        return None
+    return user_indices[-2]
+
+
 def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
@@ -121,6 +152,10 @@ def _is_summary_message(message: AnyMessage) -> bool:
 
 __all__ = [
     "ContextCollapseMiddleware",
+    "DEFAULT_CONTEXT_COLLAPSE_KEEP",
+    "DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION",
+    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES",
+    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS",
     "SUMMARY_MESSAGE_PREFIX",
     "SummarizationMiddleware",
     "create_context_collapse_middleware",

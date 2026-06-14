@@ -45,6 +45,7 @@ DEFAULT_IMAGE_SIMILARITY_TOP_K = 3
 DEFAULT_BM25_SIMILARITY_TOP_K = 5
 DEFAULT_HYBRID_WEIGHTS = (0.7, 0.3)
 DEFAULT_INDEX_KEY = "default"
+DEFAULT_TOOL_OUTPUT_ROOT = PROJECT_ROOT / ".paper-notes" / "tool-outputs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +77,32 @@ class ContextManagementConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextCollapseConfig:
+    trigger_messages: int = 40
+    trigger_tokens: int = 40_000
+
+    @classmethod
+    def from_mapping(cls, value: object) -> ContextCollapseConfig:
+        data = _mapping(value)
+        return cls(
+            trigger_messages=_int(
+                data,
+                "trigger_messages",
+                "triggerMessages",
+                default=40,
+                minimum=1,
+            ),
+            trigger_tokens=_int(
+                data,
+                "trigger_tokens",
+                "triggerTokens",
+                default=40_000,
+                minimum=1,
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ContextCompactionConfig:
     reserve_tokens: int = 20_000
 
@@ -91,6 +118,42 @@ class ContextCompactionConfig:
                 minimum=0,
             )
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ToolOutputConfig:
+    enabled: bool = True
+    root_dir: Path = DEFAULT_TOOL_OUTPUT_ROOT
+    default_max_tokens: int = 8_000
+    placeholder_keep_recent: int = 8
+    tool_limits: dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def from_mapping(cls, value: object) -> ToolOutputConfig:
+        data = _mapping(value)
+        default_max_tokens = _int(
+            data,
+            "default_max_tokens",
+            "defaultMaxTokens",
+            default=8_000,
+            minimum=1,
+        )
+        return cls(
+            enabled=_bool(data, "enabled", default=True),
+            root_dir=_path(data, "root_dir", "rootDir", "output_dir", "outputDir", default=DEFAULT_TOOL_OUTPUT_ROOT),
+            default_max_tokens=default_max_tokens,
+            placeholder_keep_recent=_int(
+                data,
+                "placeholder_keep_recent",
+                "placeholderKeepRecent",
+                default=8,
+                minimum=1,
+            ),
+            tool_limits=_tool_limits(data.get("tool_limits", data.get("toolLimits"))),
+        )
+
+    def limit_for(self, tool_name: str) -> int:
+        return self.tool_limits.get(str(tool_name or ""), self.default_max_tokens)
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,7 +477,9 @@ class AppConfig:
     path: Path | None
     server: ServerConfig | None = None
     context_management: ContextManagementConfig | None = None
+    context_collapse: ContextCollapseConfig | None = None
     context_compaction: ContextCompactionConfig | None = None
+    tool_output: ToolOutputConfig | None = None
     library: LibraryConfig | None = None
     rag: RagConfig | None = None
 
@@ -427,9 +492,15 @@ class AppConfig:
         )
         object.__setattr__(
             self,
+            "context_collapse",
+            self.context_collapse or ContextCollapseConfig.from_mapping(self.data.get("context_collapse")),
+        )
+        object.__setattr__(
+            self,
             "context_compaction",
             self.context_compaction or ContextCompactionConfig.from_mapping(self.data.get("context_compaction")),
         )
+        object.__setattr__(self, "tool_output", self.tool_output or ToolOutputConfig.from_mapping(self.data.get("tool_output")))
         object.__setattr__(self, "library", self.library or LibraryConfig.from_mapping(self.data.get("library")))
         object.__setattr__(self, "rag", self.rag or RagConfig.from_mapping(self.data.get("rag")))
 
@@ -476,6 +547,23 @@ def safe_index_key(value: object = "") -> str:
 
 def _mapping(value: object) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _tool_limits(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    limits: dict[str, int] = {}
+    for tool_name, limit in value.items():
+        name = str(tool_name or "").strip()
+        if not name:
+            continue
+        try:
+            parsed = int(limit)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            limits[name] = parsed
+    return limits
 
 
 def _pick(data: dict[str, Any], *keys: str, default: Any) -> Any:

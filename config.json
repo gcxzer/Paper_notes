@@ -14,19 +14,25 @@
         "temperature": 0.2,
         "max_tokens": 4096
       }
-    },
-    "code": {
-      "provider": "anthropic",
-      "name": "claude-opus-4-7",
-      "options": {
-        "temperature": 0.2,
-        "max_tokens": 4096
-      }
     }
   },
-  "checkpointer": {
-    "type": "sqlite",
-    "path": ".paper-notes/checkpoints.sqlite"
+  "tool_output": {
+    "enabled": true,
+    "root_dir": ".paper-notes/tool-outputs",
+    "default_max_tokens": 8000,
+    "placeholder_keep_recent": 8,
+    "tool_limits": {
+      "search_notes": 4000,
+      "get_note_context": 10000,
+      "read_paper": 12000,
+      "search_paper_rag": 10000,
+      "write_note": 6000,
+      "manage_annotations": 6000,
+      "write_note_media": 6000,
+      "review_note": 8000,
+      "skills_list": 8000,
+      "skill_view": 12000
+    }
   },
   "rag": {
     "root_dir": ".paper-notes/rag",

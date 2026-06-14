@@ -104,8 +104,9 @@ def test_agent_service_context_status_uses_model_profile_and_reserve(tmp_path):
     assert status.provider == "openai"
     assert status.model == "gpt-5.5"
     assert status.context_window == 1_050_000
-    assert status.reserve_tokens == 20_000
-    assert status.collapse_trigger_tokens == 1_030_000
-    assert status.compaction_trigger_tokens == 1_030_000
+    assert status.reserve_tokens == 13_000
+    assert status.collapse_trigger_tokens == 40_000
+    assert status.collapse_trigger_messages == 40
+    assert status.compaction_trigger_tokens == 1_037_000
     assert status.remaining_tokens == status.context_window - status.estimated_tokens
     assert status.message_count == 2

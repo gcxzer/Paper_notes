@@ -1,4 +1,4 @@
-"""Second-stage context compaction for already-collapsed summaries."""
+"""Second-stage context compaction for older conversation history."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from middleware.context_collapse import SUMMARY_MESSAGE_PREFIX
 from model_providers import resolve_context_length_for_model
 
 
-DEFAULT_COMPACTION_RESERVE_TOKENS = 20_000
-COMPACT_SUMMARY_PROMPT = """You are a summarization agent creating a context checkpoint. Treat the conversation summaries below as source material for a compact record of prior work. Produce only the structured summary; do not add a greeting, preamble, or prefix. Write the summary in the same language the user was using in the conversation. NEVER include API keys, tokens, passwords, secrets, credentials, or connection strings in the summary; replace any that appear with [REDACTED].
+DEFAULT_COMPACTION_RESERVE_TOKENS = 13_000
+COMPACT_SUMMARY_PROMPT = """You are a summarization agent creating a context checkpoint. Treat the conversation history below as source material for a compact record of prior work. Produce only the structured summary; do not add a greeting, preamble, or prefix. Write the summary in the same language the user was using in the conversation. NEVER include API keys, tokens, passwords, secrets, credentials, or connection strings in the summary; replace any that appear with [REDACTED].
 
-You are updating the current rolling context summary. Earlier conversation turns have already been collapsed into summaries and now need to be compacted into one denser summary.
+You are updating the current rolling context summary. Earlier conversation turns now need to be compacted into one denser summary. The most recent conversation from the previous user question onward will remain available verbatim, so focus this checkpoint on the older history below.
 
-CURRENT SUMMARIES TO COMPACT:
+CURRENT HISTORY TO COMPACT:
 {summaries}
 
 Update the summary using this exact structure. Preserve relevant existing information. Add new completed actions. Move answered questions to "Resolved Questions". Update "## Active Task" to reflect the user's most recent unfulfilled request.
@@ -65,7 +65,7 @@ Update the summary using this exact structure. Preserve relevant existing inform
 ## Critical Context
 [Specific values, error messages, configuration details, or data that would be lost without explicit preservation. NEVER include API keys, tokens, passwords, or credentials; write [REDACTED] instead.]
 
-Target ~5,000 tokens. Be concrete. Write only the summary body."""
+Target ~8,000 tokens. Be concrete. Write only the summary body."""
 
 
 class ContextCompactionMiddleware(AgentMiddleware):
@@ -90,16 +90,16 @@ class ContextCompactionMiddleware(AgentMiddleware):
         if not self._should_compact(messages):
             return None
 
-        summary_messages, other_messages = _partition_summary_messages(messages)
-        if not summary_messages:
+        messages_to_compact, preserved_messages = _partition_messages_for_compaction(messages)
+        if not messages_to_compact:
             return None
 
-        compacted_summary = self._create_compact_summary(summary_messages)
+        compacted_summary = self._create_compact_summary(messages_to_compact)
         return {
             "messages": [
                 RemoveMessage(id=REMOVE_ALL_MESSAGES),
                 self._build_compacted_summary_message(compacted_summary),
-                *other_messages,
+                *preserved_messages,
             ]
         }
 
@@ -108,16 +108,16 @@ class ContextCompactionMiddleware(AgentMiddleware):
         if not self._should_compact(messages):
             return None
 
-        summary_messages, other_messages = _partition_summary_messages(messages)
-        if not summary_messages:
+        messages_to_compact, preserved_messages = _partition_messages_for_compaction(messages)
+        if not messages_to_compact:
             return None
 
-        compacted_summary = await self._acreate_compact_summary(summary_messages)
+        compacted_summary = await self._acreate_compact_summary(messages_to_compact)
         return {
             "messages": [
                 RemoveMessage(id=REMOVE_ALL_MESSAGES),
                 self._build_compacted_summary_message(compacted_summary),
-                *other_messages,
+                *preserved_messages,
             ]
         }
 
@@ -125,11 +125,11 @@ class ContextCompactionMiddleware(AgentMiddleware):
         threshold = compaction_trigger_tokens(self.context_window, self.reserve_tokens)
         if threshold <= 0 or self.token_counter(messages) < threshold:
             return False
-        summary_messages, other_messages = _partition_summary_messages(messages)
-        return bool(summary_messages) and _non_summary_messages_are_recent(other_messages)
+        messages_to_compact, _preserved_messages = _partition_messages_for_compaction(messages)
+        return bool(messages_to_compact)
 
-    def _create_compact_summary(self, summary_messages: list[AnyMessage]) -> str:
-        formatted_summaries = get_buffer_string(summary_messages)
+    def _create_compact_summary(self, messages_to_compact: list[AnyMessage]) -> str:
+        formatted_summaries = get_buffer_string(messages_to_compact)
         try:
             response = self.model.invoke(
                 self.compact_summary_prompt.format(summaries=formatted_summaries).rstrip(),
@@ -139,8 +139,8 @@ class ContextCompactionMiddleware(AgentMiddleware):
         except Exception as error:
             return f"Error compacting summaries: {error!s}"
 
-    async def _acreate_compact_summary(self, summary_messages: list[AnyMessage]) -> str:
-        formatted_summaries = get_buffer_string(summary_messages)
+    async def _acreate_compact_summary(self, messages_to_compact: list[AnyMessage]) -> str:
+        formatted_summaries = get_buffer_string(messages_to_compact)
         try:
             response = await self.model.ainvoke(
                 self.compact_summary_prompt.format(summaries=formatted_summaries).rstrip(),
@@ -179,24 +179,28 @@ def compaction_trigger_tokens(context_window: int, reserve_tokens: int = DEFAULT
     return max(1, int(context_window or 0) - max(0, int(reserve_tokens or 0)))
 
 
-def _partition_summary_messages(messages: Iterable[AnyMessage]) -> tuple[list[AnyMessage], list[AnyMessage]]:
-    summary_messages: list[AnyMessage] = []
-    other_messages: list[AnyMessage] = []
-    for message in messages:
-        if _is_summary_message(message):
-            summary_messages.append(message)
-        else:
-            other_messages.append(message)
-    return summary_messages, other_messages
+def _partition_messages_for_compaction(messages: Iterable[AnyMessage]) -> tuple[list[AnyMessage], list[AnyMessage]]:
+    conversation_messages = list(messages)
+    cutoff_index = _previous_user_message_index(conversation_messages)
+    if cutoff_index is None or cutoff_index <= 0:
+        return [], conversation_messages
+    return conversation_messages[:cutoff_index], conversation_messages[cutoff_index:]
+
+
+def _previous_user_message_index(messages: list[AnyMessage]) -> int | None:
+    user_indices = [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message, HumanMessage) and not _is_summary_message(message)
+    ]
+    if len(user_indices) < 2:
+        return None
+    return user_indices[-2]
 
 
 def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
-
-
-def _non_summary_messages_are_recent(messages: list[AnyMessage]) -> bool:
-    return all(not _is_summary_message(message) for message in messages)
 
 
 __all__ = [
