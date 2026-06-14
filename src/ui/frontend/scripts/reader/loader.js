@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "reader-context-compact-v4";
+const READER_SCRIPT_VERSION = "reader-note-turn-refresh-v2";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-api-v1",

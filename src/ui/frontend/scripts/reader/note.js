@@ -227,6 +227,41 @@ function renderReaderNoteBody(note, collectionPath, generatedNoteBody, notePosit
   finishNoteScrollRestore(notePositionToRestore);
 }
 
+async function refreshReaderNoteBody({ preserveScroll = true } = {}) {
+  const note = readerState.note;
+  if (!note || !elements.notePage) return false;
+  const generatedNoteBody = await fetchGeneratedNoteBody(note);
+  if (!generatedNoteBody) return false;
+  const scrollPosition = preserveScroll ? currentNoteScrollPosition() : null;
+  const collectionPath = readerState.library ? getCollectionPath(readerState.library, note.categoryId) : "";
+  renderReaderNoteBody(note, collectionPath, generatedNoteBody, scrollPosition);
+  return true;
+}
+
+function scheduleReaderNoteRefresh({ delay = 180 } = {}) {
+  if (!readerState.note?.htmlHref) return;
+  if (readerState.noteRefreshInFlight) {
+    readerState.noteRefreshQueued = true;
+    return;
+  }
+  window.clearTimeout(readerState.noteRefreshTimer);
+  readerState.noteRefreshTimer = window.setTimeout(async () => {
+    readerState.noteRefreshTimer = 0;
+    readerState.noteRefreshInFlight = true;
+    try {
+      await refreshReaderNoteBody();
+    } catch (error) {
+      console.warn("Failed to refresh HTML note after tool update.", error);
+    } finally {
+      readerState.noteRefreshInFlight = false;
+      if (readerState.noteRefreshQueued) {
+        readerState.noteRefreshQueued = false;
+        scheduleReaderNoteRefresh({ delay: 80 });
+      }
+    }
+  }, delay);
+}
+
 async function renderReader(library, note) {
   readerState.library = library;
   readerState.note = note;

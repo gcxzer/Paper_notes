@@ -596,6 +596,57 @@ function chatPayloadChangesAnnotations(payload) {
   return normalizeToolActivity(payload?.message?.toolActivity).some(toolActivityChangesAnnotations);
 }
 
+function chatPayloadChangesHtmlNote(payload) {
+  const messageActivities = normalizeToolActivity(payload?.message?.toolActivity);
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  const historyActivities = messages.flatMap((message) => normalizeToolActivity(message?.toolActivity));
+  return [...messageActivities, ...historyActivities].some(toolActivityChangesHtmlNote);
+}
+
+function chatPayloadWritesHtmlNote(payload) {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  const eventGroups = [
+    payload?.events,
+    payload?.runTrace?.events,
+    payload?.message?.runTrace?.events,
+    ...messages.map((message) => message?.runTrace?.events),
+  ];
+  if (eventGroups.some((events) => (Array.isArray(events) ? events : []).some(workTraceItemWritesHtmlNote))) {
+    return true;
+  }
+  const workTraces = [
+    payload?.message?.workTrace,
+    ...messages.map((message) => message?.workTrace),
+  ];
+  return workTraces.some((trace) => (
+    (Array.isArray(trace?.items) ? trace.items : []).some(workTraceItemWritesHtmlNote)
+  ));
+}
+
+function workTraceItemWritesHtmlNote(item) {
+  const type = normalizeText(item?.type || item?.traceType || item?.trace_type || item?.stage);
+  if (type && type !== "tool" && !type.includes("tool")) return false;
+  const data = item?.data && typeof item.data === "object" ? item.data : {};
+  const nested = data.data && typeof data.data === "object" ? data.data : {};
+  const toolName = normalizeText(
+    item?.toolName
+    || item?.tool_name
+    || data.toolName
+    || data.tool_name
+    || nested.toolName
+    || nested.tool_name
+    || item?.name
+  );
+  if (!["write_note", "write_note_media"].includes(toolName)) return false;
+  const text = normalizeText(item?.text || item?.message || item?.detail).toLowerCase();
+  return item?.complete === true
+    || data.complete === true
+    || nested.complete === true
+    || data.statusComplete === true
+    || nested.statusComplete === true
+    || text.startsWith("tool completed:");
+}
+
 function toolActivitySummary(item) {
   if (isAnnotationDeleteActivity(item) && Number(item.count) > 1) {
     return `Deleted ${Math.round(Number(item.count))} annotations.`;

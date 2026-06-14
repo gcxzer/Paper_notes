@@ -1438,7 +1438,8 @@ function migrateChatRunState(fromRunKey, toSessionId) {
     readerState.chatProgressBySession,
     readerState.chatProgressRequestIdsBySession,
     readerState.chatAbortControllersBySession,
-    readerState.chatRecoveryTimersBySession
+    readerState.chatRecoveryTimersBySession,
+    readerState.htmlNoteWriteRunsBySession
   ]) {
     if (Object.prototype.hasOwnProperty.call(store, fromKey)) {
       store[toKey] = store[fromKey];

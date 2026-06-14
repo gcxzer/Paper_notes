@@ -11,7 +11,7 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 
-DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 8
+DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 20
 _SAVED_PATH_RE = re.compile(r"^Full output path:\s*(?P<path>.+)$", re.MULTILINE)
 _PLACEHOLDER_PREFIX = "[tool output omitted]"
 

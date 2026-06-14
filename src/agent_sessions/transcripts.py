@@ -20,6 +20,10 @@ def transcript_path_for(sessions_root: str | Path, metadata: AgentSessionMetadat
     return Path(sessions_root) / metadata.date_bucket / f"{metadata.session_id}.jsonl"
 
 
+def debug_transcript_path_for(sessions_root: str | Path, metadata: AgentSessionMetadata) -> Path:
+    return Path(sessions_root) / metadata.date_bucket / f"{metadata.session_id}.debug.jsonl"
+
+
 def normalize_message(message: AgentTranscriptMessage | dict[str, Any]) -> dict[str, Any]:
     if isinstance(message, AgentTranscriptMessage):
         data = message.to_dict()
@@ -62,6 +66,19 @@ def append_transcript_message(path: str | Path, message: AgentTranscriptMessage 
         messages = read_transcript(transcript_path)
         messages.append(normalize_message(message))
         return write_transcript(transcript_path, messages)
+
+
+def append_transcript_messages(path: str | Path, messages: list[AgentTranscriptMessage | dict[str, Any]]) -> list[dict[str, Any]]:
+    transcript_path = Path(path)
+    normalized = [normalize_message(message) for message in messages]
+    if not normalized:
+        return []
+    with _lock_for(transcript_path):
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        with transcript_path.open("a", encoding="utf-8") as handle:
+            for message in normalized:
+                handle.write(_dumps_transcript_message(message) + "\n")
+    return normalized
 
 
 def _dumps_transcript_message(message: dict[str, Any]) -> str:

@@ -7,7 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent_sessions.transcripts import read_transcript, transcript_path_for, write_transcript
+from agent_sessions.transcripts import (
+    append_transcript_messages,
+    debug_transcript_path_for,
+    read_transcript,
+    transcript_path_for,
+    write_transcript,
+)
 from agent_sessions.models import (
     AgentSession,
     AgentSessionMetadata,
@@ -67,6 +73,7 @@ class AgentSessionStore:
             self._sessions[session_id] = session_metadata
             self._save_index_locked()
             write_transcript(self.transcript_path(session_id), [])
+            self._initialize_debug_transcript_locked(session_metadata, [])
 
         return AgentSession(metadata=session_metadata, messages=[])
 
@@ -106,8 +113,10 @@ class AgentSessionStore:
             metadata = self._require_metadata_locked(session_id)
             path = self._transcript_path_for_metadata(metadata)
             messages = read_transcript(path)
-            messages.append(self._message_with_created_at(message))
+            next_message = self._message_with_created_at(message)
+            messages.append(next_message)
             normalized = write_transcript(path, messages)
+            self._append_debug_transcript_locked(metadata, [next_message], seed_messages=messages[:-1])
             metadata.message_count = len(normalized)
             metadata.updated_at = now_iso(self._clock())
             self._save_index_locked()
@@ -121,10 +130,13 @@ class AgentSessionStore:
         with self._lock:
             self._ensure_loaded_locked()
             metadata = self._require_metadata_locked(session_id)
-            normalized = write_transcript(
-                self._transcript_path_for_metadata(metadata),
-                [self._message_with_created_at(message) for message in messages],
-            )
+            path = self._transcript_path_for_metadata(metadata)
+            previous_messages = read_transcript(path)
+            next_messages = [self._message_with_created_at(message) for message in messages]
+            debug_tail = _appended_transcript_tail(previous_messages, next_messages)
+            normalized = write_transcript(path, next_messages)
+            self._initialize_debug_transcript_locked(metadata, previous_messages)
+            self._append_debug_transcript_locked(metadata, debug_tail)
             metadata.message_count = len(normalized)
             metadata.updated_at = now_iso(self._clock())
             self._save_index_locked()
@@ -204,6 +216,9 @@ class AgentSessionStore:
             self._save_index_locked()
             if transcript_path.exists():
                 transcript_path.unlink()
+            debug_path = self._debug_transcript_path_for_metadata(metadata)
+            if debug_path.exists():
+                debug_path.unlink()
             return deleted_metadata
 
     def branch_session(self, session_id: str, *, title: str | None = None) -> AgentSession:
@@ -231,6 +246,7 @@ class AgentSessionStore:
             )
             self._sessions[branch_id] = branch_metadata
             write_transcript(self._transcript_path_for_metadata(branch_metadata), messages)
+            self._initialize_debug_transcript_locked(branch_metadata, messages)
             self._save_index_locked()
             return AgentSession(metadata=branch_metadata, messages=messages)
 
@@ -259,6 +275,14 @@ class AgentSessionStore:
         if metadata is None:
             raise SessionNotFoundError(session_id)
         return self._transcript_path_for_metadata(metadata)
+
+    def debug_transcript_path(self, session_id: str) -> Path:
+        metadata = self._sessions.get(session_id)
+        if metadata is None:
+            metadata = self._load_index().get(session_id)
+        if metadata is None:
+            raise SessionNotFoundError(session_id)
+        return self._debug_transcript_path_for_metadata(metadata)
 
     def _ensure_loaded_locked(self) -> None:
         if self._loaded:
@@ -303,6 +327,29 @@ class AgentSessionStore:
     def _transcript_path_for_metadata(self, metadata: AgentSessionMetadata) -> Path:
         return transcript_path_for(self.sessions_root, metadata)
 
+    def _debug_transcript_path_for_metadata(self, metadata: AgentSessionMetadata) -> Path:
+        return debug_transcript_path_for(self.sessions_root, metadata)
+
+    def _initialize_debug_transcript_locked(
+        self,
+        metadata: AgentSessionMetadata,
+        messages: list[AgentTranscriptMessage | dict[str, Any]],
+    ) -> None:
+        path = self._debug_transcript_path_for_metadata(metadata)
+        if path.exists():
+            return
+        write_transcript(path, messages)
+
+    def _append_debug_transcript_locked(
+        self,
+        metadata: AgentSessionMetadata,
+        messages: list[AgentTranscriptMessage | dict[str, Any]],
+        *,
+        seed_messages: list[AgentTranscriptMessage | dict[str, Any]] | None = None,
+    ) -> None:
+        self._initialize_debug_transcript_locked(metadata, seed_messages or [])
+        append_transcript_messages(self._debug_transcript_path_for_metadata(metadata), messages)
+
     def _message_with_created_at(self, message: AgentTranscriptMessage | dict[str, Any]) -> dict[str, Any]:
         if isinstance(message, AgentTranscriptMessage):
             data = message.to_dict()
@@ -318,6 +365,23 @@ def _last_user_message_index(messages: list[dict[str, Any]]) -> int | None:
         if messages[index].get("role") == "user":
             return index
     return None
+
+
+def _appended_transcript_tail(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(current) < len(previous):
+        return []
+    for index, previous_message in enumerate(previous):
+        if not _messages_match_for_append(previous_message, current[index]):
+            return []
+    return current[len(previous):]
+
+
+def _messages_match_for_append(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return _without_created_at(left) == _without_created_at(right)
+
+
+def _without_created_at(message: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in message.items() if key != "created_at"}
 
 
 def _new_session_id(now: datetime) -> str:

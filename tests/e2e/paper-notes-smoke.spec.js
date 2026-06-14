@@ -88,7 +88,10 @@ async function appendReaderWorkTraceItems(page, items) {
 async function installReaderFixtures(page, options = {}) {
   await installLibraryFixture(page, options.library || E2E_LIBRARY);
   await page.route("**/resources/Paper-html/e2e-deepseek-v4.html**", async (route) => {
-    await route.fulfill({ contentType: "text/html", body: E2E_NOTE_HTML });
+    const body = typeof options.noteHtml === "function"
+      ? await options.noteHtml(route)
+      : options.noteHtml || E2E_NOTE_HTML;
+    await route.fulfill({ contentType: "text/html", body });
   });
   await page.route("**/resources/Papers/e2e-deepseek-v4.pdf**", async (route) => {
     if (typeof options.beforePdfFulfill === "function") await options.beforePdfFulfill();
@@ -243,9 +246,9 @@ async function openFixtureLibrary(page, options = {}) {
   await expect(page.locator(".note-card h3").first()).toHaveText("DeepSeek V4");
 }
 
-async function openFixtureReader(page) {
+async function openFixtureReader(page, options = {}) {
   await ignoreMissingFavicon(page);
-  await installReaderFixtures(page);
+  await installReaderFixtures(page, options);
   await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
   await expect(page).toHaveTitle("Paper Reader");
   await expect(page.getByRole("heading", { name: "DeepSeek V4" })).toBeVisible();
@@ -576,6 +579,7 @@ async function installAgentMocks(page, options = {}) {
     ? options.agentSessionDetails
     : null;
   const streamGate = options.streamGate;
+  const toolActivity = Array.isArray(options.toolActivity) ? options.toolActivity : [];
   const progressWorkItems = Array.isArray(options.workTraceItems) && options.workTraceItems.length
     ? options.workTraceItems
     : [{ type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:00.000Z" }];
@@ -718,6 +722,7 @@ async function installAgentMocks(page, options = {}) {
             : "这篇论文当前的 tags 是：\n\n- `tool-test`\n- `deepseek`\n\n论文：**DeepSeek V4**",
           runTrace,
           ...(options.omitFinalWorkTrace ? {} : { workTrace }),
+          ...(toolActivity.length ? { toolActivity } : {}),
           artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
         },
       ],
@@ -3368,6 +3373,51 @@ test("reader note renders LaTeX math in generated HTML notes", async ({ page }) 
   await expect(notePage).not.toContainText("\\(");
   await expect(notePage).not.toContainText("\\]");
   await expect(notePage.locator("pre code")).toContainText("$not_rendered$");
+});
+
+test("reader note pane refreshes when the agent turn finishes after note writes", async ({ page }) => {
+  let noteHtml = E2E_NOTE_HTML;
+  let releaseStream;
+  const streamGate = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  await openFixtureReader(page, { noteHtml: () => noteHtml });
+  await installAgentMocks(page, { streamGate });
+  await showAskPane(page);
+  await page.evaluate(() => setCurrentChatSessionId("e2e-session"));
+  await expect(page.locator("#notePage")).toContainText("E2E fixture note.");
+
+  noteHtml = `<!doctype html>
+  <html>
+    <body>
+      <main class="note">
+        <header class="note-section">
+          <h1>DeepSeek V4</h1>
+        </header>
+        <section class="note-body">
+          <h2>Live Update</h2>
+          <p>Fresh note content rendered without a manual refresh.</p>
+        </section>
+      </main>
+    </body>
+  </html>`;
+
+  await page.getByPlaceholder("Ask anything").fill("更新笔记");
+  await page.locator("#sendReaderChat").click();
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Stop");
+  await page.evaluate(() => {
+    appendReaderChatProgressWorkTrace({
+      traceType: "tool",
+      source: "runtime",
+      text: "Tool completed: write_note",
+      data: { toolName: "write_note", complete: true },
+    }, chatSessionRunKey("e2e-session"), "work_trace_item");
+  });
+  await expect(page.locator("#notePage")).toContainText("E2E fixture note.");
+  releaseStream();
+  const notePage = page.locator("#notePage");
+  await expect(notePage).toContainText("Fresh note content rendered without a manual refresh.");
+  await expect(notePage).not.toContainText("E2E fixture note.");
 });
 
 test("reader chat tool activity view jumps to the changed note heading", async ({ page }) => {

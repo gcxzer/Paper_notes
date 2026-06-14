@@ -36,6 +36,8 @@ def test_create_session_writes_index_and_date_bucket_transcript(tmp_path):
     assert indexed["provider"] == "openai"
     assert indexed["message_count"] == 0
     assert store.transcript_path(session.metadata.session_id).read_text(encoding="utf-8") == ""
+    assert store.debug_transcript_path(session.metadata.session_id) == root / "10_05_2026" / f"{session.metadata.session_id}.debug.jsonl"
+    assert store.debug_transcript_path(session.metadata.session_id).read_text(encoding="utf-8") == ""
 
 
 def test_append_message_updates_transcript_and_index(tmp_path):
@@ -164,17 +166,47 @@ def test_replace_messages_rewrites_jsonl_atomically(tmp_path):
     assert store.require_session(session.metadata.session_id).messages[0]["content"] == "Fresh"
 
 
+def test_debug_transcript_is_append_only_across_rewrites(tmp_path):
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
+    session = store.create_session()
+    session_id = session.metadata.session_id
+    debug_path = store.debug_transcript_path(session_id)
+
+    store.replace_messages(session_id, [{"role": "user", "content": "Question"}])
+    store.replace_messages(session_id, [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "Answer"},
+    ])
+    before_compaction = [json.loads(line)["content"] for line in debug_path.read_text(encoding="utf-8").splitlines()]
+
+    store.replace_messages(session_id, [{"role": "assistant", "content": "Compact summary"}])
+    after_compaction = [json.loads(line)["content"] for line in debug_path.read_text(encoding="utf-8").splitlines()]
+
+    store.replace_messages(session_id, [
+        {"role": "assistant", "content": "Compact summary"},
+        {"role": "user", "content": "Follow-up"},
+    ])
+    after_followup = [json.loads(line)["content"] for line in debug_path.read_text(encoding="utf-8").splitlines()]
+
+    assert before_compaction == ["Question", "Answer"]
+    assert after_compaction == ["Question", "Answer"]
+    assert after_followup == ["Question", "Answer", "Follow-up"]
+    assert [message["content"] for message in store.require_session(session_id).messages] == ["Compact summary", "Follow-up"]
+
+
 def test_delete_session_removes_index_and_transcript(tmp_path):
     store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
     session = store.create_session(title="Delete me")
     store.append_message(session.metadata.session_id, {"role": "user", "content": "Hello"})
     transcript_path = store.transcript_path(session.metadata.session_id)
+    debug_path = store.debug_transcript_path(session.metadata.session_id)
 
     deleted = store.delete_session(session.metadata.session_id)
 
     assert deleted.title == "Delete me"
     assert store.get_session(session.metadata.session_id) is None
     assert not transcript_path.exists()
+    assert not debug_path.exists()
     assert json.loads((store.sessions_root / "sessions.json").read_text(encoding="utf-8"))["sessions"] == {}
 
 

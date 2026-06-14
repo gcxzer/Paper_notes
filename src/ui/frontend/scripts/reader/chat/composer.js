@@ -724,6 +724,13 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
   }
   progress.workTrace = trace;
   setReaderChatProgress(progress, runKey);
+  if (
+    explicitComplete === true
+    && typeof workTraceItemWritesHtmlNote === "function"
+    && workTraceItemWritesHtmlNote({ type: itemType, text, data: itemData, complete: true })
+  ) {
+    readerState.htmlNoteWriteRunsBySession[runKey] = true;
+  }
 }
 
 async function cancelReaderChatRequest() {

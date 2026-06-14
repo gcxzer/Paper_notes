@@ -427,6 +427,10 @@ async function sendReaderChatMessage(options = {}) {
       ].filter(Boolean), payload, runStartedAtMs, finalProgress);
     }
     setReaderChatError(payload.error && !payload.completed ? payload.error : "");
+    const runChangedHtmlNote = Boolean(readerState.htmlNoteWriteRunsBySession[sessionRunKey]);
+    if (runChangedHtmlNote || chatPayloadChangesHtmlNote(payload) || chatPayloadWritesHtmlNote(payload)) {
+      scheduleReaderNoteRefresh();
+    }
     if (chatPayloadChangesAnnotations(payload)) {
       await refreshAnnotationsFromServer({ preserveOpenEditor: true });
     }
@@ -455,6 +459,7 @@ async function sendReaderChatMessage(options = {}) {
     });
   } finally {
     readerState.pendingSelectedTextContext = null;
+    delete readerState.htmlNoteWriteRunsBySession[sessionRunKey];
     if (detachedByAbort) return;
     if (readerState.chatProgressRequestIdsBySession[sessionRunKey] === requestId) {
       const shouldUpdateVisible = updatedVisibleSession || isCurrentChatSessionRunKey(sessionRunKey);
