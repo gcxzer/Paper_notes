@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rag.config import qdrant_storage_path
+from app_config import load_app_config
 
 if TYPE_CHECKING:
     from llama_index.core.indices.multi_modal import MultiModalVectorStoreIndex
@@ -25,7 +25,7 @@ class QdrantIndex:
         self.text_embed_model = text_embed_model
         self.collection_name = collection_name
         self.image_collection_name = image_collection_name or f"{collection_name}_images"
-        self.storage_path = Path(storage_path) if storage_path is not None else qdrant_storage_path()
+        self.storage_path = Path(storage_path) if storage_path is not None else load_app_config().rag.qdrant_storage_path()
         self.image_embed_model = image_embed_model
         self._closed = False
 
@@ -88,7 +88,7 @@ class QdrantIndex:
         storage_path: str | Path | None = None,
     ) -> bool:
         """Return True when both text and image Qdrant collections exist."""
-        storage_path = Path(storage_path) if storage_path is not None else qdrant_storage_path()
+        storage_path = Path(storage_path) if storage_path is not None else load_app_config().rag.qdrant_storage_path()
         if not storage_path.exists():
             return False
 

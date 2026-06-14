@@ -11,6 +11,8 @@ CURRENT_PAPER_NOTES_TOOLS = {
     "review_note",
     "search_paper_rag",
     "search_notes",
+    "skill_view",
+    "skills_list",
     "write_note",
     "write_note_media",
 }

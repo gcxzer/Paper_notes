@@ -23,7 +23,7 @@ from agent_sessions import AgentSession, AgentSessionStore
 from app_config import AppConfig, load_app_config
 from middleware import DEFAULT_COMPACTION_RESERVE_TOKENS, compaction_trigger_tokens
 from model_providers import ModelProviderConfig, create_chat_model, resolve_context_length_for_model
-from tools import create_tools
+from tools import ToolContext, create_tools
 
 
 ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
@@ -42,7 +42,6 @@ class AgentServiceRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
     run_config: dict[str, Any] | None = None
     stream_mode: str = "values"
-    debug: bool = False
 
 
 @dataclass(slots=True)
@@ -128,17 +127,27 @@ class AgentService:
         self.model_factory = model_factory or create_chat_model
         self.tools = list(tools) if tools is not None else None
         self.use_default_tools = use_default_tools
-        self._tool_kwargs = {
-            "library_path": library_path,
-            "annotations_dir": annotations_dir,
-            "html_dir": html_dir,
-            "papers_dir": papers_dir,
-            "paper_text_cache_dir": paper_text_cache_dir,
-            "paper_page_cache_dir": paper_page_cache_dir,
-            "paper_image_cache_dir": paper_image_cache_dir,
-            "media_store": media_store,
-            "paper_image_analyzer": paper_image_analyzer,
-        }
+        self.mcp_manager = None
+        if self.use_default_tools and tools is None:
+            try:
+                from tools.mcp import MCPManager
+
+                self.mcp_manager = MCPManager(media_store=media_store)
+                self.mcp_manager.discover_from_settings()
+            except Exception:
+                self.mcp_manager = None
+        self._tool_context = ToolContext(
+            library_path=library_path,
+            annotations_dir=annotations_dir,
+            html_dir=html_dir,
+            papers_dir=papers_dir,
+            paper_text_cache_dir=paper_text_cache_dir,
+            paper_page_cache_dir=paper_page_cache_dir,
+            paper_image_cache_dir=paper_image_cache_dir,
+            media_store=media_store,
+            paper_image_analyzer=paper_image_analyzer,
+            mcp_manager=self.mcp_manager,
+        )
 
     def run(self, request: AgentServiceRequest) -> AgentServiceResult:
         session, created_session = self._session_for_request(request)
@@ -161,7 +170,6 @@ class AgentService:
                 thread_id=session.metadata.session_id,
                 run_config=request.run_config,
                 stream_mode=request.stream_mode,
-                debug=request.debug,
             )
         )
         final_messages = _messages_from_final_chunk(chunks) or input_messages
@@ -277,7 +285,14 @@ class AgentService:
             return list(self.tools)
         if not self.use_default_tools:
             return []
-        return create_tools(**self._tool_kwargs)
+        return create_tools(context=self._tool_context)
+
+    def close(self) -> None:
+        manager = self.mcp_manager
+        self.mcp_manager = None
+        shutdown = getattr(manager, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
 
 
 def _request_message_content(request: AgentServiceRequest) -> Any:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pymupdf
 
-from rag.config import image_output_path
+from app_config import load_app_config
 
 
 def extract_text_from_pdf(pdf_path: str | Path) -> list[dict]:
@@ -35,7 +35,11 @@ def extract_images_from_pdf(
 ) -> list[dict]:
     """Extract PDF images and return structured image records."""
     pdf_path = Path(pdf_path)
-    output_dir = Path(output_dir) if output_dir is not None else image_output_path(pdf_path.stem, loader="pymupdf")
+    output_dir = (
+        Path(output_dir)
+        if output_dir is not None
+        else load_app_config().rag.image_output_path(pdf_path.stem, loader="pymupdf")
+    )
 
     if not pdf_path.exists():
         print(f"PDF file does not exist: {pdf_path}")

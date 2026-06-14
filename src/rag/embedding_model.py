@@ -1,5 +1,7 @@
 import os
 
+from app_config import load_app_config
+
 try:
     from dotenv import load_dotenv
 except ImportError:
@@ -10,34 +12,37 @@ if load_dotenv is not None:
 
 
 def get_embedding_model(
-    provider: str = "ollama",
+    provider: str | None = None,
     model: str | None = None,
-    embed_batch_size: int = 100,
+    embed_batch_size: int | None = None,
 ):
-    provider = provider.lower()
+    embedding = load_app_config().rag.embedding
+    provider = embedding.provider_name(provider)
+    model = embedding.model_for(provider, model)
+    batch_size = max(1, int(embed_batch_size)) if embed_batch_size is not None else embedding.batch_size
 
     if provider == "openai":
         from llama_index.embeddings.openai import OpenAIEmbedding
 
         return OpenAIEmbedding(
-            model=os.getenv("MODELSCOPE_EMBEDDING_MODEL") or "Qwen/Qwen3-Embedding-8B",
-            api_base=os.getenv("MODELSCOPE_BASEURL"),
-            api_key=os.getenv("MODELSCOPE_TOKEN"),
-            embed_batch_size=embed_batch_size,
+            model=os.getenv("MODELSCOPE_EMBEDDING_MODEL") or model,
+            api_base=os.getenv(embedding.openai.api_base_env) or embedding.openai.api_base or None,
+            api_key=os.getenv(embedding.openai.api_key_env),
+            embed_batch_size=batch_size,
         )
 
     if provider == "ollama":
         from llama_index.embeddings.ollama import OllamaEmbedding
 
         return OllamaEmbedding(
-            model_name=model or "qwen3-embedding:8b",
-            base_url="http://localhost:11434",
+            model_name=model,
+            base_url=embedding.ollama.base_url,
         )
 
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 
-def get_image_embedding_model(model: str = "ViT-B/32"):
+def get_image_embedding_model(model: str | None = None):
     from llama_index.embeddings.clip import ClipEmbedding
 
-    return ClipEmbedding(model_name=model)
+    return ClipEmbedding(model_name=str(model or load_app_config().rag.image_embedding.model).strip())

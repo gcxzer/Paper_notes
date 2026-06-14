@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app_config import load_app_config
 from rag.service import RAGServiceError, get_rag_service
 from app_infra.formatting import normalize_text
 from tools.paper_notes.impl.annotations import create_annotation, delete_annotation, update_annotation
@@ -136,17 +137,36 @@ def search_paper_rag(
         return tool_error("query_required", "query is required.", note_id=note_id)
 
     try:
+        rag_config = load_app_config().rag
         payload = get_rag_service().query(
             query=query,
             note_id=note_id,
-            similarity_top_k=_positive_int(args.get("similarity_top_k"), default=5, maximum=20),
-            image_similarity_top_k=_positive_int(args.get("image_similarity_top_k"), default=3, maximum=20),
-            bm25_similarity_top_k=_positive_int(args.get("bm25_similarity_top_k"), default=5, maximum=20),
-            embedding_provider=normalize_text(args.get("embedding_provider") or "ollama") or "ollama",
+            similarity_top_k=rag_config.retrieval.similarity_top_k_for(
+                _optional_positive_int(args.get("similarity_top_k"))
+            ),
+            image_similarity_top_k=rag_config.retrieval.image_similarity_top_k_for(
+                _optional_positive_int(args.get("image_similarity_top_k"))
+            ),
+            bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(
+                _optional_positive_int(args.get("bm25_similarity_top_k"))
+            ),
+            embedding_provider=rag_config.embedding.provider_name(_optional_text(args.get("embedding_provider"))),
             embedding_model=_optional_text(args.get("embedding_model")),
             library_path=library_path,
         )
     except RAGServiceError as error:
+        if error.code == "index_not_ready":
+            return tool_error(
+                error.code,
+                str(error),
+                note_id=note_id,
+                fallbackTool="read_paper",
+                fallbackArguments={
+                    "action": "search_text",
+                    "note_id": note_id,
+                    "query": query,
+                },
+            )
         return tool_error(error.code, str(error), note_id=note_id)
     except Exception as error:
         return tool_error("rag_query_failed", f"RAG query failed: {type(error).__name__}: {error}", note_id=note_id)
@@ -199,12 +219,13 @@ def _optional_text(value: Any) -> str | None:
     return text or None
 
 
-def _positive_int(value: Any, *, default: int, maximum: int) -> int:
+def _optional_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
     try:
-        parsed = int(value)
+        return max(1, int(value))
     except (TypeError, ValueError):
-        return default
-    return max(1, min(parsed, maximum))
+        return None
 
 
 def write_note(

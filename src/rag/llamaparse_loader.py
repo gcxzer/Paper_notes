@@ -10,7 +10,11 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from rag.config import image_output_path
+from app_config import load_app_config
+from app_config.config import (
+    DEFAULT_LLAMAPARSE_CUSTOM_PROMPT,
+    DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES,
+)
 
 try:
     from dotenv import load_dotenv
@@ -20,23 +24,19 @@ except ImportError:
 if load_dotenv is not None:
     load_dotenv()
 
-DEFAULT_CUSTOM_PROMPT = (
-    "Parse this academic paper into clean Markdown. Preserve section headings, "
-    "equations, citations, figure captions, table captions, tables, and references. "
-    "Keep the reading order correct for multi-column paper layouts."
-)
-DEFAULT_IMAGE_CATEGORIES = ["embedded", "layout"]
+DEFAULT_CUSTOM_PROMPT = DEFAULT_LLAMAPARSE_CUSTOM_PROMPT
+DEFAULT_IMAGE_CATEGORIES = DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES
 
 
 def parse_pdf_with_llamaparse(
     pdf_path: str | Path,
     image_output_dir: str | Path | None = None,
-    tier: str = "agentic",
-    version: str = "latest",
-    custom_prompt: str = DEFAULT_CUSTOM_PROMPT,
+    tier: str | None = None,
+    version: str | None = None,
+    custom_prompt: str | None = None,
     ocr_languages: list[str] | None = None,
     include_images: bool = True,
-    timeout: float = 7200.0,
+    timeout: float | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Parse a PDF with LlamaParse and return text pages plus image records."""
     pdf_path = Path(pdf_path)
@@ -54,18 +54,25 @@ def parse_pdf_with_llamaparse(
     if include_images:
         expand.append("images_content_metadata")
 
+    rag_config = load_app_config().rag
+    config = rag_config.llamaparse
     print(f"Parsing PDF with LlamaParse: {pdf_path}")
     result = client.parsing.parse(
         upload_file=pdf_path,
-        tier=tier, # fast | cost_effective | agentic | agentic_plus
-        version=version,
+        tier=str(tier or config.tier).strip(), # fast | cost_effective | agentic | agentic_plus
+        version=str(version or config.version).strip(),
         expand=expand,  
-        agentic_options={"custom_prompt": custom_prompt},
-        output_options=_output_options(include_images=include_images),
-        processing_options=_processing_options(ocr_languages=ocr_languages),
-        polling_interval=2.0,
-        max_interval=20.0,
-        timeout=timeout,
+        agentic_options={"custom_prompt": str(custom_prompt or config.custom_prompt).strip()},
+        output_options=_output_options(
+            include_images=include_images,
+            image_categories=config.image_categories,
+        ),
+        processing_options=_processing_options(
+            ocr_languages=ocr_languages or list(config.ocr_languages) or None,
+        ),
+        polling_interval=config.polling_interval,
+        max_interval=config.max_interval,
+        timeout=max(1.0, float(timeout)) if timeout is not None else config.timeout,
         backoff="linear",
         verbose=True,
     )
@@ -76,7 +83,10 @@ def parse_pdf_with_llamaparse(
         image_records = _build_image_records(
             result=result,
             pdf_path=pdf_path,
-            output_dir=Path(image_output_dir) if image_output_dir is not None else image_output_path(pdf_path.stem),
+            output_dir=Path(image_output_dir)
+            if image_output_dir is not None
+            else rag_config.image_output_path(pdf_path.stem),
+            download_timeout=config.image_download_timeout,
         )
 
     print(
@@ -86,9 +96,9 @@ def parse_pdf_with_llamaparse(
     return pages, image_records
 
 
-def _output_options(include_images: bool) -> dict:
+def _output_options(include_images: bool, *, image_categories: tuple[str, ...] = DEFAULT_IMAGE_CATEGORIES) -> dict:
     return {
-        "images_to_save": DEFAULT_IMAGE_CATEGORIES if include_images else [],
+        "images_to_save": list(image_categories) if include_images else [],
         "markdown": {
             "inline_images": False,
             "tables": {
@@ -143,7 +153,7 @@ def _build_text_pages(result, pdf_path: Path) -> list[dict]:
     return pages
 
 
-def _build_image_records(result, pdf_path: Path, output_dir: Path) -> list[dict]:
+def _build_image_records(result, pdf_path: Path, output_dir: Path, *, download_timeout: float) -> list[dict]:
     if result.items is None:
         print("LlamaParse result did not include structured items; skipping images.")
         return []
@@ -178,6 +188,7 @@ def _build_image_records(result, pdf_path: Path, output_dir: Path) -> list[dict]
                 output_dir=output_dir,
                 page_number=page.page_number,
                 image_index=image_index,
+                timeout=download_timeout,
             )
 
             source_anchor = (
@@ -242,8 +253,10 @@ def _download_llamaparse_image(
     output_dir: Path,
     page_number: int,
     image_index: int,
+    *,
+    timeout: float,
 ) -> tuple[Path, str]:
-    with httpx.Client(follow_redirects=True, timeout=60.0) as client:
+    with httpx.Client(follow_redirects=True, timeout=timeout) as client:
         response = client.get(url)
         response.raise_for_status()
 

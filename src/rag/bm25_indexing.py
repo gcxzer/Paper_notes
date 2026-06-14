@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rag.config import bm25_storage_path
+from app_config import load_app_config
 
 if TYPE_CHECKING:
     from llama_index.core.schema import BaseNode
@@ -15,11 +15,12 @@ class BM25Index:
 
     def __init__(
         self,
-        similarity_top_k: int = 5,
+        similarity_top_k: int | None = None,
         persist_dir: str | Path | None = None,
     ) -> None:
-        self.similarity_top_k = similarity_top_k
-        self.persist_dir = Path(persist_dir) if persist_dir is not None else bm25_storage_path()
+        rag_config = load_app_config().rag
+        self.similarity_top_k = rag_config.retrieval.bm25_similarity_top_k_for(similarity_top_k)
+        self.persist_dir = Path(persist_dir) if persist_dir is not None else rag_config.bm25_storage_path()
 
     def build(self, nodes: list[BaseNode]) -> BM25Retriever:
         """Build and persist a BM25 retriever from text-bearing nodes."""
@@ -50,7 +51,12 @@ class BM25Index:
 
     def exists(self) -> bool:
         """Return True when the BM25 retriever has been persisted."""
-        return (self.persist_dir / "retriever.json").exists()
+        return self.exists_at(self.persist_dir)
+
+    @staticmethod
+    def exists_at(persist_dir: str | Path) -> bool:
+        """Return True when a BM25 retriever exists at the given path."""
+        return (Path(persist_dir) / "retriever.json").exists()
 
     def _effective_top_k(self, corpus_size: int | None) -> int:
         if corpus_size is None:

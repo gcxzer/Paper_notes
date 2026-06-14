@@ -3,13 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app_config import load_app_config
+from app_config.config import DEFAULT_IMAGE_COLLECTION, DEFAULT_TEXT_COLLECTION
 from rag.bm25_indexing import BM25Index
-from rag.config import (
-    DEFAULT_IMAGE_COLLECTION,
-    DEFAULT_TEXT_COLLECTION,
-    bm25_storage_path,
-    qdrant_storage_path,
-)
 from rag.embedding_model import get_embedding_model, get_image_embedding_model
 from rag.qdrant_indexing import QdrantIndex
 
@@ -22,13 +18,13 @@ class HybridRetriever:
         bm25_retriever: Any,
         qdrant_index: QdrantIndex,
         similarity_top_k: int,
-        weights: tuple[float, float] = (0.7, 0.3),
+        weights: tuple[float, float] | None = None,
     ) -> None:
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
         self._qdrant_index = qdrant_index
         self.similarity_top_k = similarity_top_k
-        self.weights = weights
+        self.weights = weights or load_app_config().rag.retrieval.hybrid_weights
 
     def retrieve(self, query: str):
         combined: dict[str, dict[str, Any]] = {}
@@ -56,16 +52,20 @@ class HybridRetriever:
 
 
 def get_retriever(
-    similarity_top_k: int = 5,
-    image_similarity_top_k: int = 3,
-    bm25_similarity_top_k: int = 5,
+    similarity_top_k: int | None = None,
+    image_similarity_top_k: int | None = None,
+    bm25_similarity_top_k: int | None = None,
     bm25_persist_dir: str | Path | None = None,
     qdrant_storage_dir: str | Path | None = None,
     collection_name: str = DEFAULT_TEXT_COLLECTION,
     image_collection_name: str = DEFAULT_IMAGE_COLLECTION,
-    embedding_provider: str = "ollama",
+    embedding_provider: str | None = None,
     embedding_model: str | None = None,
 ):
+    rag_config = load_app_config().rag
+    similarity_top_k = rag_config.retrieval.similarity_top_k_for(similarity_top_k)
+    image_similarity_top_k = rag_config.retrieval.image_similarity_top_k_for(image_similarity_top_k)
+    bm25_similarity_top_k = rag_config.retrieval.bm25_similarity_top_k_for(bm25_similarity_top_k)
     text_embed_model = get_embedding_model(provider=embedding_provider, model=embedding_model)
     image_embed_model = get_image_embedding_model()
 
@@ -74,7 +74,7 @@ def get_retriever(
         image_embed_model=image_embed_model,
         collection_name=collection_name,
         image_collection_name=image_collection_name,
-        storage_path=qdrant_storage_dir or qdrant_storage_path(),
+        storage_path=qdrant_storage_dir or rag_config.qdrant_storage_path(),
     )
     index = qdrant_index.load()
     vector_retriever = index.as_retriever(
@@ -83,7 +83,7 @@ def get_retriever(
     )
     bm25_retriever = BM25Index(
         similarity_top_k=bm25_similarity_top_k,
-        persist_dir=bm25_persist_dir or bm25_storage_path(),
+        persist_dir=bm25_persist_dir or rag_config.bm25_storage_path(),
     ).load()
 
     return HybridRetriever(
@@ -91,6 +91,7 @@ def get_retriever(
         bm25_retriever=bm25_retriever,
         qdrant_index=qdrant_index,
         similarity_top_k=similarity_top_k,
+        weights=rag_config.retrieval.hybrid_weights,
     )
 
 

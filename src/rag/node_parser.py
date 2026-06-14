@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_URL, uuid5
 
+from app_config import load_app_config
+
 if TYPE_CHECKING:
     from llama_index.core.schema import BaseNode
 
@@ -11,8 +13,17 @@ if TYPE_CHECKING:
 class NodeParser:
     """Build all paper nodes from extracted text pages and image records."""
 
+    def __init__(self, *, text_chunk_size: int | None = None, text_chunk_overlap: int | None = None) -> None:
+        chunking = load_app_config().rag.chunking
+        self.text_chunk_size = int(text_chunk_size) if text_chunk_size is not None else chunking.chunk_size
+        self.text_chunk_overlap = int(text_chunk_overlap) if text_chunk_overlap is not None else chunking.chunk_overlap
+
     def parse(self, pages: list[dict], image_records: list[dict]) -> list[Any]:
-        text_nodes = build_text_nodes(pages)
+        text_nodes = build_text_nodes(
+            pages,
+            chunk_size=self.text_chunk_size,
+            chunk_overlap=self.text_chunk_overlap,
+        )
         image_nodes = build_image_nodes(image_records)
 
         return text_nodes + image_nodes
@@ -53,7 +64,7 @@ def build_image_nodes(image_records: list[dict]):
     return image_nodes
 
 
-def build_text_nodes(pages: list[dict]):
+def build_text_nodes(pages: list[dict], *, chunk_size: int | None = None, chunk_overlap: int | None = None):
     from llama_index.core import Document
     from llama_index.core.node_parser import SentenceSplitter
 
@@ -67,9 +78,14 @@ def build_text_nodes(pages: list[dict]):
         if page["text"].strip()
     ]
 
+    if chunk_size is None or chunk_overlap is None:
+        chunking = load_app_config().rag.chunking
+        chunk_size = chunk_size or chunking.chunk_size
+        chunk_overlap = chunking.chunk_overlap if chunk_overlap is None else chunk_overlap
+
     splitter = SentenceSplitter(
-        chunk_size=800,
-        chunk_overlap=120,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         id_func=_text_node_id,
     )
 

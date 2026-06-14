@@ -307,10 +307,6 @@ def test_mcp_ops_endpoints_delegate_to_manager(monkeypatch):
     calls = []
 
     class FakeManager:
-        def reconnect_server(self, server_id):
-            calls.append(("reconnect", server_id))
-            return {"success": True, "serverId": server_id}
-
         def reset_server_circuit(self, server_id):
             calls.append(("reset", server_id))
             return {"success": True, "serverId": server_id, "status": {"circuitOpen": False}}
@@ -325,10 +321,6 @@ def test_mcp_ops_endpoints_delegate_to_manager(monkeypatch):
         "max": max_chars,
     })
 
-    assert mcp_api.reconnect_mcp_server({"serverId": "filesystem"}, service=FakeService()) == {
-        "success": True,
-        "serverId": "filesystem",
-    }
     assert mcp_api.reset_mcp_server_circuit({"id": "filesystem"}, service=FakeService())["status"]["circuitOpen"] is False
     assert mcp_api.get_mcp_stderr_log(max_chars=1234)["log"] == "stderr tail"
-    assert calls == [("reconnect", "filesystem"), ("reset", "filesystem")]
+    assert calls == [("reset", "filesystem")]

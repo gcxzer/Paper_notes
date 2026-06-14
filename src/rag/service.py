@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import json
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from rag.config import (
-    DEFAULT_INDEX_KEY,
-    bm25_storage_path,
-    image_collection_name,
-    qdrant_storage_path,
-    safe_index_key,
-    text_collection_name,
-)
+from app_config import load_app_config
+from app_config.config import DEFAULT_INDEX_KEY, safe_index_key
 from app_infra.formatting import normalize_text
 from library.store import find_note, read_library
 from app_infra.paths import PAPERS_DIR, PROJECT_ROOT, is_relative_to
+from rag.bm25_indexing import BM25Index
+from rag.qdrant_indexing import QdrantIndex
 
 
 _SERVICE: PaperRAGService | None = None
@@ -27,6 +23,15 @@ class RAGServiceError(RuntimeError):
     def __init__(self, message: str, *, code: str = "rag_error") -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class _RagIndexSpec:
+    key: str
+    text_collection: str
+    image_collection: str
+    qdrant_path: Path
+    bm25_path: Path
 
 
 class PaperRAGService:
@@ -46,33 +51,30 @@ class PaperRAGService:
             library_path=library_path,
             require_pdf=False,
         )
-        key = safe_index_key(index_key or resolved.get("index_key") or DEFAULT_INDEX_KEY)
-        text_collection = text_collection_name(key)
-        image_collection = image_collection_name(key)
-        qdrant_path = qdrant_storage_path(key)
-        bm25_path = bm25_storage_path(key)
-        qdrant_exists = _qdrant_index_exists(
-            qdrant_path,
-            text_collection=text_collection,
-            image_collection=image_collection,
+        rag_config = load_app_config().rag
+        spec = _index_spec(rag_config, index_key or resolved.get("index_key") or DEFAULT_INDEX_KEY)
+        qdrant_exists = QdrantIndex.exists(
+            collection_name=spec.text_collection,
+            image_collection_name=spec.image_collection,
+            storage_path=spec.qdrant_path,
         )
-        bm25_exists = (bm25_path / "retriever.json").exists()
+        bm25_exists = BM25Index.exists_at(spec.bm25_path)
 
         return {
             "success": True,
-            "indexKey": key,
+            "indexKey": spec.key,
             "noteId": resolved.get("note_id", ""),
             "pdfPath": resolved.get("pdf_path", ""),
             "indexes": {
                 "qdrant": {
                     "exists": qdrant_exists,
-                    "path": str(qdrant_path),
-                    "textCollection": text_collection,
-                    "imageCollection": image_collection,
+                    "path": str(spec.qdrant_path),
+                    "textCollection": spec.text_collection,
+                    "imageCollection": spec.image_collection,
                 },
                 "bm25": {
                     "exists": bm25_exists,
-                    "path": str(bm25_path),
+                    "path": str(spec.bm25_path),
                 },
             },
             "ready": qdrant_exists and bm25_exists,
@@ -84,52 +86,59 @@ class PaperRAGService:
         note_id: str = "",
         pdf_path: str | Path | None = None,
         index_key: str = "",
-        loader: str = "pymupdf",
-        include_images: bool = False,
+        loader: str | None = None,
+        include_images: bool | None = None,
         rebuild: bool = False,
-        build_qdrant: bool = True,
-        build_bm25: bool = True,
-        embedding_provider: str = "ollama",
+        build_qdrant: bool | None = None,
+        build_bm25: bool | None = None,
+        embedding_provider: str | None = None,
         embedding_model: str | None = None,
         library_path: str | Path | None = None,
     ) -> dict[str, Any]:
+        rag_config = load_app_config().rag
+        loader = _normalize_loader(loader or rag_config.build.loader)
+        include_images = rag_config.build.include_images if include_images is None else include_images
+        build_qdrant = rag_config.build.qdrant if build_qdrant is None else build_qdrant
+        build_bm25 = rag_config.build.bm25 if build_bm25 is None else build_bm25
         resolved = self.resolve_target(
             note_id=note_id,
             pdf_path=pdf_path,
             library_path=library_path,
             require_pdf=True,
         )
-        key = safe_index_key(index_key or resolved["index_key"])
-        before = self.status(index_key=key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
+        spec = _index_spec(rag_config, index_key or resolved["index_key"])
+        before = self.status(index_key=spec.key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
         should_build_qdrant = bool(build_qdrant and (rebuild or not before["indexes"]["qdrant"]["exists"]))
         should_build_bm25 = bool(build_bm25 and (rebuild or not before["indexes"]["bm25"]["exists"]))
 
         if should_build_qdrant or should_build_bm25:
-            from rag.pipeline import build_indexes
+            from rag.index_builder import RagIndexBuildRequest, build_indexes
 
             build_indexes(
-                resolved["pdf_path"],
-                build_qdrant=should_build_qdrant,
-                build_bm25=should_build_bm25,
-                index_key=key,
-                loader=_normalize_loader(loader),
-                include_images=include_images,
-                qdrant_storage_dir=qdrant_storage_path(key),
-                bm25_persist_dir=bm25_storage_path(key),
-                text_collection=text_collection_name(key),
-                image_collection=image_collection_name(key),
-                embedding_provider=embedding_provider,
-                embedding_model=embedding_model,
+                request=RagIndexBuildRequest(
+                    pdf_path=Path(resolved["pdf_path"]),
+                    build_qdrant=should_build_qdrant,
+                    build_bm25=should_build_bm25,
+                    index_key=spec.key,
+                    loader=loader,
+                    include_images=bool(include_images),
+                    qdrant_storage_dir=spec.qdrant_path,
+                    bm25_persist_dir=spec.bm25_path,
+                    text_collection=spec.text_collection,
+                    image_collection=spec.image_collection,
+                    embedding_provider=embedding_provider,
+                    embedding_model=embedding_model,
+                )
             )
 
-        after = self.status(index_key=key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
+        after = self.status(index_key=spec.key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
         return {
             **after,
             "built": {
                 "qdrant": should_build_qdrant,
                 "bm25": should_build_bm25,
             },
-            "loader": _normalize_loader(loader),
+            "loader": loader,
             "includeImages": include_images,
         }
 
@@ -140,10 +149,10 @@ class PaperRAGService:
         note_id: str = "",
         pdf_path: str | Path | None = None,
         index_key: str = "",
-        similarity_top_k: int = 5,
-        image_similarity_top_k: int = 3,
-        bm25_similarity_top_k: int = 5,
-        embedding_provider: str = "ollama",
+        similarity_top_k: int | None = None,
+        image_similarity_top_k: int | None = None,
+        bm25_similarity_top_k: int | None = None,
+        embedding_provider: str | None = None,
         embedding_model: str | None = None,
         library_path: str | Path | None = None,
     ) -> dict[str, Any]:
@@ -157,21 +166,22 @@ class PaperRAGService:
             library_path=library_path,
             require_pdf=False,
         )
-        key = safe_index_key(index_key or resolved.get("index_key") or DEFAULT_INDEX_KEY)
-        status = self.status(index_key=key, note_id=note_id, pdf_path=resolved.get("pdf_path"), library_path=library_path)
+        rag_config = load_app_config().rag
+        spec = _index_spec(rag_config, index_key or resolved.get("index_key") or DEFAULT_INDEX_KEY)
+        status = self.status(index_key=spec.key, note_id=note_id, pdf_path=resolved.get("pdf_path"), library_path=library_path)
         if not status["ready"]:
             raise RAGServiceError("RAG indexes are not ready. Build the index before querying.", code="index_not_ready")
 
         from rag.retriever import close_retriever, get_retriever
 
         retriever = get_retriever(
-            similarity_top_k=max(1, min(int(similarity_top_k), 20)),
-            image_similarity_top_k=max(1, min(int(image_similarity_top_k), 20)),
-            bm25_similarity_top_k=max(1, min(int(bm25_similarity_top_k), 20)),
-            bm25_persist_dir=bm25_storage_path(key),
-            qdrant_storage_dir=qdrant_storage_path(key),
-            collection_name=text_collection_name(key),
-            image_collection_name=image_collection_name(key),
+            similarity_top_k=rag_config.retrieval.similarity_top_k_for(similarity_top_k),
+            image_similarity_top_k=rag_config.retrieval.image_similarity_top_k_for(image_similarity_top_k),
+            bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(bm25_similarity_top_k),
+            bm25_persist_dir=spec.bm25_path,
+            qdrant_storage_dir=spec.qdrant_path,
+            collection_name=spec.text_collection,
+            image_collection_name=spec.image_collection,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
         )
@@ -183,7 +193,7 @@ class PaperRAGService:
         payload: dict[str, Any] = {
             "success": True,
             "query": normalized_query,
-            "indexKey": key,
+            "indexKey": spec.key,
             "noteId": resolved.get("note_id", ""),
             "pdfPath": resolved.get("pdf_path", ""),
             "results": [_result_payload(result, index=index) for index, result in enumerate(results, start=1)],
@@ -256,22 +266,14 @@ def _resolve_local_pdf_path(value: str) -> Path:
     raise RAGServiceError("PDF path must be inside the Paper Notes project.", code="invalid_pdf_path")
 
 
-def _qdrant_index_exists(path: Path, *, text_collection: str, image_collection: str) -> bool:
-    meta_path = path / "meta.json"
-    if not meta_path.exists():
-        return False
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    collections = meta.get("collections")
-    if not isinstance(collections, dict):
-        return False
-    return (
-        text_collection in collections
-        and image_collection in collections
-        and (path / "collection" / text_collection / "storage.sqlite").exists()
-        and (path / "collection" / image_collection / "storage.sqlite").exists()
+def _index_spec(rag_config: Any, index_key: object = DEFAULT_INDEX_KEY) -> _RagIndexSpec:
+    key = safe_index_key(index_key or DEFAULT_INDEX_KEY)
+    return _RagIndexSpec(
+        key=key,
+        text_collection=rag_config.text_collection_name(key),
+        image_collection=rag_config.image_collection_name(key),
+        qdrant_path=rag_config.qdrant_storage_path(key),
+        bm25_path=rag_config.bm25_storage_path(key),
     )
 
 

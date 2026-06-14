@@ -6,14 +6,6 @@ import library.store as library_module
 from library import read_library, sanitize_library, write_library
 
 
-def _disable_rag_indexing(monkeypatch):
-    monkeypatch.setattr(
-        library_module,
-        "_index_imported_pdf",
-        lambda **_: {"success": True, "ready": False, "indexKey": "test", "built": {}},
-    )
-
-
 def test_sanitize_library_strips_legacy_cloud_fields():
     library = sanitize_library({
         "categories": [],
@@ -65,7 +57,6 @@ def test_import_pdf_generates_note_outline_from_pdf_toc(tmp_path, monkeypatch):
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
-    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "DeepSeek V4\n1 Introduction\n1.1 Contributions\n2 Method")
@@ -89,6 +80,7 @@ def test_import_pdf_generates_note_outline_from_pdf_toc(tmp_path, monkeypatch):
     html = html_path.read_text(encoding="utf-8")
 
     assert note["htmlHref"] == "resources/Paper-html/DeepSeek-V4.html"
+    assert "ragIndex" not in note
     assert '<html lang="en">' in html
     assert "<section class=\"note-body\">" in html
     assert "<h2>1. Introduction</h2>" in html
@@ -116,7 +108,6 @@ def test_import_pdf_from_url_reuses_local_import_pipeline(tmp_path, monkeypatch)
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
-    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "URL import")
@@ -132,6 +123,7 @@ def test_import_pdf_from_url_reuses_local_import_pipeline(tmp_path, monkeypatch)
     note = library_module.import_pdf_from_url({"url": "arxiv:1706.03762", "categoryId": "uncategorized"})
 
     assert note["title"] == "Attention Is All You Need"
+    assert "ragIndex" not in note
     assert note["sourceUrl"] == "https://arxiv.org/pdf/1706.03762.pdf"
     assert (papers_dir / "Attention Is All You Need.pdf").exists()
     assert (html_dir / "Attention Is All You Need.html").exists()
@@ -146,7 +138,6 @@ def test_import_pdf_from_url_uses_arxiv_metadata_title(tmp_path, monkeypatch):
     monkeypatch.setattr(library_module, "PAPERS_DIR", papers_dir)
     monkeypatch.setattr(library_module, "HTML_DIR", html_dir)
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
-    _disable_rag_indexing(monkeypatch)
 
     document = pymupdf.open()
     document.new_page().insert_text((72, 72), "URL import")
@@ -167,6 +158,7 @@ def test_import_pdf_from_url_uses_arxiv_metadata_title(tmp_path, monkeypatch):
     note = library_module.import_pdf_from_url({"url": "arxiv:2604.02176v2", "categoryId": "uncategorized"})
 
     assert note["title"] == "A Real Paper Title"
+    assert "ragIndex" not in note
     assert note["id"].startswith("pdf-a-real-paper-title-")
     assert (papers_dir / "2604.02176v2.pdf").exists()
     assert "<h1>A Real Paper Title</h1>" in (html_dir / "2604.02176v2.html").read_text(encoding="utf-8")

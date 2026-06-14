@@ -13,8 +13,8 @@ The public entry point is `tools.create_tools(...)`. It returns
   annotations, and optional PDF snippets.
 - `read_paper`: search PDF text, read pages, render pages, extract images, or
   analyze a registered image artifact when an analyzer is available.
-- `search_paper_rag`: semantically retrieve passages from a note's local RAG
-  index.
+- `search_paper_rag`: semantically retrieve passages from a note's ready local
+  RAG index.
 - `write_note`: update note HTML sections or note metadata.
 - `manage_annotations`: create, update, or delete Paper Notes annotations.
 - `write_note_media`: write note content from paper images or insert existing
@@ -29,3 +29,5 @@ The public entry point is `tools.create_tools(...)`. It returns
 - Domain logic belongs in `library`, `media`, `rag`, and `app_infra`.
 - The RAG system is exposed only as retrieval through `search_paper_rag`; it
   should not generate final answers by itself.
+- PDF import does not build indexes. Use `read_paper` for unindexed papers and
+  `search_paper_rag` only after Settings/RAG has created the index.

@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 from xml.etree import ElementTree
 
+from app_config import load_app_config
 from app_infra.formatting import (
     finite_number,
     get_today_label,
@@ -30,13 +31,6 @@ from app_infra.storage import atomic_write_json, atomic_write_text
 
 ALL_CATEGORY_ID = "all"
 UNCATEGORIZED_ID = "uncategorized"
-MAX_REMOTE_PDF_BYTES = 120 * 1024 * 1024
-MAX_REMOTE_HTML_BYTES = 2 * 1024 * 1024
-REMOTE_FETCH_TIMEOUT_SECONDS = 45
-REMOTE_FETCH_HEADERS = {
-    "User-Agent": "Paper Notes/0.1 (+https://localhost)",
-    "Accept": "application/pdf,text/html;q=0.8,*/*;q=0.5",
-}
 ARXIV_ID_PATTERN = re.compile(r"^(?:arxiv:\s*)?([a-z-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?|\d{4}\.\d{4,5}(?:v\d+)?)$", re.IGNORECASE)
 DOI_PATTERN = re.compile(r"^(?:doi:\s*)?(10\.\d{4,9}/\S+)$", re.IGNORECASE)
 
@@ -262,32 +256,7 @@ def _import_pdf_bytes(
 
     library["notes"] = [*existing_notes, note]
     write_library(library, NOTES_PATH)
-    return {**note, "ragIndex": _index_imported_pdf(note=note, pdf_path=pdf_path)}
-
-
-def _index_imported_pdf(*, note: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
-    try:
-        from rag.service import get_rag_service
-
-        result = get_rag_service().build_index(
-            note_id=normalize_text(note.get("id")),
-            pdf_path=pdf_path,
-            index_key=normalize_text(note.get("id")),
-            loader="pymupdf",
-            include_images=False,
-        )
-    except Exception as error:
-        return {
-            "success": False,
-            "code": getattr(error, "code", "rag_index_failed"),
-            "error": f"{type(error).__name__}: {error}",
-        }
-    return {
-        "success": True,
-        "ready": bool(result.get("ready")),
-        "indexKey": result.get("indexKey", ""),
-        "built": result.get("built", {}),
-    }
+    return note
 
 
 def title_from_remote_paper(*, source: str, pdf_url: str, final_url: str, pdf_data: bytes) -> str:
@@ -311,7 +280,7 @@ def fetch_arxiv_title(arxiv_id: str) -> str:
         return ""
     api_url = f"https://export.arxiv.org/api/query?id_list={url_quote(clean_id, safe='/')}"
     try:
-        response = requests.get(api_url, headers=REMOTE_FETCH_HEADERS, timeout=12)
+        response = requests.get(api_url, headers=remote_fetch_headers(), timeout=arxiv_fetch_timeout_seconds())
         response.raise_for_status()
     except Exception:
         return ""
@@ -433,12 +402,12 @@ def download_paper_pdf(url: str) -> tuple[bytes, str, str]:
     response = _get_remote(session, url)
     try:
         if response_is_pdf(response):
-            data = _read_limited_response(response, MAX_REMOTE_PDF_BYTES)
+            data = _read_limited_response(response, max_remote_pdf_bytes())
             if not looks_like_pdf(data):
                 raise ValueError("The link returned data, but it was not a valid PDF.")
             return data, file_name_from_response(response), response.url
 
-        html = _read_limited_response(response, MAX_REMOTE_HTML_BYTES)
+        html = _read_limited_response(response, max_remote_html_bytes())
         candidates = pdf_candidates_from_html(html, response.url)
         for candidate in candidates[:8]:
             pdf_response = None
@@ -446,7 +415,7 @@ def download_paper_pdf(url: str) -> tuple[bytes, str, str]:
                 pdf_response = _get_remote(session, candidate)
                 if not response_is_pdf(pdf_response):
                     continue
-                data = _read_limited_response(pdf_response, MAX_REMOTE_PDF_BYTES)
+                data = _read_limited_response(pdf_response, max_remote_pdf_bytes())
                 if looks_like_pdf(data):
                     return data, file_name_from_response(pdf_response), pdf_response.url
             except Exception:
@@ -463,8 +432,8 @@ def download_paper_pdf(url: str) -> tuple[bytes, str, str]:
 def _get_remote(session: requests.Session, url: str) -> requests.Response:
     response = session.get(
         url,
-        headers=REMOTE_FETCH_HEADERS,
-        timeout=REMOTE_FETCH_TIMEOUT_SECONDS,
+        headers=remote_fetch_headers(),
+        timeout=remote_fetch_timeout_seconds(),
         allow_redirects=True,
         stream=True,
     )
@@ -482,7 +451,7 @@ def response_is_pdf(response: requests.Response) -> bool:
 def _read_limited_response(response: requests.Response, max_bytes: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
-    for chunk in response.iter_content(chunk_size=64 * 1024):
+    for chunk in response.iter_content(chunk_size=remote_fetch_chunk_size()):
         if not chunk:
             continue
         total += len(chunk)
@@ -494,6 +463,30 @@ def _read_limited_response(response: requests.Response, max_bytes: int) -> bytes
 
 def looks_like_pdf(data: bytes) -> bool:
     return b"%PDF-" in data[:1024]
+
+
+def max_remote_pdf_bytes() -> int:
+    return load_app_config().library.import_settings.max_pdf_bytes
+
+
+def max_remote_html_bytes() -> int:
+    return load_app_config().library.import_settings.max_html_bytes
+
+
+def remote_fetch_timeout_seconds() -> float:
+    return load_app_config().library.import_settings.timeout_seconds
+
+
+def arxiv_fetch_timeout_seconds() -> float:
+    return load_app_config().library.import_settings.arxiv_timeout_seconds
+
+
+def remote_fetch_chunk_size() -> int:
+    return load_app_config().library.import_settings.chunk_size
+
+
+def remote_fetch_headers() -> dict[str, str]:
+    return load_app_config().library.import_settings.headers()
 
 
 def file_name_from_response(response: requests.Response) -> str:

@@ -79,8 +79,8 @@ def create_tools(
         StructuredTool(
             name="search_paper_rag",
             description=(
-                "Semantically search a note's PDF with the local RAG index. Prefer this for conceptual paper "
-                "questions, synthesis across sections, and queries where exact PDF text search may miss relevant passages."
+                "Semantically search a note's PDF only when its local RAG index is ready. Prefer read_paper when "
+                "the PDF has not been indexed yet or when exact text/page access is needed."
             ),
             args_schema=search_paper_rag_parameters(),
             func=lambda **kwargs: facade.search_paper_rag(dict(kwargs), library_path=library_path),

@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 
-const DEBUG_REQUEST_ID = "e2e-reader-chat-run";
+const E2E_REQUEST_ID = "e2e-reader-chat-run";
 const E2E_NOTE_ID = "pdf-deepseek-v4-e2e";
 const E2E_PDF_BASE64 = "JVBERi0xLjcKJcK1wrYKJSBXcml0dGVuIGJ5IE11UERGIDEuMjcuMgoKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvSW5mbzw8L1Byb2R1Y2VyKE11UERGIDEuMjcuMik+Pj4+CmVuZG9iagoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0NvdW50IDEvS2lkc1s0IDAgUl0+PgplbmRvYmoKCjMgMCBvYmoKPDwvRm9udDw8L2hlbHYgNSAwIFI+Pj4+CmVuZG9iagoKNCAwIG9iago8PC9UeXBlL1BhZ2UvTWVkaWFCb3hbMCAwIDIwMCAyMDBdL1JvdGF0ZSAwL1Jlc291cmNlcyAzIDAgUi9QYXJlbnQgMiAwIFIvQ29udGVudHNbNiAwIFJdPj4KZW5kb2JqCgo1IDAgb2JqCjw8L1R5cGUvRm9udC9TdWJ0eXBlL1R5cGUxL0Jhc2VGb250L0hlbHZldGljYS9FbmNvZGluZy9XaW5BbnNpRW5jb2Rpbmc+PgplbmRvYmoKCjYgMCBvYmoKPDwvTGVuZ3RoIDYyPj4Kc3RyZWFtCgpxCkJUCjEgMCAwIDEgNDAgMTIwIFRtCi9oZWx2IDE2IFRmIFs8NDUzMjQ1MjA1MDQ0NDY+XVRKCkVUClEKCmVuZHN0cmVhbQplbmRvYmoKCnhyZWYKMCA3CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDA0MiAwMDAwMCBuIAowMDAwMDAwMTIwIDAwMDAwIG4gCjAwMDAwMDAxNzIgMDAwMDAgbiAKMDAwMDAwMDIxMyAwMDAwMCBuIAowMDAwMDAwMzIwIDAwMDAwIG4gCjAwMDAwMDA0MDkgMDAwMDAgbiAKCnRyYWlsZXIKPDwvU2l6ZSA3L1Jvb3QgMSAwIFIvSURbPEMyODA2QTZDNEIwMjNDQzNBQjA4MENDMjlFQzNBQTM1PjwxNUFCQUE0RjA0ODMyQjU3MENFNzdDNEU1NTMzQ0QzOD5dPj4Kc3RhcnR4cmVmCjUyMAolJUVPRgo=";
 
@@ -48,13 +48,45 @@ function sseFrame(event, payload) {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
-async function installReaderFixtures(page, options = {}) {
-  await page.route("**/notes.json**", async (route) => {
+function libraryResponse(library) {
+  return { success: true, library };
+}
+
+async function installLibraryFixture(page, library = E2E_LIBRARY) {
+  await page.route("**/api/library", async (route) => {
     await route.fulfill({
+      status: 200,
       contentType: "application/json",
-      body: JSON.stringify(options.library || E2E_LIBRARY),
+      body: JSON.stringify(libraryResponse(library)),
     });
   });
+}
+
+async function readStoredLibrary(page) {
+  return page.evaluate(() => JSON.parse(localStorage.getItem("paper-notes-library-v14") || "{}"));
+}
+
+function agentSessionIdFromRoute(route, trailingSegments = 0) {
+  const parts = new URL(route.request().url()).pathname.split("/").filter(Boolean);
+  return decodeURIComponent(parts[parts.length - 1 - trailingSegments] || "");
+}
+
+async function appendReaderWorkTraceItems(page, items) {
+  await page.evaluate((traceItems) => {
+    const runKey = chatSessionRunKey();
+    traceItems.forEach((item) => {
+      appendReaderChatProgressWorkTrace({
+        traceType: item.type,
+        source: item.source || "runtime",
+        text: item.text,
+      }, runKey, item.eventType || "work_trace_item");
+    });
+    renderReaderChatMessages({ scrollToBottom: true });
+  }, items);
+}
+
+async function installReaderFixtures(page, options = {}) {
+  await installLibraryFixture(page, options.library || E2E_LIBRARY);
   await page.route("**/resources/Paper-html/e2e-deepseek-v4.html**", async (route) => {
     await route.fulfill({ contentType: "text/html", body: E2E_NOTE_HTML });
   });
@@ -82,27 +114,6 @@ async function installReaderFixtures(page, options = {}) {
       body: JSON.stringify(options.annotations || []),
     });
   });
-  await page.route("**/api/settings/tools", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ globalAccess: "full_access", builtInTools: [], tools: [] }),
-    });
-  });
-  await page.route("**/api/chat/context**", async (route) => {
-    const payload = typeof options.contextStatus === "function"
-      ? await options.contextStatus(route.request())
-      : options.contextStatus;
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify(payload || {
-        success: true,
-        usedTokens: 1200,
-        maxTokens: 128000,
-        percent: 1,
-        status: "ok",
-      }),
-    });
-  });
   const chatProjects = options.chatProjects || [];
   await page.route("**/api/chat/projects", async (route) => {
     if (route.request().method() === "POST") {
@@ -123,12 +134,6 @@ async function installReaderFixtures(page, options = {}) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ projects: chatProjects }),
-    });
-  });
-  await page.route("**/api/chat/tool-snapshots**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify(options.toolSnapshots || { snapshots: [] }),
     });
   });
 }
@@ -231,23 +236,7 @@ async function installStubPdfJs(page, options = {}) {
 
 async function openFixtureLibrary(page, options = {}) {
   await ignoreMissingFavicon(page);
-  await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify(options.library || E2E_LIBRARY),
-    });
-  });
-  await page.route("**/api/library", async (route) => {
-    const payload = route.request().postDataJSON();
-    if (typeof options.onLibrarySync === "function") {
-      await options.onLibrarySync(payload);
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(payload),
-    });
-  });
+  await installLibraryFixture(page, options.library || E2E_LIBRARY);
   await page.goto("/index.html");
   await expect(page).toHaveTitle("Paper Notes");
   await expect(page.getByRole("heading", { name: "All Notes" })).toBeVisible();
@@ -583,70 +572,21 @@ async function installPdfTextFixture(page) {
 
 async function installAgentMocks(page, options = {}) {
   const requests = [];
-  const cancelRequests = [];
   const extraArtifacts = Array.isArray(options.artifacts) ? options.artifacts : [];
   const streamGate = options.streamGate;
   const progressWorkItems = Array.isArray(options.workTraceItems) && options.workTraceItems.length
     ? options.workTraceItems
     : [{ type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:00.000Z" }];
-  const progressVisibleEvents = Array.isArray(options.progressVisibleEvents) && options.progressVisibleEvents.length
-    ? options.progressVisibleEvents
-    : [{ stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:00.000Z" }];
-  let streamFinished = false;
-  const debugRun = {
-    requestId: DEBUG_REQUEST_ID,
-    status: "completed",
-    provider: "e2e",
-    model: "mock-model",
-    transport: "sse",
-    sessionId: "e2e-session",
-    noteId: E2E_NOTE_ID,
-    startedAt: "2026-05-13T10:00:00.000Z",
-    finishedAt: "2026-05-13T10:00:06.000Z",
-    durationMs: 6000,
-    preview: "这篇论文当前的 tags 是：tool-test、deepseek",
-    events: [
+  const runTraceEvents = Array.isArray(options.runTraceEvents)
+    ? options.runTraceEvents
+    : [
       { type: "model_request", message: "Calling model provider.", data: { turn: 1 } },
       { type: "tool_call", message: "Executing tool: get_note_context", data: { toolName: "get_note_context" } },
       { type: "tool_result", message: "Tool completed: get_note_context", data: { toolName: "get_note_context" } },
       { type: "model_response", message: "Model provider returned a response.", data: { turn: 1 } },
-    ],
-  };
-  if (Array.isArray(options.runTraceEvents)) {
-    debugRun.events = options.runTraceEvents;
-  }
+    ];
 
-  await page.route("**/api/chat/progress**", async (route) => {
-    const running = Boolean(streamGate && !streamFinished);
-    const cancelled = Boolean(options.cancelReturnsCancelling && cancelRequests.length);
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        requestId: DEBUG_REQUEST_ID,
-        status: cancelled ? "cancelled" : running ? "running" : "completed",
-        stage: cancelled ? "cancelled" : running ? "tool" : "completed",
-        detail: cancelled ? "Agent run cancelled." : running ? "Reading note context..." : "Agent run completed.",
-        visibleDetail: "Reading note context...",
-        events: debugRun.events,
-        visibleEvents: progressVisibleEvents,
-        workTrace: {
-          status: cancelled ? "cancelled" : running ? "running" : "completed",
-          items: progressWorkItems,
-        },
-      }),
-    });
-  });
-
-  await page.route("**/api/chat/cancel", async (route) => {
-    cancelRequests.push(route.request().postDataJSON());
-    streamFinished = true;
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ cancelled: !options.cancelReturnsCancelling, status: options.cancelReturnsCancelling ? "cancelling" : "cancelled" }),
-    });
-  });
-
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) });
   });
 
@@ -687,14 +627,6 @@ async function installAgentMocks(page, options = {}) {
     });
   });
 
-  await page.route("**/api/debug/runs", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ runs: [debugRun] }) });
-  });
-
-  await page.route(`**/api/debug/runs/${DEBUG_REQUEST_ID}`, async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ run: debugRun }) });
-  });
-
   await page.route("**/api/media/file_e2e/download", async (route) => {
     await route.fulfill({
       contentType: "text/markdown",
@@ -711,12 +643,12 @@ async function installAgentMocks(page, options = {}) {
       items: progressWorkItems.map((item) => ({ ...item, at: item.at || now })),
     };
     const runTrace = {
-      requestId: DEBUG_REQUEST_ID,
+      requestId: E2E_REQUEST_ID,
       startedAt: now,
       finishedAt: now,
       durationMs: 6000,
       status: "completed",
-      events: debugRun.events,
+      events: runTraceEvents,
     };
     const fileArtifacts = request.fileGeneration?.enabled ? [{
       id: "file_e2e",
@@ -775,7 +707,7 @@ async function installAgentMocks(page, options = {}) {
           artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
         },
       ],
-      events: debugRun.events,
+      events: runTraceEvents,
       artifacts: [...fileArtifacts, ...imageArtifacts, ...extraArtifacts],
     };
     const body = [
@@ -786,7 +718,7 @@ async function installAgentMocks(page, options = {}) {
           stage: "tool",
           detail: "Reading note context...",
           visibleDetail: "Reading note context...",
-          events: debugRun.events.slice(0, 2),
+          events: runTraceEvents.slice(0, 2),
           visibleEvents: [{ stage: "tool", detail: "Reading note context...", at: now }],
           workTrace,
         },
@@ -794,7 +726,6 @@ async function installAgentMocks(page, options = {}) {
       sseFrame("final", finalPayload),
     ].join("");
     if (streamGate) await streamGate;
-    streamFinished = true;
     try {
       await route.fulfill({
         status: 200,
@@ -808,7 +739,7 @@ async function installAgentMocks(page, options = {}) {
       if (!String(error?.message || error).includes("aborted")) throw error;
     }
   });
-  return { requests, cancelRequests };
+  return { requests };
 }
 
 async function ignoreMissingFavicon(page) {
@@ -817,157 +748,112 @@ async function ignoreMissingFavicon(page) {
   });
 }
 
-test("home settings, skills, and debug smoke", async ({ page }) => {
+test("home settings and skills smoke", async ({ page }) => {
   await ignoreMissingFavicon(page);
   const consoleIssues = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) consoleIssues.push(message.text());
   });
   const importUrlRequests = [];
-  const savedToolPayloads = [];
-  await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        categories: [
-          { id: "all", name: "All Notes", parentId: null, order: 0, system: true },
-          { id: "uncategorized", name: "Uncategorized", parentId: null, order: 1, system: true },
-        ],
-        notes: [
-          {
-            id: "same-day-earlier",
-            title: "Same Day Earlier",
-            href: "",
-            htmlHref: "",
-            pdfStorageKey: "",
-            date: "2026-05-13",
-            order: 1,
-            categoryId: "uncategorized",
-            venue: "",
-            summary: "",
-            tags: [],
-          },
-          {
-            id: "same-day-later",
-            title: "Same Day Later",
-            href: "",
-            htmlHref: "",
-            pdfStorageKey: "",
-            date: "2026-05-13",
-            order: 2,
-            categoryId: "uncategorized",
-            venue: "",
-            summary: "",
-            tags: [],
-          },
-        ],
-      }),
-    });
-  });
-  await page.route("**/api/import-paper-url", async (route) => {
-    importUrlRequests.push(route.request().postDataJSON());
-    await route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "url-import",
-        title: "URL Imported Paper",
-        href: "resources/Papers/url-import.pdf",
-        htmlHref: "resources/Paper-html/url-import.html",
+  const homeLibrary = {
+    categories: [
+      { id: "all", name: "All Notes", parentId: null, order: 0, system: true },
+      { id: "uncategorized", name: "Uncategorized", parentId: null, order: 1, system: true },
+    ],
+    notes: [
+      {
+        id: "same-day-earlier",
+        title: "Same Day Earlier",
+        href: "",
+        htmlHref: "",
         pdfStorageKey: "",
-        sourceUrl: "https://arxiv.org/pdf/1706.03762.pdf",
-        date: "2026-05-14",
-        order: 3,
+        date: "2026-05-13",
+        order: 1,
         categoryId: "uncategorized",
         venue: "",
         summary: "",
         tags: [],
-      }),
+      },
+      {
+        id: "same-day-later",
+        title: "Same Day Later",
+        href: "",
+        htmlHref: "",
+        pdfStorageKey: "",
+        date: "2026-05-13",
+        order: 2,
+        categoryId: "uncategorized",
+        venue: "",
+        summary: "",
+        tags: [],
+      },
+    ],
+  };
+  await page.route("**/api/library/import/url", async (route) => {
+    importUrlRequests.push(route.request().postDataJSON());
+    const note = {
+      id: "url-import",
+      title: "URL Imported Paper",
+      href: "resources/Papers/url-import.pdf",
+      htmlHref: "resources/Paper-html/url-import.html",
+      pdfStorageKey: "",
+      sourceUrl: "https://arxiv.org/pdf/1706.03762.pdf",
+      date: "2026-05-14",
+      order: 3,
+      categoryId: "uncategorized",
+      venue: "",
+      summary: "",
+      tags: [],
+    };
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, note }),
     });
   });
   await page.route("**/api/library", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: route.request().postData() || "{}" });
-  });
-  await page.route("**/api/memory", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ entries: [] }),
+      body: JSON.stringify(libraryResponse(homeLibrary)),
     });
   });
-  await page.route("**/api/settings/tools", async (route) => {
-    if (route.request().method() === "POST") {
-      savedToolPayloads.push(route.request().postDataJSON());
-    }
+  await page.route("**/api/settings/ai", async (route) => {
     await route.fulfill({
-      status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        globalAccess: "default",
-        defaultWriteMode: "ask",
-        builtInTools: [
-          {
-            name: "paper_notes",
-            label: "Paper Notes",
-            description: "Local note tools.",
-            readOnly: false,
-            mutating: true,
-            enabled: true,
-            access: "inherit",
-          },
-          {
-            name: "session_search",
-            label: "Session Search",
-            description: "Search previous chat transcripts.",
-            readOnly: true,
-            mutating: false,
-            enabled: false,
-            access: "readonly",
-          },
-        ],
-        customTools: [
-          {
-            name: "web_search",
-            label: "Custom Web Search",
-            description: "Search the web with a configured provider.",
-            readOnly: true,
-            mutating: false,
-            enabled: false,
-            access: "readonly",
-          },
-          {
-            name: "mcp",
-            label: "MCP",
-            description: "Call tools discovered from enabled MCP servers.",
-            readOnly: true,
-            mutating: false,
-            enabled: true,
-            access: "readonly",
-          },
-        ],
-        tools: [],
-        disabledTools: ["session_search", "web_search"],
-        disabledToolsets: ["session_search", "web_search"],
-        enabledToolsets: ["mcp"],
-        webSearchProviders: {
-          native_provider: {
-            openaiCodex: { enabled: false },
-            openaiAPIKey: { enabled: false },
-            anthropic: { enabled: false },
-            gemini: { enabled: false },
-          },
-          custom_provider: {
-            Tavily: { enabled: false },
-            Brave: { enabled: false },
-          },
-          tavilyKeyConfigured: false,
-          braveSearchKeyConfigured: false,
-        },
-        settingsPath: ".paper-notes/tool-settings.json",
+        provider: "openai",
+        providerSource: "default",
+        supportedProviders: ["openai"],
+        configured: true,
+        ready: true,
+        model: "gpt-5.5",
+        modelConfigured: true,
+        modelConnectionConfigured: true,
+        codexAuth: { loggedIn: false },
       }),
     });
   });
-
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.5",
+        modelConnectionConfigured: true,
+        providers: [{
+          name: "openai",
+          displayName: "OpenAI API key",
+          configured: true,
+          ready: true,
+          model: "gpt-5.5",
+          selectedModel: "gpt-5.5",
+          defaultModel: "gpt-5.5",
+          models: [{ value: "gpt-5.5", label: "GPT-5.5" }],
+        }],
+      }),
+    });
+  });
   await page.goto("/index.html");
   await expect(page).toHaveTitle("Paper Notes");
   await expect(page.getByRole("heading", { name: "All Notes" })).toBeVisible();
@@ -1016,10 +902,9 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await page.mouse.up();
   await expect(settingsButton).not.toHaveClass(/is-pressing/);
   await expect(page.locator("#openAiSettings")).toBeVisible();
-  await expect(page.locator("#openMemorySettings")).toBeVisible();
-  await expect(page.locator("#openToolSettings")).toBeVisible();
+  await expect(page.locator("#openRagSettings")).toBeVisible();
+  await expect(page.locator("#openMcpSettings")).toBeVisible();
   await expect(page.locator("#openSkillsSettings")).toBeVisible();
-  await expect(page.locator("#openDebugSettings")).toBeVisible();
   await expect(page.locator("#settingsMenuShield")).toBeVisible();
   const settingsLayering = await page.evaluate(() => {
     const menu = document.querySelector("#settingsMenu");
@@ -1033,29 +918,6 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   expect(settingsLayering.menuBackground).not.toContain("rgba(0, 0, 0, 0)");
   expect(settingsLayering.menuZIndex).toBeGreaterThan(settingsLayering.shieldZIndex);
 
-  await page.locator("#openToolSettings").click();
-  await expect(page.locator("#toolSettingsDialog")).toBeVisible();
-  await expect(page.locator("#toolSettingsCount")).toHaveText("1 tool");
-  await expect(page.locator("#toolSettingsList")).not.toContainText("MCP");
-  const sessionSearchToggle = page.locator('[data-tool-enabled="session_search"]');
-  await expect(sessionSearchToggle).toBeEnabled();
-  await expect(sessionSearchToggle).not.toBeChecked();
-  await expect(page.locator(".tool-settings-item", { hasText: "Session Search" })).toContainText("Enabled");
-  const tavilyToggle = page.locator('[data-web-search-provider-enabled="Tavily"]');
-  await expect(tavilyToggle).toBeEnabled();
-  await expect(tavilyToggle).not.toBeChecked();
-  await expect(page.locator(".web-search-provider-row", { hasText: "Tavily" })).toContainText("Enabled");
-  await expect(page.locator(".web-search-provider-row", { hasText: "Tavily" })).not.toContainText("Off");
-  await sessionSearchToggle.check();
-  await tavilyToggle.check();
-  await page.locator("#saveToolSettings").click();
-  await expect(page.locator("#toolSettingsDialog")).not.toBeVisible();
-  expect(savedToolPayloads).toHaveLength(1);
-  expect(savedToolPayloads[0].tools.find((tool) => tool.name === "session_search")?.enabled).toBe(true);
-  expect(savedToolPayloads[0].tools.map((tool) => tool.name)).not.toContain("mcp");
-  expect(savedToolPayloads[0].webSearchProviders.custom_provider.Tavily.enabled).toBe(true);
-
-  await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openAiSettings").click();
   await expect(page.locator("#aiSettingsDialog")).toBeVisible();
   await page.locator("#compareModelsButton").click();
@@ -1090,14 +952,6 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#aiSettingsDialog")).not.toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.locator("#openMemorySettings").click();
-  await expect(page.locator("#memoryDialog")).toBeVisible();
-  await expect(page.locator("#cancelMemoryDialog")).toBeVisible();
-  await expect(page.locator("#saveMemoryDialog")).toBeVisible();
-  await page.locator("#cancelMemoryDialog").click();
-  await expect(page.locator("#memoryDialog")).not.toBeVisible();
-
-  await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("#openSkillsSettings").click();
   await expect(page.locator("#skillsSettingsDialog")).toBeVisible();
   await expect(page.locator("#skillsSettingsDialog")).toContainText("External directories");
@@ -1111,17 +965,6 @@ test("home settings, skills, and debug smoke", async ({ page }) => {
   await expect(page.locator("#skillsSettingsDetail")).toContainText("Image Artifact Creator");
   await page.locator("#saveSkillsSettings").click();
   await expect(page.locator("#skillsSettingsDialog")).not.toBeVisible();
-
-  await page.getByRole("button", { name: "Settings" }).click();
-  await page.locator("#openDebugSettings").click();
-  await expect(page.locator("#debugDialog")).toBeVisible();
-  await expect(page.locator("#debugDialog")).toContainText("Debug");
-  await expect(page.locator("#refreshDebugRuns")).toBeVisible();
-  await expect(page.locator("#cleanupDebugRuns")).toBeVisible();
-  await expect(page.locator("#cancelDebugDialog")).toBeVisible();
-  await expect(page.locator("#saveDebugDialog")).toBeVisible();
-  await page.locator("#saveDebugDialog").click();
-  await expect(page.locator("#debugDialog")).not.toBeVisible();
 
   expect(consoleIssues).toEqual([]);
 });
@@ -1195,19 +1038,7 @@ test("codex oauth status badge follows the signed-in auth state", async ({ page 
 
 test("MCP settings opens from URL and supports add test save remove", async ({ page }) => {
   await ignoreMissingFavicon(page);
-  await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
-    });
-  });
-  await page.route("**/api/settings/tools", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
-    });
-  });
-
+  await installLibraryFixture(page, { categories: E2E_LIBRARY.categories, notes: [] });
   let currentServers = [];
   const savedPayloads = [];
   const testPayloads = [];
@@ -1304,7 +1135,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
       });
       return;
     }
-    if (url.pathname.endsWith("/api/settings/mcp/reconnect") || url.pathname.endsWith("/api/settings/mcp/reset-circuit")) {
+    if (url.pathname.endsWith("/api/settings/mcp/reset-circuit")) {
       opsPayloads.push({ path: url.pathname, body: route.request().postDataJSON() });
       await route.fulfill({
         contentType: "application/json",
@@ -1330,11 +1161,9 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
   await expect(page.locator(".settings-menu-item .settings-theme-value")).toHaveCount(0);
   await expect(page.locator(".settings-menu-item .settings-theme-title")).toHaveText([
     "AI Provider",
-    "Memory",
-    "Tools",
+    "RAG",
     "MCP",
     "Skills",
-    "Debug",
   ]);
 
   await page.locator("#addMcpServer").click();
@@ -1455,18 +1284,7 @@ test("MCP settings opens from URL and supports add test save remove", async ({ p
 
 test("MCP settings renders each operation error under its button", async ({ page }) => {
   await ignoreMissingFavicon(page);
-  await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
-    });
-  });
-  await page.route("**/api/settings/tools", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
-    });
-  });
+  await installLibraryFixture(page, { categories: E2E_LIBRARY.categories, notes: [] });
   await page.route("**/api/settings/mcp**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/api/settings/mcp/stderr-log")) {
@@ -1487,13 +1305,6 @@ test("MCP settings renders each operation error under its button", async ({ page
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ success: false, error: "Connect denied" }),
-      });
-      return;
-    }
-    if (url.pathname.endsWith("/api/settings/mcp/reconnect")) {
-      await route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({ success: false, error: "Reconnect denied" }),
       });
       return;
     }
@@ -1590,19 +1401,7 @@ test("MCP settings renders each operation error under its button", async ({ page
 
 test("MCP settings cancel restores preview runtime registration", async ({ page }) => {
   await ignoreMissingFavicon(page);
-  await page.route("**/notes.json**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ categories: E2E_LIBRARY.categories, notes: [] }),
-    });
-  });
-  await page.route("**/api/settings/tools", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ globalAccess: "default", builtInTools: [], tools: [] }),
-    });
-  });
-
+  await installLibraryFixture(page, { categories: E2E_LIBRARY.categories, notes: [] });
   const persistedServers = [{
     id: "mcp_cancel_fixture",
     name: "Cancel fixture",
@@ -1693,7 +1492,6 @@ test("MCP settings cancel restores preview runtime registration", async ({ page 
 });
 
 test("library tag add and remove flows persist through the details panel", async ({ page }) => {
-  const syncPayloads = [];
   const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
   library.categories.push({ id: "agent", name: "Agent", parentId: null, order: 3, system: false });
   library.notes.push({
@@ -1712,12 +1510,7 @@ test("library tag add and remove flows persist through the details panel", async
     order: 2,
     tags: ["other"],
   });
-  await openFixtureLibrary(page, {
-    library,
-    onLibrarySync: (payload) => {
-      syncPayloads.push(payload);
-    },
-  });
+  await openFixtureLibrary(page, { library });
 
   await expect(page.locator(".details-tags")).toContainText("tool-test");
   await expect(page.locator(".details-tags")).toContainText("deepseek");
@@ -1766,7 +1559,7 @@ test("library tag add and remove flows persist through the details panel", async
   await expect(page.locator("#tagDialog")).not.toBeVisible();
   await expect(page.locator(".details-tags")).toContainText("regression");
   await expect(page.getByRole("button", { name: "Remove regression tag" })).toBeVisible();
-  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
+  expect((await readStoredLibrary(page)).notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
     "tool-test",
     "deepseek",
     "regression",
@@ -1778,23 +1571,19 @@ test("library tag add and remove flows persist through the details panel", async
   await expect(page.locator("#confirmDialog")).toContainText("Remove #regression?");
   await page.locator("#confirmDialogAction").click();
   await expect(page.locator(".details-tags")).not.toContainText("regression");
-  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
+  expect((await readStoredLibrary(page)).notes?.find((note) => note.id === E2E_NOTE_ID)?.tags).toEqual([
     "tool-test",
     "deepseek",
   ]);
 });
 
 test("library collections can be dragged into and out of parent collections", async ({ page }) => {
-  const syncPayloads = [];
   const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
   library.categories.push(
     { id: "llm", name: "LLM", parentId: null, order: 3, system: false },
     { id: "agent", name: "Agent", parentId: null, order: 4, system: false },
   );
-  await openFixtureLibrary(page, {
-    library,
-    onLibrarySync: (payload) => syncPayloads.push(payload),
-  });
+  await openFixtureLibrary(page, { library });
 
   async function dragCategory(sourceId, targetId, yRatio = 0.5) {
     await page.evaluate(({ sourceId, targetId, yRatio }) => {
@@ -1820,25 +1609,25 @@ test("library collections can be dragged into and out of parent collections", as
 
   await dragCategory("deepseek", "llm", 0.5);
   await expect(page.locator(".tree-level-1 [data-category-id='deepseek']")).toBeVisible();
-  expect(syncPayloads.at(-1)?.categories?.find((category) => category.id === "deepseek")?.parentId).toBe("llm");
+  await expect.poll(async () => (
+    (await readStoredLibrary(page)).categories?.find((category) => category.id === "deepseek")?.parentId
+  )).toBe("llm");
 
   await dragCategory("deepseek", "all", 0.5);
   await expect(page.locator(".tree-level-0 [data-category-id='deepseek']")).toBeVisible();
-  expect(syncPayloads.at(-1)?.categories?.find((category) => category.id === "deepseek")?.parentId).toBeNull();
+  await expect.poll(async () => (
+    (await readStoredLibrary(page)).categories?.find((category) => category.id === "deepseek")?.parentId
+  )).toBeNull();
 });
 
 test("library paper cards can be dragged into collections", async ({ page }) => {
-  const syncPayloads = [];
   const library = JSON.parse(JSON.stringify(E2E_LIBRARY));
   library.categories.push(
     { id: "agent", name: "Agent", parentId: null, order: 3, system: false },
     { id: "llm", name: "LLM", parentId: null, order: 4, system: false },
     { id: "llm-child", name: "Reasoning", parentId: "llm", order: 0, system: false },
   );
-  await openFixtureLibrary(page, {
-    library,
-    onLibrarySync: (payload) => syncPayloads.push(payload),
-  });
+  await openFixtureLibrary(page, { library });
 
   async function dragPaperToCategory(noteId, categoryId) {
     await page.evaluate(({ noteId, categoryId }) => {
@@ -1862,13 +1651,17 @@ test("library paper cards can be dragged into collections", async ({ page }) => 
   }
 
   await dragPaperToCategory(E2E_NOTE_ID, "agent");
-  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("agent");
+  await expect.poll(async () => (
+    (await readStoredLibrary(page)).notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId
+  )).toBe("agent");
 
   await dragPaperToCategory(E2E_NOTE_ID, "llm");
-  expect(syncPayloads.at(-1)?.notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("llm-child");
+  await expect.poll(async () => (
+    (await readStoredLibrary(page)).notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId
+  )).toBe("llm-child");
 });
 
-test("reader ask flow renders response, work trace, and debug", async ({ page }) => {
+test("reader ask flow renders response and work trace", async ({ page }) => {
   await openFixtureReader(page);
   const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
   await expect(htmlToggle).toHaveAttribute("href", /resources\/Paper-html\/e2e-deepseek-v4\.html$/);
@@ -1897,15 +1690,9 @@ test("reader ask flow renders response, work trace, and debug", async ({ page })
   await expect(askPane.getByText("tool-test")).toBeVisible();
   await expect(askPane.getByText("deepseek", { exact: true })).toBeVisible();
   await expect(askPane.getByText("Worked for")).toBeVisible();
-  await expect(askPane.getByText("Debug", { exact: true })).toBeVisible();
 
   await askPane.getByText("Worked for").click();
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
-
-  await page.locator(`[data-debug-run-open="${DEBUG_REQUEST_ID}"]`).click();
-  await expect(page.locator("#debugDialog")).toBeVisible();
-  await expect(page.locator("#debugDialog")).toContainText(DEBUG_REQUEST_ID);
-  await expect(page.locator("#debugDialog")).toContainText("model_request");
 
   expect(consoleIssues).toEqual([]);
 });
@@ -1960,55 +1747,6 @@ test("reader ask user message copy icon falls back when Clipboard API rejects", 
   expect(pageErrors).toEqual([]);
 });
 
-test("reader debug run list hides status-duplicate cancelled preview", async ({ page }) => {
-  await openFixtureReader(page);
-  const cancelledRun = {
-    requestId: DEBUG_REQUEST_ID,
-    status: "cancelled",
-    provider: "codex-oauth",
-    model: "gpt-5.3-codex-spark",
-    transport: "json",
-    sessionId: "cancelled-session",
-    noteId: E2E_NOTE_ID,
-    startedAt: "2026-05-17T15:29:57.000Z",
-    finishedAt: "2026-05-17T15:32:16.000Z",
-    durationMs: 139000,
-    errorPreview: "cancelled",
-    metadata: { requestOptions: { reasoning: { effort: "xhigh" } } },
-    events: [],
-  };
-  await page.route("**/api/debug/runs?limit=50", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ runs: [cancelledRun] }) });
-  });
-  await page.route(`**/api/debug/runs/${DEBUG_REQUEST_ID}`, async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ run: cancelledRun }) });
-  });
-
-  await page.evaluate((requestId) => openDebugDialog(requestId), DEBUG_REQUEST_ID);
-
-  const runRow = page.locator(".debug-run-row");
-  await expect(runRow).toHaveCount(1);
-  await expect(runRow.locator("strong")).toContainText("cancelled");
-  await expect(runRow.locator("span")).toContainText("codex-oauth / gpt-5.3-codex-spark");
-  await expect(runRow.locator("span")).toContainText("Think XHigh");
-  await expect(runRow.locator("span")).toContainText("2m 19s");
-  await expect(runRow.locator("span")).not.toContainText("json");
-  await expect(runRow.locator("small")).toHaveCount(0);
-
-  const debugDetail = page.locator(".debug-run-detail");
-  const detailValues = await debugDetail.locator(".debug-kv").evaluate((list) => {
-    const values = {};
-    Array.from(list.querySelectorAll("dt")).forEach((label) => {
-      values[label.textContent.trim()] = label.nextElementSibling?.textContent?.trim() || "";
-    });
-    return values;
-  });
-  expect(detailValues.Model).toBe("codex-oauth / gpt-5.3-codex-spark · Think XHigh");
-  expect(detailValues.Status).toBe("cancelled");
-  expect(detailValues.Duration).toBe("2m 19s");
-  expect(detailValues.Transport).toBeUndefined();
-});
-
 test("reader ask shows running progress as inline messages", async ({ page }) => {
   await openFixtureReader(page);
   let releaseStream;
@@ -2022,12 +1760,6 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
       { type: "status", text: "Preparing answer...", at: "2026-05-13T10:00:01.000Z" },
       { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:02.000Z" },
     ],
-    progressVisibleEvents: [
-      { stage: "thinking", detail: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
-      { stage: "thinking", detail: "Thinking through the paper context and reading", at: "2026-05-13T10:00:00.500Z" },
-      { stage: "status", detail: "Preparing answer...", at: "2026-05-13T10:00:01.000Z" },
-      { stage: "tool", detail: "Reading note context...", at: "2026-05-13T10:00:02.000Z" },
-    ],
   });
 
   const askInput = page.getByPlaceholder("Ask anything");
@@ -2039,9 +1771,14 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await sendButton.click();
 
   const askPane = page.locator("#askPane");
-  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(sendButton).toHaveAttribute("aria-label", "Stop");
   await expect(sendButton).toHaveText("");
-  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(sendButton.locator(".ask-send-icon")).toHaveCount(1);
+  await appendReaderWorkTraceItems(page, [
+    { type: "reasoning", text: "Thinking through the paper context..." },
+    { type: "status", text: "Preparing answer..." },
+    { type: "tool", text: "Reading note context...", eventType: "work_trace_delta" },
+  ]);
   await expect.poll(async () => page.evaluate(() => ({
     startingType: progressInlineType("starting"),
     startingLabel: workTraceItemLabel("starting"),
@@ -2074,7 +1811,7 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await expect.poll(async () => {
     const firstDelay = await activeToolChars.first().evaluate((node) => Number.parseFloat(getComputedStyle(node).animationDelay));
     const lastDelay = await activeToolChars.last().evaluate((node) => Number.parseFloat(getComputedStyle(node).animationDelay));
-    return firstDelay < 0 && lastDelay < 0 && Math.abs(lastDelay - firstDelay) > 0.5;
+    return firstDelay <= 0 && lastDelay < 0 && Math.abs(lastDelay - firstDelay) > 0.5;
   }).toBe(true);
   const freshToolDelays = await page.evaluate(() => {
     const html = renderProgressInlineReadingText("Using a new tool call", new Date().toISOString());
@@ -2152,7 +1889,7 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   releaseStream();
   await expect(sendButton).toHaveAttribute("aria-label", "Send");
   await expect(sendButton).toHaveText("");
-  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(sendButton.locator(".ask-send-icon")).toHaveCount(1);
   await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
   await expect(askPane.getByText("Worked for")).toBeVisible();
   await askPane.getByText("Worked for").click();
@@ -2160,15 +1897,14 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
 });
 
-test("reader ask send button cancels a pending request", async ({ page }) => {
+test("reader ask send button stops a pending request locally", async ({ page }) => {
   await openFixtureReader(page);
   let releaseStream;
   const streamGate = new Promise((resolve) => {
     releaseStream = resolve;
   });
-  const agentMocks = await installAgentMocks(page, {
+  await installAgentMocks(page, {
     streamGate,
-    cancelReturnsCancelling: true,
     workTraceItems: [
       { type: "reasoning", text: "Thinking through the paper context...", at: "2026-05-13T10:00:00.000Z" },
       { type: "tool", text: "Reading note context...", at: "2026-05-13T10:00:01.000Z" },
@@ -2182,45 +1918,46 @@ test("reader ask send button cancels a pending request", async ({ page }) => {
   await askInput.fill("cancel this run");
   const sendButton = page.locator("#sendReaderChat");
   await sendButton.click();
-  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(sendButton).toHaveAttribute("aria-label", "Stop");
   await expect(sendButton).toHaveText("");
-  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(sendButton.locator(".ask-send-icon")).toHaveCount(1);
   await expect(askInput).toBeEnabled();
   const toolButton = page.locator("#readerToolMenuButton");
   await expect(toolButton).toBeEnabled();
 
   await askInput.fill("/");
   await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
+  await expect(page.locator(".slash-command-item")).toHaveCount(2);
   await expect(page.locator("[data-slash-command='new']")).toBeEnabled();
-  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
-  await expect(page.locator("[data-slash-command='compact']")).toContainText("Wait for current answer to finish");
   await expect(page.locator("[data-slash-command='stop']")).toBeEnabled();
 
   await askInput.fill("draft next question");
   await askInput.press("Enter");
-  await expect.poll(() => agentMocks.cancelRequests.length).toBe(0);
-  await expect(sendButton).toHaveAttribute("aria-label", "Cancel");
+  await expect(sendButton).toHaveAttribute("aria-label", "Stop");
   await expect(askInput).toHaveValue("draft next question");
   await toolButton.click();
   await expect(page.locator("#readerToolPopover")).toBeVisible();
   await toolButton.click();
 
+  await appendReaderWorkTraceItems(page, [
+    { type: "reasoning", text: "Thinking through the paper context..." },
+    { type: "tool", text: "Reading note context..." },
+  ]);
   await sendButton.click();
-  await expect.poll(() => agentMocks.cancelRequests.length).toBe(1);
   releaseStream();
   await expect(sendButton).toHaveAttribute("aria-label", "Send");
   await expect(sendButton).toHaveText("");
-  await expect(sendButton.locator("svg")).toHaveCount(1);
+  await expect(sendButton.locator(".ask-send-icon")).toHaveCount(1);
   const askPane = page.locator("#askPane");
   await expect(askPane.locator(".ask-progress-card")).toHaveCount(0);
   await expect(askPane.locator(".ask-message-progress-inline")).toHaveCount(0);
-  await expect(askPane.locator(".ask-bubble").filter({ hasText: /^Agent run cancelled\.$/ })).toBeVisible();
+  await expect(askPane.locator(".ask-bubble").filter({ hasText: /^Agent run stopped\.$/ })).toBeVisible();
   await expect(askPane.getByText("Worked for")).toBeVisible();
   await askPane.getByText("Worked for").click();
   await expect(askPane.getByText("Thinking through the paper context...")).toBeVisible();
   const summaryEvents = askPane.locator(".ask-run-summary-events");
   await expect(summaryEvents.getByText("Reading note context...").first()).toBeVisible();
-  await expect(summaryEvents.getByText("Agent run cancelled.", { exact: true })).toBeVisible();
+  await expect(summaryEvents.getByText("Agent run stopped.", { exact: true })).toBeVisible();
 });
 
 test("reader ask worked summary shows status-only run trace events", async ({ page }) => {
@@ -2375,7 +2112,7 @@ test("reader trash uses clear all with confirmation", async ({ page }) => {
   ];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     await route.fulfill({
       contentType: "application/json",
@@ -2384,8 +2121,12 @@ test("reader trash uses clear all with confirmation", async ({ page }) => {
       }),
     });
   });
-  await page.route("**/api/chat/session/delete", async (route) => {
-    deletedSessionIds.push(route.request().postDataJSON().sessionId);
+  await page.route(/\/api\/agent\/sessions\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.fallback();
+      return;
+    }
+    deletedSessionIds.push(agentSessionIdFromRoute(route));
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ success: true }),
@@ -2433,7 +2174,7 @@ test("reader session tabs expose archive trash and active views", async ({ page 
   }];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const state = url.searchParams.get("state") || "active";
     await route.fulfill({
@@ -2447,11 +2188,10 @@ test("reader session tabs expose archive trash and active views", async ({ page 
 
   await showAskPane(page);
   const sessionTabs = page.locator(".ask-session-tabs button");
-  await expect(sessionTabs).toHaveCount(4);
-  await expect(sessionTabs.nth(0)).toHaveAttribute("aria-label", "Show context window");
-  await expect(sessionTabs.nth(1)).toHaveAttribute("aria-label", "Archived chats");
-  await expect(sessionTabs.nth(2)).toHaveAttribute("aria-label", "Trash chats");
-  await expect(sessionTabs.nth(3)).toHaveAttribute("aria-label", "Chats");
+  await expect(sessionTabs).toHaveCount(3);
+  await expect(sessionTabs.nth(0)).toHaveAttribute("aria-label", "Archived chats");
+  await expect(sessionTabs.nth(1)).toHaveAttribute("aria-label", "Trash chats");
+  await expect(sessionTabs.nth(2)).toHaveAttribute("aria-label", "Chats");
 
   await page.locator("#chatSessionArchivedButton").click();
   await expect(page.locator("#chatSessionPopoverTitle")).toHaveText("Archived");
@@ -2489,7 +2229,7 @@ test("reader session popover is tall enough for longer chat lists", async ({ pag
   }));
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: activeSessions }),
@@ -2538,15 +2278,14 @@ test("reader ask projects filter sessions and session menu assigns a project", a
   ];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page, { chatProjects: projects });
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: activeSessions }),
     });
   });
-  await page.route("**/api/chat/session?id=*", async (route) => {
-    const url = new URL(route.request().url());
-    const sessionId = url.searchParams.get("id") || "";
+  await page.route(/\/api\/agent\/sessions\/[^/]+$/, async (route) => {
+    const sessionId = agentSessionIdFromRoute(route);
     loadedSessionIds.push(sessionId);
     const session = activeSessions.find((item) => item.id === sessionId);
     await route.fulfill({
@@ -2727,7 +2466,7 @@ test("reader session project picker scrolls long project lists", async ({ page }
   }];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page, { chatProjects: projects });
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions }),
@@ -2771,7 +2510,7 @@ test("reader restore keeps the current session list view", async ({ page }) => {
   };
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const state = url.searchParams.get("state") || "active";
     await route.fulfill({
@@ -2783,17 +2522,18 @@ test("reader restore keeps the current session list view", async ({ page }) => {
       }),
     });
   });
-  await page.route("**/api/chat/session/archive", async (route) => {
+  await page.route(/\/api\/agent\/sessions\/[^/]+\/state$/, async (route) => {
+    const sessionId = agentSessionIdFromRoute(route, 1);
     const payload = route.request().postDataJSON();
-    archiveCalls.push(payload);
-    stateBySessionId.set(payload.sessionId, payload.state);
+    archiveCalls.push({ sessionId, state: payload.state });
+    stateBySessionId.set(sessionId, payload.state);
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         session: {
           ...archivedSession,
-          id: payload.sessionId,
-          sessionId: payload.sessionId,
+          id: sessionId,
+          sessionId,
           state: payload.state,
           archived: payload.state === "archived",
           trashed: payload.state === "trashed",
@@ -2801,7 +2541,7 @@ test("reader restore keeps the current session list view", async ({ page }) => {
       }),
     });
   });
-  await page.route("**/api/chat/session?id=archived-session-1", async (route) => {
+  await page.route(/\/api\/agent\/sessions\/archived-session-1$/, async (route) => {
     throw new Error(`Restore should not load the restored session: ${route.request().url()}`);
   });
 
@@ -2834,7 +2574,7 @@ test("reader can click an archived session to use it without moving it", async (
   };
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const state = url.searchParams.get("state") || "active";
     await route.fulfill({
@@ -2842,10 +2582,10 @@ test("reader can click an archived session to use it without moving it", async (
       body: JSON.stringify({ sessions: state === "archived" ? [archivedSession] : [] }),
     });
   });
-  await page.route("**/api/chat/session/archive", async (route) => {
+  await page.route(/\/api\/agent\/sessions\/[^/]+\/state$/, async (route) => {
     throw new Error(`Clicking an archived session should not move it: ${route.request().postData()}`);
   });
-  await page.route("**/api/chat/session?id=archived-session-1", async (route) => {
+  await page.route(/\/api\/agent\/sessions\/archived-session-1$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -2875,7 +2615,7 @@ test("reader archive and trash actions run from the row menu without confirm", a
   const archiveCalls = [];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -2888,15 +2628,16 @@ test("reader archive and trash actions run from the row menu without confirm", a
       }),
     });
   });
-  await page.route("**/api/chat/session/archive", async (route) => {
+  await page.route(/\/api\/agent\/sessions\/[^/]+\/state$/, async (route) => {
+    const sessionId = agentSessionIdFromRoute(route, 1);
     const payload = route.request().postDataJSON();
-    archiveCalls.push(payload);
+    archiveCalls.push({ sessionId, state: payload.state });
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         session: {
-          id: payload.sessionId,
-          sessionId: payload.sessionId,
+          id: sessionId,
+          sessionId,
           title: "Active chat",
           state: payload.state,
           archived: payload.state === "archived",
@@ -2940,7 +2681,7 @@ test("reader permanent delete still requires confirmation", async ({ page }) => 
   const deletedSessionIds = [];
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     await route.fulfill({
       contentType: "application/json",
@@ -2957,8 +2698,12 @@ test("reader permanent delete still requires confirmation", async ({ page }) => 
       }),
     });
   });
-  await page.route("**/api/chat/session/delete", async (route) => {
-    deletedSessionIds.push(route.request().postDataJSON().sessionId);
+  await page.route(/\/api\/agent\/sessions\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.fallback();
+      return;
+    }
+    deletedSessionIds.push(agentSessionIdFromRoute(route));
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ success: true }) });
   });
   await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
@@ -2978,7 +2723,7 @@ test("reader permanent delete still requires confirmation", async ({ page }) => 
 test("reader chats tab opens immediately from a closed session menu", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: [] }),
@@ -3004,7 +2749,7 @@ test("reader chats tab opens immediately from a closed session menu", async ({ p
 test("reader new chat is available in sessions and at the bottom of the ask tools menu", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: [] }),
@@ -3055,7 +2800,7 @@ test("reader new chat is available in sessions and at the bottom of the ask tool
 test("reader slash commands show icons filter and start a new chat", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
-  await page.route("**/api/chat/sessions**", async (route) => {
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ sessions: [] }),
@@ -3074,17 +2819,15 @@ test("reader slash commands show icons filter and start a new chat", async ({ pa
 
   await askInput.fill("/");
   await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
-  await expect(page.locator(".slash-command-item")).toHaveCount(3);
-  await expect(page.locator(".slash-command-icon")).toHaveCount(3);
+  await expect(page.locator(".slash-command-item")).toHaveCount(2);
+  await expect(page.locator(".slash-command-icon")).toHaveCount(2);
   await expect(page.locator(".slash-command-item").nth(0)).toContainText("New chat");
   await expect(page.locator(".slash-command-item").nth(0)).toContainText("Start a fresh Ask session");
-  await expect(page.locator(".slash-command-item").nth(1)).toContainText("Compact");
-  await expect(page.locator(".slash-command-item").nth(2)).toContainText("Stop");
+  await expect(page.locator(".slash-command-item").nth(1)).toContainText("Stop");
 
   await askInput.fill("/ne");
   await expect(page.locator(".slash-command-item")).toHaveCount(1);
   await expect(page.locator(".slash-command-item")).toContainText("New chat");
-  await expect(page.locator(".slash-command-item")).not.toContainText("Compact");
   await page.locator("[data-slash-command='new']").click();
 
   await expect(page.locator("#readerSlashCommandMenu")).toBeHidden();
@@ -3093,95 +2836,27 @@ test("reader slash commands show icons filter and start a new chat", async ({ pa
   await expect(askInput).toBeFocused();
 });
 
-test("reader slash compact is disabled without a session and executable with one", async ({ page }) => {
-  await ignoreMissingFavicon(page);
-  await installReaderFixtures(page);
-  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
-  await showAskPane(page);
-
-  let compressRequest = null;
-  await page.route("**/api/chat/compress", async (route) => {
-    compressRequest = route.request().postDataJSON();
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        compressed: true,
-        context: {
-          provider: "openai",
-          model: "gpt-5.5",
-          contextLength: 128000,
-          tokensUsed: 64000,
-          percentFull: 50,
-          messageCount: 7,
-          compactionEnabled: true,
-          compressionCount: 1,
-          lastCompressedAt: "2026-05-15T11:30:00.000Z",
-          summaryAvailable: true,
-        },
-        message: {
-          role: "divider",
-          text: "Context compacted. Earlier conversation was summarized.",
-          metadata: { type: "context_compaction" },
-        },
-      }),
-    });
-  });
-
-  const askInput = page.locator("#readerChatInput");
-  await askInput.fill("/compact");
-  await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
-  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
-  await expect(page.locator("[data-slash-command='compact']")).toContainText("No active session yet");
-  await askInput.press("Enter");
-  await expect.poll(() => compressRequest).toBeNull();
-
-  await page.evaluate(() => {
-    setCurrentChatSessionId("slash-compact-session");
-    setReaderChatPending(true, "slash-compact-session");
-  });
-  await askInput.fill("/compact");
-  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
-  await expect(page.locator("[data-slash-command='compact']")).toContainText("Wait for current answer to finish");
-  await askInput.press("Enter");
-  await expect.poll(() => compressRequest).toBeNull();
-
-  await page.evaluate(() => {
-    setReaderChatPending(false, "slash-compact-session");
-  });
-  await askInput.fill("/");
-  await askInput.press("ArrowDown");
-  await expect(page.locator("[data-slash-command='compact']")).toHaveClass(/is-active/);
-  await expect(page.locator("[data-slash-command='compact']")).toBeEnabled();
-  await expect(page.locator("[data-slash-command='compact']")).toContainText("Summarize this session's context");
-  await askInput.press("Enter");
-
-  await expect(page.locator("#readerSlashCommandMenu")).toBeHidden();
-  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
-  expect(compressRequest).toMatchObject({ sessionId: "slash-compact-session", noteId: E2E_NOTE_ID });
-});
-
-test("reader slash stop cancels a pending request", async ({ page }) => {
+test("reader slash stop stops a pending request locally", async ({ page }) => {
   await openFixtureReader(page);
   await showAskPane(page);
   let releaseStream;
   const streamGate = new Promise((resolve) => {
     releaseStream = resolve;
   });
-  const agentMocks = await installAgentMocks(page, { streamGate });
+  await installAgentMocks(page, { streamGate });
 
   const askInput = page.locator("#readerChatInput");
   await askInput.fill("keep running");
   await page.locator("#sendReaderChat").click();
-  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Cancel");
+  await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Stop");
 
   await askInput.fill("/stop");
   await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
   await expect(page.locator("[data-slash-command='stop']")).toBeEnabled();
   await askInput.press("Enter");
-  await expect.poll(() => agentMocks.cancelRequests.length).toBe(1);
-  expect(agentMocks.cancelRequests[0]).toMatchObject({ reason: "reader_cancelled" });
   releaseStream();
   await expect(page.locator("#sendReaderChat")).toHaveAttribute("aria-label", "Send");
+  await expect(page.locator(".ask-bubble").filter({ hasText: /^Agent run stopped\.$/ })).toBeVisible();
 });
 
 test("reader attachment uploads show tray progress and can be removed", async ({ page }) => {
@@ -3281,118 +2956,6 @@ test("reader ask tools add the current PDF page as an attachment", async ({ page
   expect(uploads[0].mimeType).toBe("image/png");
   expect(uploads[0].data).toMatch(/^data:image\/png;base64,/);
   await expect(page.locator("#readerAttachmentTray .ask-attachment-preview.is-image img")).toHaveAttribute("alt", "deepseek-v4-page-1.png");
-});
-
-test("reader manual context compaction updates the popover and adds a divider", async ({ page }) => {
-  let compressionCount = 0;
-  let lastCompressedAt = "";
-  let compressRequest = null;
-  let releaseCompress;
-  const compressGate = new Promise((resolve) => {
-    releaseCompress = resolve;
-  });
-  await installReaderFixtures(page, {
-    contextStatus: () => ({
-      context: {
-        provider: "openai",
-        model: "gpt-5.5",
-        contextLength: 128000,
-        tokensUsed: compressionCount ? 64000 : 112000,
-        estimatedRequestTokens: compressionCount ? 64000 : 118000,
-        messageTokens: compressionCount ? 30000 : 50000,
-        instructionTokens: 4000,
-        toolSchemaTokens: compressionCount ? 30000 : 64000,
-        actualUsageAvailable: !compressionCount,
-        usageUpdatedAt: compressionCount ? "" : "2026-05-15T11:20:00.000Z",
-        thresholdTokens: 102400,
-        thresholdPercent: 80,
-        percentFull: compressionCount ? 50 : 88,
-        messageCount: compressionCount ? 7 : 6,
-        compactionEnabled: true,
-        compressionCount,
-        lastCompressedAt,
-        summaryAvailable: compressionCount > 0,
-      },
-    }),
-  });
-  await ignoreMissingFavicon(page);
-  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
-  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
-  await installAgentMocks(page);
-  await page.route("**/api/chat/compress", async (route) => {
-    compressRequest = route.request().postDataJSON();
-    await compressGate;
-    compressionCount = 1;
-    lastCompressedAt = "2026-05-15T11:30:00.000Z";
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        compressed: true,
-        context: {
-          provider: "openai",
-          model: "gpt-5.5",
-          contextLength: 128000,
-          tokensUsed: 64000,
-          estimatedRequestTokens: 64000,
-          messageTokens: 30000,
-          instructionTokens: 4000,
-          toolSchemaTokens: 30000,
-          actualUsageAvailable: false,
-          usageUpdatedAt: "",
-          thresholdTokens: 102400,
-          thresholdPercent: 80,
-          percentFull: 50,
-          messageCount: 7,
-          compactionEnabled: true,
-          compressionCount,
-          lastCompressedAt,
-          summaryAvailable: true,
-        },
-        message: {
-          role: "divider",
-          text: "Context compacted. Earlier conversation was summarized.",
-          metadata: {
-            type: "context_compaction",
-            focus: "tags only",
-          },
-        },
-      }),
-    });
-  });
-
-  await showAskPane(page);
-  await page.evaluate(() => {
-    setCurrentChatSessionId("e2e-session");
-  });
-
-  await page.locator("#readerContextButton").click();
-  await expect(page.locator("#readerContextPopover")).toBeVisible();
-  await expect(page.locator("#readerContextPopover")).toContainText("88% full");
-  await expect(page.locator("#readerContextPopover")).toContainText("112k / 128k context used");
-  await expect(page.locator("#readerContextPopover")).not.toContainText("Estimated request:");
-  await expect(page.locator("#readerContextPopover")).not.toContainText("Instructions 4k");
-  await expect(page.locator("#readerContextPopover")).not.toContainText("Threshold");
-  await expect(page.locator("#readerContextButton")).not.toHaveClass(/is-warning/);
-  await page.locator("#readerContextCompactFocus").fill("tags only");
-  await page.locator("[data-context-action='compact']").click();
-  await expect(page.locator("[data-context-action='compact']")).toHaveText("Compacting");
-  await expect(page.locator(".ask-context-compaction-divider.is-running")).toContainText("Compacting context");
-  await expect(page.locator(".ask-context-compaction-spinner")).toBeVisible();
-
-  releaseCompress();
-
-  await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
-  await expect(page.locator("#readerContextPopover")).toContainText("1 compacted");
-  await expect(page.locator("#readerContextPopover")).toContainText("50% full");
-  await expect(page.locator("#readerContextPopover")).not.toContainText("Estimated request:");
-  await expect(page.locator(".ask-context-compaction-divider.is-running")).toHaveCount(0);
-  await expect(page.locator(".ask-message-divider")).toContainText("Context compacted");
-  await expect(page.locator(".ask-message-divider")).not.toContainText("Earlier conversation was summarized");
-  expect(compressRequest).toMatchObject({
-    sessionId: "e2e-session",
-    focus: "tags only",
-    noteId: E2E_NOTE_ID,
-  });
 });
 
 test("reader HTML note renders before a delayed PDF finishes", async ({ page }) => {
@@ -3521,96 +3084,6 @@ test("reader chat renders markdown blockquotes", async ({ page }) => {
   await expect(bubble).not.toContainText("> 第一段引用");
 });
 
-test("reader chat renders context compaction markers", async ({ page }) => {
-  await openFixtureReader(page);
-  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
-  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
-    await askToggle.click();
-  }
-
-  await page.evaluate(() => {
-    readerState.contextStatus = normalizeContextStatus({
-      provider: "openai",
-      model: "gpt-5.5",
-      contextLength: 128000,
-      tokensUsed: 64000,
-      actualUsageAvailable: true,
-      percentFull: 50,
-      messageCount: 12,
-      compactionEnabled: true,
-      compressionCount: 3,
-      summaryAvailable: true,
-    });
-    readerState.contextPopoverOpen = true;
-    renderReaderContextControls();
-  });
-  await expect(page.locator("#readerContextPopover")).toContainText("Session compacted 3 times");
-  await expect(page.locator("#readerContextPopover")).toContainText("Accuracy may degrade. Consider starting a new chat.");
-
-  await page.evaluate(() => {
-    readerState.chatMessages = [{
-      role: "assistant",
-      text: "压缩后继续回答。",
-      runTrace: {
-        status: "completed",
-        events: [{
-          type: "context_compressed",
-          message: "Compressed long session context before model call.",
-          data: { before_message_count: 98, after_message_count: 24 },
-        }],
-      },
-    }];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  });
-
-  await expect(page.locator(".ask-context-compaction-divider")).toContainText("Context compacted");
-
-  await page.evaluate(() => {
-    readerState.chatMessages = [
-      { role: "user", text: "Microcompact 解释一下" },
-      {
-        role: "assistant",
-        text: "压缩后继续回答。",
-        runTrace: {
-          status: "completed",
-          events: [{
-            type: "context_compressed",
-            message: "Compressed long session context before model call.",
-            data: { before_message_count: 98, after_message_count: 24 },
-          }],
-        },
-      },
-    ];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  });
-
-  await expect(page.locator(".ask-context-compaction-divider")).toHaveCount(1);
-  await expect(page.locator(".ask-context-compaction-divider")).toContainText("Context compacted");
-  const compactionOrder = await page.locator("#readerChatMessages > .ask-context-compaction-divider, #readerChatMessages > .ask-message").evaluateAll((nodes) => (
-    nodes.map((node) => node.classList.contains("ask-context-compaction-divider") ? "compact" : node.textContent?.trim() || "")
-  ));
-  expect(compactionOrder[0]).toBe("compact");
-  expect(compactionOrder[1]).toContain("Microcompact 解释一下");
-
-  await page.evaluate(() => {
-    readerState.chatMessages = [{ role: "user", text: "Microcompact 解释一下" }];
-    readerState.chatPendingBySession.__draft_chat_session__ = true;
-    readerState.chatProgressBySession.__draft_chat_session__ = {
-      status: "running",
-      detail: "Compacting context",
-      events: [{
-        type: "context_compressing",
-        detail: "Compacting context",
-        data: {},
-      }],
-    };
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  });
-
-  await expect(page.locator(".ask-context-compaction-divider.is-running")).toContainText("Compacting context");
-  await expect(page.locator(".ask-context-compaction-spinner")).toBeVisible();
-});
-
 test("reader chat linkifies adjacent Chinese parenthetical URLs separately", async ({ page }) => {
   await openFixtureReader(page);
   const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
@@ -3643,70 +3116,6 @@ test("reader note renders LaTeX math in generated HTML notes", async ({ page }) 
   await expect(notePage).not.toContainText("\\(");
   await expect(notePage).not.toContainText("\\]");
   await expect(notePage.locator("pre code")).toContainText("$not_rendered$");
-});
-
-test("reader chat tool activity shows view and preview with real diff line numbers", async ({ page }) => {
-  await openFixtureReader(page);
-  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
-  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
-    await askToggle.click();
-  }
-
-  await page.evaluate(() => {
-    readerState.toolDiffs = {
-      "snapshot-e2e": {
-        snapshotId: "snapshot-e2e",
-        files: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          diff: [
-            "resources/Paper-html/e2e-deepseek-v4.html@@ -74,14 +74,6 @@ <h4>5.2.5. Sandbox Infrastructure</h4>",
-            " <h3>5.3. Standard Benchmark Evaluation</h3>",
-            "-<h4>5.3.1. Evaluation Setup</h4>",
-            " <h4 id=\"5.4.1--chinese-writing\">5.4.1. Chinese Writing</h4>"
-          ].join("\n")
-        }]
-      }
-    };
-    readerState.toolDiffOpen = { "message-0:snapshot-e2e:0": true };
-    readerState.chatMessages = [{
-      role: "assistant",
-      text: "已更新。",
-      toolActivity: [{
-        name: "write_note",
-        sessionId: "session-e2e",
-        snapshotId: "snapshot-e2e",
-        noteId: "",
-        undoable: true,
-        changedFiles: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          beforeBytes: 200,
-          afterBytes: 160
-        }],
-        message: "Tool completed: write_note"
-      }]
-    }];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  });
-
-  const actions = page.locator(".ask-tool-activity-actions button");
-  await expect(actions).toHaveText(["View", "Preview", "Undo"]);
-  await page.evaluate(() => {
-    readerState.toolSnapshots = [{ snapshotId: "snapshot-e2e", canUndo: false, canRedo: false, undoable: true }];
-    renderReaderChatMessages({ forceScrollToBottom: false });
-  });
-  await expect(actions.filter({ hasText: "Undo" })).toBeDisabled();
-  await page.evaluate(() => {
-    readerState.toolSnapshots = [{ snapshotId: "snapshot-e2e", canUndo: true, canRedo: false, undoable: true }];
-    renderReaderChatMessages({ forceScrollToBottom: false });
-  });
-  await page.evaluate(() => {
-    readerState.toolUndoStates["snapshot-e2e"] = "undoing";
-    renderReaderChatMessages({ forceScrollToBottom: false });
-  });
-  await expect(actions).toHaveText(["View", "Preview", "Undo"]);
-  const firstContextLineNumbers = await page.locator(".ask-tool-diff-row.is-context").first().locator(".ask-tool-diff-line").allTextContents();
-  expect(firstContextLineNumbers).toEqual(["74", "74"]);
-  await expect(page.locator(".ask-tool-diff-line", { hasText: "1" })).toHaveCount(0);
 });
 
 test("reader chat tool activity view jumps to the changed note heading", async ({ page }) => {
@@ -3761,219 +3170,6 @@ test("reader chat tool activity view jumps to the changed note heading", async (
     const paneRect = elements.notePane.getBoundingClientRect();
     return Math.round(heading.getBoundingClientRect().top - paneRect.top);
   })).toBeLessThan(190);
-});
-
-test("reader chat tool activity shows first-line diff line numbers", async ({ page }) => {
-  await openFixtureReader(page);
-  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
-  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
-    await askToggle.click();
-  }
-
-  await page.evaluate(() => {
-    readerState.toolDiffs = {
-      "snapshot-e2e-snippet": {
-        snapshotId: "snapshot-e2e-snippet",
-        files: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          diff: [
-            "@@ -1,5 +1,4 @@",
-            " <h4 id=\"5.4.2--search\">5.4.2. Search</h4>",
-            "-<h4 id=\"5.4.4--code-agent\">5.4.4. Code Agent</h4>",
-            " <h2>6. Conclusion, Limitations, and Future Directions</h2>"
-          ].join("\n")
-        }]
-      }
-    };
-    readerState.toolDiffOpen = { "message-0:snapshot-e2e-snippet:0": true };
-    readerState.chatMessages = [{
-      role: "assistant",
-      text: "已更新。",
-      toolActivity: [{
-        name: "write_note",
-        sessionId: "session-e2e",
-        snapshotId: "snapshot-e2e-snippet",
-        noteId: "",
-        undoable: true,
-        changedFiles: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          beforeBytes: 200,
-          afterBytes: 160
-        }],
-        message: "Tool completed: write_note"
-      }]
-    }];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  });
-
-  await expect(page.locator(".ask-tool-activity-actions button")).toHaveText(["View", "Preview", "Undo"]);
-  const diffRows = page.locator(".ask-tool-diff-row");
-  await expect(diffRows).toHaveCount(4);
-  await expect(diffRows.nth(1).locator(".ask-tool-diff-line")).toHaveText(["1", "1"]);
-  await expect(diffRows.nth(2).locator(".ask-tool-diff-line")).toHaveText(["2", ""]);
-  await expect(diffRows.nth(3).locator(".ask-tool-diff-line")).toHaveText(["3", "2"]);
-});
-
-test("reader chat preview expands only the clicked tool activity", async ({ page }) => {
-  await openFixtureReader(page);
-  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
-  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
-    await askToggle.click();
-  }
-
-  await page.route("**/api/chat/tool-snapshot-diff**", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        success: true,
-        sessionId: "session-e2e",
-        snapshotId: "shared-snapshot",
-        files: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          diff: [
-            "@@ -4,3 +4,4 @@",
-            " <h2>Overview</h2>",
-            "+<p>Added once.</p>"
-          ].join("\n")
-        }]
-      })
-    });
-  });
-
-  const toolActivity = {
-    name: "write_note",
-    sessionId: "session-e2e",
-    snapshotId: "shared-snapshot",
-    noteId: "",
-    undoable: true,
-    changedFiles: [{
-      path: "resources/Paper-html/e2e-deepseek-v4.html",
-      beforeBytes: 200,
-      afterBytes: 240
-    }],
-    message: "Tool completed: write_note"
-  };
-  await page.evaluate((activity) => {
-    readerState.toolDiffs = {};
-    readerState.toolDiffOpen = {};
-    readerState.chatMessages = [
-      { role: "assistant", text: "第一次。", toolActivity: [activity] },
-      { role: "assistant", text: "第二次。", toolActivity: [activity] }
-    ];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  }, toolActivity);
-
-  const firstActivity = page.locator(".ask-tool-activity-item").nth(0);
-  const secondActivity = page.locator(".ask-tool-activity-item").nth(1);
-  await firstActivity.getByRole("button", { name: "Preview" }).click();
-
-  await expect(firstActivity.locator(".ask-tool-diff")).toHaveCount(1);
-  await expect(secondActivity.locator(".ask-tool-diff")).toHaveCount(0);
-});
-
-test("reader chat shows only the final note edit card for repeated same-file writes", async ({ page }) => {
-  await openFixtureReader(page);
-  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
-  if ((await askToggle.getAttribute("aria-expanded")) !== "true") {
-    await askToggle.click();
-  }
-
-  const requestedSnapshots = [];
-  await page.route("**/api/chat/tool-snapshot-diff**", async (route) => {
-    const url = new URL(route.request().url());
-    const snapshotId = url.searchParams.get("snapshotId") || "";
-    requestedSnapshots.push(snapshotId);
-    const index = Number(snapshotId.match(/-(\d+)$/)?.[1] || 0);
-    const added = index % 2 === 1;
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        success: true,
-        sessionId: "session-e2e",
-        snapshotId,
-        files: [{
-          path: "resources/Paper-html/e2e-deepseek-v4.html",
-          diff: [
-            "@@ -20,2 +20,2 @@",
-            " <h2>Section</h2>",
-            added ? `+<p>Added by ${snapshotId}</p>` : `-<p>Removed by ${snapshotId}</p>`
-          ].join("\n")
-        }]
-      })
-    });
-  });
-
-  const activities = Array.from({ length: 5 }, (_, index) => ({
-    name: "write_note",
-    sessionId: "session-e2e",
-    snapshotId: `snapshot-e2e-${index + 1}`,
-    noteId: "",
-    undoable: true,
-    changedFiles: [{
-      path: "resources/Paper-html/e2e-deepseek-v4.html",
-      beforeBytes: 200 + index,
-      afterBytes: 201 + index
-    }],
-    message: `Tool completed: write_note ${index + 1}`
-  }));
-
-  await page.evaluate((toolActivity) => {
-    readerState.chatMessages = [{
-      role: "assistant",
-      text: "已加好了。",
-      toolActivity
-    }];
-    renderReaderChatMessages({ forceScrollToBottom: true });
-  }, activities);
-
-  await expect(page.locator(".ask-tool-activity-item")).toHaveCount(1);
-  await expect(page.locator(".ask-tool-activity-actions button")).toHaveText(["View", "Preview", "Undo"]);
-  await page.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".ask-tool-diff")).toHaveCount(1);
-  await expect(page.locator(".ask-tool-diff-file")).toHaveCount(5);
-  await expect(page.locator(".ask-tool-diff-step-count")).toHaveText([
-    "Change 1 / 5",
-    "Change 2 / 5",
-    "Change 3 / 5",
-    "Change 4 / 5",
-    "Change 5 / 5"
-  ]);
-  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
-  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(2);
-  const changeToggles = page.locator("[data-tool-diff-collapse]");
-  await expect(changeToggles).toHaveCount(5);
-  await expect(changeToggles.nth(1)).toHaveAttribute("aria-expanded", "true");
-  await changeToggles.nth(1).click();
-  await expect(page.locator(".ask-tool-diff-file").nth(1)).toHaveClass(/is-collapsed/);
-  await expect(page.locator(".ask-tool-diff-file").nth(1).locator(".ask-tool-diff-viewer")).toHaveCount(0);
-  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
-  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(1);
-  await expect(changeToggles.nth(1)).toHaveAttribute("aria-expanded", "false");
-  await changeToggles.nth(1).click();
-  await expect(page.locator(".ask-tool-diff-file").nth(1)).not.toHaveClass(/is-collapsed/);
-  await expect(page.locator(".ask-tool-diff-row.is-added")).toHaveCount(3);
-  await expect(page.locator(".ask-tool-diff-row.is-removed")).toHaveCount(2);
-  expect(requestedSnapshots).toEqual([
-    "snapshot-e2e-1",
-    "snapshot-e2e-2",
-    "snapshot-e2e-3",
-    "snapshot-e2e-4",
-    "snapshot-e2e-5"
-  ]);
-  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute("data-tool-toggle", "snapshot-e2e-5");
-  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute(
-    "data-tool-toggle-snapshots",
-    "snapshot-e2e-5,snapshot-e2e-4,snapshot-e2e-3,snapshot-e2e-2,snapshot-e2e-1"
-  );
-  await page.evaluate(() => {
-    readerState.toolUndoStates["snapshot-e2e-1|snapshot-e2e-2|snapshot-e2e-3|snapshot-e2e-4|snapshot-e2e-5"] = "undone";
-    renderReaderChatMessages({ forceScrollToBottom: false });
-  });
-  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute("data-tool-toggle", "snapshot-e2e-1");
-  await expect(page.locator("[data-tool-toggle]")).toHaveAttribute(
-    "data-tool-toggle-snapshots",
-    "snapshot-e2e-1,snapshot-e2e-2,snapshot-e2e-3,snapshot-e2e-4,snapshot-e2e-5"
-  );
 });
 
 test("reader PDF zoom keeps immediate user scroll instead of snapping back", async ({ page }) => {
@@ -4863,8 +4059,13 @@ test("reader PDF formula copy keeps inline subscript glyphs", async ({ page, con
 });
 
 test("reader ask tools send generation modes and render generated file cards", async ({ page }) => {
-  await openFixtureReader(page);
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
   const { requests } = await installAgentMocks(page);
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page).toHaveTitle("Paper Reader");
+  await expect(page.getByRole("heading", { name: "DeepSeek V4" })).toBeVisible();
+  await expect(page.locator("#pdfPageTotal")).toHaveText("/ 1");
 
   const askInput = page.getByPlaceholder("Ask anything");
   if (!(await askInput.isVisible())) {

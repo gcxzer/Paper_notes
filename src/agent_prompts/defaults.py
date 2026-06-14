@@ -48,8 +48,9 @@ PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE = (
     "# Paper note-writing workflow\n"
     "- Before changing note content, inspect the current note with get_note_context; include existing HTML "
     "when editing or replacing sections.\n"
-    "- Use search_paper_rag for semantic PDF retrieval when available; synthesize from its retrieved passages. Use read_paper for exact "
-    "text search, page text, page images, figures, or visual analysis.\n"
+    "- Use search_paper_rag only when the paper already has a ready RAG index; synthesize from its retrieved passages. "
+    "If the paper is not indexed, or if search_paper_rag reports index_not_ready, use read_paper instead. Use "
+    "read_paper for exact text search, page text, page images, figures, or visual analysis.\n"
     "- When note content or metadata must change, use write_note when available.\n"
     "- When annotations must change, use manage_annotations when available.\n"
     "- When image-derived note content or image insertion is needed, use write_note_media when available. "
@@ -76,11 +77,11 @@ TOOL_GUIDANCE_BY_NAME = {
     ),
     "read_paper": (
         "Use read_paper for exact PDF text search, page text, page rendering, figure extraction, or registered "
-        "paper image analysis."
+        "paper image analysis. Use this as the fallback for papers that have not been indexed for RAG."
     ),
     "search_paper_rag": (
-        "Use search_paper_rag for semantic retrieval over a note's indexed PDF. Prefer it for conceptual paper questions, "
-        "cross-section synthesis, and queries where exact text search may miss relevant passages."
+        "Use search_paper_rag only for semantic retrieval over a note's already indexed PDF. Do not assume imports "
+        "create indexes automatically. If it reports index_not_ready, continue with read_paper."
     ),
     "write_note": (
         "Use write_note only for note HTML sections and metadata. For normal additions or follow-up content, "

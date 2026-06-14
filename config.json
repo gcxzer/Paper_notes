@@ -1,4 +1,10 @@
 {
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "title": "Paper Notes",
+    "docs_url": "/docs"
+  },
   "models": {
     "default": "main",
     "main": {
@@ -21,5 +27,58 @@
   "checkpointer": {
     "type": "sqlite",
     "path": ".paper-notes/checkpoints.sqlite"
+  },
+  "rag": {
+    "root_dir": ".paper-notes/rag",
+    "index_root": ".paper-notes/rag/indexes",
+    "image_root": ".paper-notes/rag/images",
+    "collections": {
+      "text": "paper_notes",
+      "image": "paper_notes_images"
+    },
+    "build": {
+      "loader": "pymupdf",
+      "include_images": false,
+      "qdrant": true,
+      "bm25": true
+    },
+    "chunking": {
+      "chunk_size": 800,
+      "chunk_overlap": 120
+    },
+    "embedding": {
+      "provider": "ollama",
+      "model": "qwen3-embedding:8b",
+      "batch_size": 100,
+      "ollama": {
+        "model": "qwen3-embedding:8b",
+        "base_url": "http://localhost:11434"
+      },
+      "openai": {
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "api_base_env": "MODELSCOPE_BASEURL",
+        "api_key_env": "MODELSCOPE_TOKEN"
+      }
+    },
+    "image_embedding": {
+      "model": "ViT-B/32"
+    },
+    "retrieval": {
+      "similarity_top_k": 5,
+      "image_similarity_top_k": 3,
+      "bm25_similarity_top_k": 5,
+      "hybrid_weights": [0.7, 0.3]
+    },
+    "llamaparse": {
+      "tier": "agentic",
+      "version": "latest",
+      "timeout": 7200,
+      "polling_interval": 2,
+      "max_interval": 20,
+      "image_download_timeout": 60,
+      "image_categories": ["embedded", "layout"],
+      "ocr_languages": [],
+      "custom_prompt": "Parse this academic paper into clean Markdown. Preserve section headings, equations, citations, figure captions, table captions, tables, and references. Keep the reading order correct for multi-column paper layouts."
+    }
   }
 }

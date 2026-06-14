@@ -14,7 +14,8 @@ The new architecture is:
 - Local library/media/data layers restored under `app_infra`, `library`, and
   `media`.
 - RAG integrated as a retriever tool, not as a separate answer-generation LLM.
-- React/Vite frontend, replacing the old static frontend.
+- Static legacy frontend restored under `src/ui/frontend` and served by the
+  FastAPI backend.
 
 ## Completed In This Rewrite Pass
 
@@ -31,33 +32,34 @@ The new architecture is:
 7. Library, media, storage, path, and note HTML data layers restored.
 8. RAG backend added under `src/rag`.
 9. `search_paper_rag` exposed as a LangChain tool.
-10. PDF import now attempts RAG indexing after saving the paper.
+10. PDF import saves papers and notes without automatic RAG indexing.
 11. New backend routes added for agent sessions, context status, RAG status,
     RAG indexing, and library operations.
-12. Old frontend files under `src/ui/frontend` deleted.
-13. New React/Vite frontend added with library and reader workspaces.
+12. Legacy static frontend restored under `src/ui/frontend`.
+13. Frontend API calls adapted to the current backend routes without a
+    compatibility layer.
+14. The app now runs as a single backend/static-frontend service on port 8765.
+15. RAG indexing moved to Settings/RAG; unindexed papers fall back to
+    `read_paper`.
 
 ## Current Frontend Status
 
 Implemented:
 
-- React app shell.
+- Static app shell.
 - Library page with sidebar, paper grid, details panel, import controls, sort,
   search, rename, and summary edit.
-- Reader page with paper rail, PDF surface, note surface, related papers, RAG
-  status, session strip, context meter, and agent chat.
-- Vite dev proxy for `/api` and `/resources`.
-- Desktop and mobile layout checks.
+- Reader page with PDF surface, note surface, related papers, and agent chat.
+- Settings RAG panel with per-paper status plus Index/Rebuild actions.
+- Existing Settings menu entries are preserved; unimplemented settings remain
+  visible but are not forced onto new backend routes.
+- Static serving for `/resources` and required frontend packages.
 
 Stubbed:
 
-- Collection management.
-- Tag editor.
-- Annotation editing UI.
-- Full PDF toolbar behavior.
-- Settings pages.
-- Model/provider switcher.
-- Archived/trash session views.
+- Backend persistence for collection management, tags, note moves, note
+  deletion, and scratchpad sync.
+- Settings pages whose backend routes have not been implemented yet.
 
 ## Current Backend Status
 
@@ -74,49 +76,51 @@ Implemented:
 - `POST /api/agent/run`
 - agent session list/read/context/rename/archive/state/delete routes
 - `/resources` static mount for local paper files
+- `/` static mount for the frontend
+- selected `/node_modules/...` static mounts for legacy frontend assets
 
 Intentional current shape:
 
 - No legacy frontend compatibility layer.
 - No SQLite checkpointer in the active agent flow.
 - No separate `rag/llm_model.py`; RAG is retrieval only.
-- Frontend upload/indexing workflow is still minimal and should be expanded
-  after the backend stabilizes.
+- RAG indexing is a Settings-managed action, not part of the PDF import path.
 
 ## Verification
 
 Recent checks:
 
 ```bash
-npm run build
-uv run ruff check src/ui/backend src/library
+node --check src/ui/frontend/scripts/site/settings/rag.js
+node --check src/ui/frontend/scripts/site/actions.js
+node --check src/ui/frontend/scripts/site/events.js
+node --check src/ui/frontend/scripts/site/library.js
+node --check src/ui/frontend/scripts/shared/floating-pad.js
+PYTHONPATH=src uv run python -m compileall src/app_infra/paths.py src/ui/backend/server.py src/ui/backend/library_api.py src/ui/backend/rag_api.py
 PYTHONPATH=src uv run pytest tests/test_library.py tests/test_agent_api_langchain.py tests/test_rag_backend.py -q
 ```
 
 Result:
 
 ```text
-19 passed, 5 warnings
+Static frontend and RAG Settings smoke checks passed locally.
 ```
 
 Browser checks:
 
-- `http://127.0.0.1:5173/` renders the React library workspace.
-- `/reader/pdf-deepseek-v4-mp7dz7db` renders the React reader workspace.
-- Mobile width check at 390px has no horizontal overflow after the reader
-  layout fix.
+- `http://127.0.0.1:8765/` serves the static Paper Notes workspace.
+- Settings contains Theme, Scratchpad, AI Provider, RAG, MCP, and Skills.
+- Settings/RAG opens and calls `/api/rag/status`.
 
 ## Next Migration Candidates
 
 1. Finish backend library mutations:
    collection create/rename/delete/reorder, tag update, note move, note delete.
-2. Rebuild annotation endpoints and connect the React reader annotation UI.
+2. Rebuild annotation endpoints and connect the reader annotation UI.
 3. Add real settings routes for model provider selection and app config.
-4. Replace old autostart scripts or remove them from the main path.
-5. Migrate tests away from old frontend DOM ids and legacy runtime assumptions.
-6. Add production serving for the built React frontend if the app should run as
-   one process.
-7. Revisit `config.json` and remove stale `checkpointer` configuration.
+4. Migrate tests away from old frontend DOM ids and legacy runtime assumptions.
+5. Continue wiring legacy frontend surfaces to implemented backend routes.
+6. Revisit `config.json` and remove stale `checkpointer` configuration.
 
 ## Useful Commands
 
@@ -126,16 +130,9 @@ Backend:
 PYTHONPATH=src uv run python main.py
 ```
 
-Frontend:
-
-```bash
-npm run dev
-```
-
 Focused checks:
 
 ```bash
-npm run build
 uv run ruff check src tests
 PYTHONPATH=src uv run pytest tests/test_library.py tests/test_agent_api_langchain.py tests/test_rag_backend.py -q
 ```

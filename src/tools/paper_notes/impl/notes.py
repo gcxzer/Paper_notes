@@ -783,9 +783,28 @@ def build_note_context(
         "success": True,
         "note_id": note["id"],
         "note": note,
+        "rag": _rag_status_for_note(note["id"], library_path=library_path),
         "sections": sections_payload.get("sections", []) if sections_payload.get("success") else [],
         "annotations": annotations_payload.get("annotations", []) if not annotations_payload.get("error") else [],
         "paper_matches": paper_matches,
+    }
+
+
+def _rag_status_for_note(note_id: str, *, library_path: Path | None = None) -> dict[str, Any]:
+    try:
+        from rag.service import get_rag_service
+
+        status = get_rag_service().status(note_id=note_id, library_path=library_path)
+    except Exception as error:
+        return {
+            "ready": False,
+            "code": getattr(error, "code", "rag_status_failed"),
+            "error": str(error),
+        }
+    return {
+        "ready": bool(status.get("ready")),
+        "indexKey": status.get("indexKey", ""),
+        "indexes": status.get("indexes", {}),
     }
 
 

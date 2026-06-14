@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app_config import load_app_config
 from rag.service import RAGServiceError, get_rag_service
 
 
@@ -24,17 +25,18 @@ def register_rag_routes(app: FastAPI) -> None:
     @app.post("/api/rag/index")
     async def api_rag_index(request: Request) -> JSONResponse:
         body = await _json_body(request)
+        build_config = load_app_config().rag.build
         try:
             payload = get_rag_service().build_index(
                 note_id=_text(_first(body, "noteId", "note_id")),
                 pdf_path=_first(body, "pdfPath", "pdf_path"),
                 index_key=_text(_first(body, "indexKey", "index_key")),
-                loader=_text(_first(body, "loader")) or "pymupdf",
-                include_images=_bool(_first(body, "includeImages", "include_images")),
+                loader=_optional_text(_first(body, "loader")),
+                include_images=_optional_bool(_first(body, "includeImages", "include_images")),
                 rebuild=_bool(_first(body, "rebuild")),
-                build_qdrant=_bool(_first(body, "buildQdrant", "build_qdrant"), default=True),
-                build_bm25=_bool(_first(body, "buildBm25", "build_bm25"), default=True),
-                embedding_provider=_text(_first(body, "embeddingProvider", "embedding_provider")) or "ollama",
+                build_qdrant=_optional_bool(_first(body, "buildQdrant", "build_qdrant"), default=build_config.qdrant),
+                build_bm25=_optional_bool(_first(body, "buildBm25", "build_bm25"), default=build_config.bm25),
+                embedding_provider=_optional_text(_first(body, "embeddingProvider", "embedding_provider")),
                 embedding_model=_optional_text(_first(body, "embeddingModel", "embedding_model")),
             )
         except RAGServiceError as error:
@@ -83,3 +85,9 @@ def _bool(value: Any, *, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _optional_bool(value: Any, *, default: bool | None = None) -> bool | None:
+    if value is None:
+        return default
+    return _bool(value, default=False)

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from agent_runtime import AgentService, AgentServiceRequest
+from agent_runtime import AgentService
 from agent_sessions import SessionNotFoundError
 
 
@@ -20,18 +20,21 @@ def get_agent_service() -> AgentService:
     return _AGENT_SERVICE
 
 
-def register_agent_routes(app: FastAPI) -> None:
-    @app.post("/api/agent/run")
-    async def api_agent_run(request: Request) -> JSONResponse:
-        body = await _json_body(request)
-        try:
-            result = get_agent_service().run(_agent_request_from_body(body))
-        except SessionNotFoundError as error:
-            return _agent_error_response(error, code="session_not_found", status_code=404)
-        except Exception as error:
-            return _agent_error_response(error, code="agent_run_failed", status_code=400)
-        return JSONResponse({"success": True, **_agent_result_payload(result)})
+def existing_agent_service() -> AgentService | None:
+    return _AGENT_SERVICE
 
+
+def set_agent_service(service: AgentService | None) -> None:
+    global _AGENT_SERVICE
+    existing = _AGENT_SERVICE
+    if existing is not None and existing is not service:
+        close = getattr(existing, "close", None)
+        if callable(close):
+            close()
+    _AGENT_SERVICE = service
+
+
+def register_agent_routes(app: FastAPI) -> None:
     @app.get("/api/agent/sessions")
     async def api_agent_sessions(
         includeArchived: bool = False,
@@ -53,26 +56,6 @@ def register_agent_routes(app: FastAPI) -> None:
                 status_code=404,
             )
         return JSONResponse({"success": True, "session": _session_payload(session)})
-
-    @app.get("/api/agent/sessions/{session_id}/context")
-    async def api_agent_session_context(
-        session_id: str,
-        provider: str = "",
-        model: str = "",
-        enableTools: bool = True,
-    ) -> JSONResponse:
-        try:
-            status = get_agent_service().context_status(
-                session_id=session_id,
-                provider=_text(provider),
-                model=_text(model),
-                enable_tools=enableTools,
-            )
-        except SessionNotFoundError as error:
-            return _agent_error_response(error, code="session_not_found", status_code=404)
-        except Exception as error:
-            return _agent_error_response(error, code="context_status_failed", status_code=400)
-        return JSONResponse({"success": True, "context": status.to_dict()})
 
     @app.post("/api/agent/sessions/{session_id}/rename")
     async def api_agent_session_rename(session_id: str, request: Request) -> JSONResponse:
@@ -107,6 +90,32 @@ def register_agent_routes(app: FastAPI) -> None:
             return _agent_error_response(error, code="session_not_found", status_code=404)
         return JSONResponse({"success": True, "session": _metadata_payload(metadata)})
 
+    @app.post("/api/agent/sessions/{session_id}/model")
+    async def api_agent_session_model(session_id: str, request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        provider = _optional_text(_first(body, "provider")) if "provider" in body else None
+        model = _optional_text(_first(body, "model")) if "model" in body else None
+        metadata_updates = _metadata_updates_from_body(body)
+        if provider is None and model is None and not metadata_updates:
+            return _agent_error_response(
+                ValueError("Provider, model, or metadata is required."),
+                code="model_update_required",
+                status_code=400,
+            )
+        agent_service = get_agent_service()
+        try:
+            session = agent_service.session_store.update_session_model(
+                session_id,
+                provider=provider,
+                model=model,
+            )
+            if metadata_updates:
+                agent_service.session_store.update_session_metadata(session_id, metadata_updates)
+                session = agent_service.session_store.require_session(session_id)
+        except SessionNotFoundError as error:
+            return _agent_error_response(error, code="session_not_found", status_code=404)
+        return JSONResponse({"success": True, "session": _session_payload(session)})
+
     @app.delete("/api/agent/sessions/{session_id}")
     async def api_agent_session_delete(session_id: str) -> JSONResponse:
         try:
@@ -124,39 +133,11 @@ async def _json_body(request: Request) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _agent_request_from_body(body: dict[str, Any]) -> AgentServiceRequest:
-    metadata = _first(body, "metadata")
-    return AgentServiceRequest(
-        message=_first(body, "message", "content"),
-        session_id=_optional_text(_first(body, "sessionId", "session_id")),
-        title=_text(_first(body, "title")) or "New chat",
-        note_id=_optional_text(_first(body, "noteId", "note_id")),
-        provider=_text(_first(body, "provider")),
-        model=_text(_first(body, "model")),
-        system_prompt=_optional_text(_first(body, "systemPrompt", "system_prompt")),
-        enable_tools=_bool(_first(body, "enableTools", "enable_tools"), default=True),
-        metadata=metadata if isinstance(metadata, dict) else {},
-        run_config=_first(body, "runConfig", "run_config") if isinstance(_first(body, "runConfig", "run_config"), dict) else None,
-        stream_mode=_text(_first(body, "streamMode", "stream_mode")) or "values",
-        debug=_bool(_first(body, "debug")),
-    )
-
-
-def _agent_result_payload(result: Any) -> dict[str, Any]:
-    return {
-        "sessionId": result.session_id,
-        "completed": bool(result.completed),
-        "response": result.response,
-        "messages": _jsonable(result.messages),
-        "createdSession": bool(result.created_session),
-        "error": result.error,
-        "session": _session_payload(result.session),
-    }
-
-
 def _session_payload(session: Any) -> dict[str, Any]:
+    metadata = _metadata_payload(session.metadata)
     return {
-        "metadata": _metadata_payload(session.metadata),
+        **metadata,
+        "metadata": metadata,
         "messages": _jsonable(session.messages),
     }
 
@@ -165,14 +146,51 @@ def _metadata_payload(metadata: Any) -> dict[str, Any]:
     payload = metadata.to_dict() if hasattr(metadata, "to_dict") else _jsonable(metadata)
     if not isinstance(payload, dict):
         return {}
+    extra = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    session_id = payload.get("session_id", "")
+    origin_note_id = _text(
+        extra.get("originNoteId")
+        or extra.get("origin_note_id")
+        or extra.get("note_id")
+        or payload.get("note_id")
+    )
+    origin_note_title = _text(
+        extra.get("originNoteTitle")
+        or extra.get("origin_note_title")
+        or extra.get("noteTitle")
+        or extra.get("note_title")
+    )
+    current_note_id = _text(extra.get("currentNoteId") or extra.get("current_note_id") or origin_note_id)
+    current_note_title = _text(extra.get("currentNoteTitle") or extra.get("current_note_title") or origin_note_title)
+    project_id = _text(payload.get("projectId") or payload.get("project_id") or extra.get("projectId") or extra.get("project_id"))
+    project_name = _text(
+        payload.get("projectName") or payload.get("project_name") or extra.get("projectName") or extra.get("project_name")
+    )
+    state = _text(payload.get("state")) or ("archived" if payload.get("archived") else "active")
     return {
         **payload,
-        "sessionId": payload.get("session_id", ""),
+        "id": session_id,
+        "sessionId": session_id,
         "createdAt": payload.get("created_at", ""),
         "updatedAt": payload.get("updated_at", ""),
         "dateBucket": payload.get("date_bucket", ""),
-        "noteId": payload.get("note_id"),
+        "noteId": origin_note_id or payload.get("note_id"),
+        "originNoteId": origin_note_id,
+        "originNoteTitle": origin_note_title,
+        "currentNoteId": current_note_id,
+        "currentNoteTitle": current_note_title,
         "messageCount": payload.get("message_count", 0),
+        "projectId": project_id,
+        "projectName": project_name,
+        "archivedAt": _text(extra.get("archivedAt") or extra.get("archived_at")),
+        "trashedAt": _text(extra.get("trashedAt") or extra.get("trashed_at")),
+        "deepseekThinkMode": _text(extra.get("deepseekThinkMode") or extra.get("deepseek_think_mode")),
+        "gptThinkMode": _text(extra.get("gptThinkMode") or extra.get("gpt_think_mode")),
+        "geminiThinkMode": _text(extra.get("geminiThinkMode") or extra.get("gemini_think_mode")),
+        "anthropicThinkMode": _text(extra.get("anthropicThinkMode") or extra.get("anthropic_think_mode")),
+        "state": state,
+        "archived": state == "archived",
+        "trashed": state == "trashed",
     }
 
 
@@ -197,6 +215,11 @@ def _first(payload: dict[str, Any], *keys: str) -> Any:
         if key in payload:
             return payload[key]
     return None
+
+
+def _metadata_updates_from_body(body: dict[str, Any]) -> dict[str, Any]:
+    metadata = _first(body, "metadata")
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def _bool(value: Any, *, default: bool = False) -> bool:

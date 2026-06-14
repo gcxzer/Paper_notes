@@ -32,7 +32,6 @@ def run_agent_loop(
     thread_id: str = "default",
     run_config: dict[str, Any] | None = None,
     stream_mode: str = "values",
-    debug: bool = False,
 ) -> Iterator[Any]:
     config = _with_thread_id(run_config, thread_id)
     resolved_middleware = _with_context_management(
@@ -45,7 +44,6 @@ def run_agent_loop(
         tools=list(tools or []),
         system_prompt=system_prompt,
         middleware=resolved_middleware,
-        debug=debug,
     )
     yield from agent.stream(
         {"messages": _coerce_messages(messages)},

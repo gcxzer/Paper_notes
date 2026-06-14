@@ -7,6 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOCAL_STATE_DIR = PROJECT_ROOT / ".paper-notes"
 PUBLIC_DIR = PROJECT_ROOT / "src" / "ui" / "frontend"
+NODE_MODULES_DIR = PROJECT_ROOT / "node_modules"
 ASSETS_DIR = PROJECT_ROOT / "assets"
 
 HOST = os.environ.get("HOST", "127.0.0.1")
