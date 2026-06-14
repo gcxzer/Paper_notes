@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 import re
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,39 @@ _NOTE_BODY_CONTAINER_TAGS = {
     "figure",
     "video",
 }
+_NOTE_SECTION_POSITIONS = {"append", "prepend", "after_heading", "replace_heading"}
+_METADATA_INPUT_KEYS = {
+    "note_id",
+    "id",
+    "summary",
+    "tags",
+    "venue",
+    "date",
+    "category_id",
+    "categoryId",
+    "collection",
+    "collection_name",
+    "collectionName",
+    "collection_path",
+    "collectionPath",
+}
+_METADATA_COLLECTION_KEYS = (
+    "collection",
+    "collection_name",
+    "collectionName",
+    "collection_path",
+    "collectionPath",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _NoteSectionUpdate:
+    heading: str
+    position: str
+    current_body: str
+    next_body: str
+    before_headings: list[dict[str, Any]]
+    after_headings: list[dict[str, Any]]
 
 
 def _validate_html_document(document: str) -> list[dict[str, str]]:
@@ -85,6 +119,8 @@ def _validate_html_document(document: str) -> list[dict[str, str]]:
         if re.search(pattern, content_to_validate):
             issues.append({"code": code, "message": f"Unsafe HTML pattern detected: {code}."})
     return issues
+
+
 def _added_heading_names(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str]:
     before_names = {normalize_text(item.get("heading")).casefold() for item in before}
     return [
@@ -92,12 +128,16 @@ def _added_heading_names(before: list[dict[str, Any]], after: list[dict[str, Any
         for item in after
         if normalize_text(item.get("heading")).casefold() not in before_names
     ]
+
+
 def _diff_summary(before: str, after: str) -> str:
     delta = len(after) - len(before)
     if delta == 0:
         return "No text-length change."
     direction = "Added" if delta > 0 else "Removed"
     return f"{direction} {abs(delta)} HTML body characters."
+
+
 def _note_score(note: dict[str, Any], query: str) -> int:
     score = 0
     title = str(note.get("title") or "").lower()
@@ -139,6 +179,8 @@ def _note_score(note: dict[str, Any], query: str) -> int:
     if terms and all(any(term in value for value in haystack.values()) for term in terms):
         score += 2
     return score
+
+
 def _note_summary(note: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": note.get("id", ""),
@@ -151,6 +193,8 @@ def _note_summary(note: dict[str, Any]) -> dict[str, Any]:
         "href": note.get("href", ""),
         "htmlHref": note.get("htmlHref", ""),
     }
+
+
 def _note_detail(note: dict[str, Any], library: dict[str, Any] | None = None) -> dict[str, Any]:
     collection = _collection_metadata(library, note.get("categoryId", "")) if library else {}
     return {
@@ -166,6 +210,8 @@ def _note_detail(note: dict[str, Any], library: dict[str, Any] | None = None) ->
         "htmlHref": note.get("htmlHref", ""),
         "pdfStorageKey": note.get("pdfStorageKey", ""),
     }
+
+
 def _collection_metadata(library: dict[str, Any] | None, category_id: Any) -> dict[str, str]:
     category = _category_by_id(library, normalize_text(category_id))
     if not category:
@@ -174,6 +220,8 @@ def _collection_metadata(library: dict[str, Any] | None, category_id: Any) -> di
         "collectionName": normalize_text(category.get("name")),
         "collectionPath": _collection_path(library, normalize_text(category.get("id"))),
     }
+
+
 def _resolve_collection_id(library: dict[str, Any], value: str) -> str:
     target = _normalize_collection_lookup(value)
     if not target:
@@ -188,6 +236,8 @@ def _resolve_collection_id(library: dict[str, Any], value: str) -> str:
         or _normalize_collection_lookup(_collection_path(library, category.get("id"))) == target
     ]
     return exact_matches[0] if len(exact_matches) == 1 else ""
+
+
 def _collection_path(library: dict[str, Any] | None, category_id: Any) -> str:
     category = _category_by_id(library, normalize_text(category_id))
     if not category:
@@ -197,16 +247,24 @@ def _collection_path(library: dict[str, Any] | None, category_id: Any) -> str:
         return normalize_text(category.get("name"))
     parent = _category_by_id(library, parent_id)
     return f"{normalize_text(parent.get('name'))} / {normalize_text(category.get('name'))}" if parent else normalize_text(category.get("name"))
+
+
 def _category_by_id(library: dict[str, Any] | None, category_id: str) -> dict[str, Any] | None:
     if not library or not category_id:
         return None
     return next((category for category in library.get("categories", []) if category.get("id") == category_id), None)
+
+
 def _leaf_categories(library: dict[str, Any]) -> list[dict[str, Any]]:
     categories = [category for category in library.get("categories", []) if isinstance(category, dict)]
     parent_ids = {normalize_text(category.get("parentId")) for category in categories if normalize_text(category.get("parentId"))}
     return [category for category in categories if normalize_text(category.get("id")) not in parent_ids]
+
+
 def _normalize_collection_lookup(value: Any) -> str:
     return re.sub(r"\s*/\s*", "/", normalize_text(value).lower())
+
+
 def _note_html_path(note: dict[str, Any], *, html_dir: Path | None = None) -> Path | None:
     html_href = normalize_text(note.get("htmlHref"))
     if not html_href:
@@ -227,8 +285,12 @@ def _note_html_path(note: dict[str, Any], *, html_dir: Path | None = None) -> Pa
     if not is_relative_to(html_path, base_dir):
         return None
     return html_path
+
+
 def _note_body_match(document: str) -> re.Match[str] | None:
     return _NOTE_BODY_RE.search(document)
+
+
 def _section_fragment(
     *,
     heading: str,
@@ -246,6 +308,8 @@ def _section_fragment(
     if not heading:
         return _ensure_heading_ids(sanitized)
     return _ensure_heading_ids(f"<h{heading_level}>{html_lib.escape(heading)}</h{heading_level}>\n{sanitized}")
+
+
 def _image_figure_html(*, artifact: dict[str, Any], caption: str, alt: str) -> str:
     src = normalize_text(artifact.get("url"))
     if not src:
@@ -394,8 +458,12 @@ def _project_served_media_url(candidate: Path) -> str:
     if not relative.parts or relative.parts[0] not in {"resources", "assets"}:
         return ""
     return "/" + relative.as_posix()
+
+
 def _starts_with_heading(fragment: str) -> bool:
     return re.match(r"(?is)^\s*<h[2-4]\b", fragment) is not None
+
+
 def _normalize_leading_matching_heading_level(fragment: str, heading: str, heading_level: int) -> str:
     normalized_heading = normalize_text(heading).casefold()
     if not normalized_heading:
@@ -408,6 +476,8 @@ def _normalize_leading_matching_heading_level(fragment: str, heading: str, headi
         return fragment
     level = max(2, min(4, int(heading_level)))
     return f"<h{level}>{match.group(2)}</h{level}>{fragment.strip()[match.end():]}"
+
+
 def _apply_body_update(
     current_body: str,
     *,
@@ -433,12 +503,60 @@ def _apply_body_update(
     if position == "after_heading":
         return _join_fragments(current_body[:end].strip(), fragment, current_body[end:].strip()), True
     return current_body, False
+
+
+def _prepare_note_section_update(
+    args: dict[str, Any],
+    *,
+    document: str,
+    match: re.Match[str],
+    note_id: str,
+    default_position: str = "append",
+) -> tuple[_NoteSectionUpdate | None, dict[str, Any] | None]:
+    heading = normalize_text(args.get("heading"))
+    raw_html = str(args.get("html") or "")
+    position = normalize_text(args.get("position") or default_position).lower()
+    if position not in _NOTE_SECTION_POSITIONS:
+        return None, tool_error(
+            "invalid_position",
+            "position must be append, prepend, after_heading, or replace_heading.",
+            note_id=note_id,
+        )
+
+    current_body = match.group("body").strip()
+    target_exists = _find_heading_section(current_body, heading) is not None
+    fragment = _section_fragment(
+        heading=heading,
+        raw_html=raw_html,
+        heading_level=_heading_level_for(current_body, heading),
+        allow_heading_only=position == "replace_heading" and target_exists,
+    )
+    if not fragment:
+        return None, tool_error("empty_html", "html must contain safe note content.", note_id=note_id)
+
+    next_body, changed = _apply_body_update(current_body, fragment=fragment, heading=heading, position=position)
+    if not changed:
+        return None, tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note_id)
+
+    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
+    return _NoteSectionUpdate(
+        heading=heading,
+        position=position,
+        current_body=current_body,
+        next_body=next_body,
+        before_headings=_collect_headings(current_body),
+        after_headings=_collect_headings(next_body),
+    ), None
+
+
 def _delete_heading_section(current_body: str, heading: str) -> tuple[str, bool]:
     target = _find_heading_section(current_body, heading)
     if target is None:
         return current_body, False
     start, end = target
     return _join_fragments(current_body[:start].strip(), current_body[end:].strip()), True
+
+
 def _fragment_without_leading_matching_heading(fragment: str, heading: str) -> str:
     normalized_heading = normalize_text(heading).casefold()
     if not normalized_heading:
@@ -450,6 +568,8 @@ def _fragment_without_leading_matching_heading(fragment: str, heading: str) -> s
     if text != normalized_heading:
         return fragment
     return fragment.strip()[match.end():].strip()
+
+
 def _find_heading_section(body: str, heading: str) -> tuple[int, int] | None:
     normalized_heading = normalize_text(heading).casefold()
     if not normalized_heading:
@@ -552,8 +672,12 @@ def _format_note_body_html(body: str, *, base_indent: str = "") -> str:
 def _with_surrounding_newlines(body: str, *, trailing_indent: str = "") -> str:
     value = _strip_surrounding_blank_lines(body)
     return f"\n{value}\n{trailing_indent}" if value else ""
+
+
 def _strip_html(value: str) -> str:
     return re.sub(r"<[^>]+>", "", html_lib.unescape(value or ""))
+
+
 def _ensure_heading_ids(fragment: str) -> str:
     used_ids = set()
     for match in _HEADING_WITH_ATTRS_RE.finditer(fragment):
@@ -571,13 +695,19 @@ def _ensure_heading_ids(fragment: str) -> str:
         return f'<h{level} id="{html_lib.escape(heading_id, quote=True)}"{attrs}>{body}</h{level}>'
 
     return _HEADING_WITH_ATTRS_RE.sub(replace, fragment)
+
+
 def _extract_id(attrs: str) -> str:
     match = re.search(r"""\bid\s*=\s*["']([^"']+)["']""", attrs or "", re.IGNORECASE)
     return normalize_text(match.group(1)) if match else ""
+
+
 def _heading_id_from_text(text: str) -> str:
     candidate = re.sub(r"\s+", "-", normalize_text(text).casefold())
     candidate = re.sub(r"[^a-z0-9\u4e00-\u9fff._-]+", "", candidate, flags=re.IGNORECASE).strip("-._")
     return candidate or "section"
+
+
 def _unique_heading_id(candidate: str, used_ids: set[str]) -> str:
     heading_id = candidate
     suffix = 2
@@ -586,6 +716,8 @@ def _unique_heading_id(candidate: str, used_ids: set[str]) -> str:
         suffix += 1
     used_ids.add(heading_id)
     return heading_id
+
+
 def _collect_headings(body: str) -> list[dict[str, Any]]:
     parser = _HeadingCollector()
     parser.feed(body or "")
@@ -860,44 +992,27 @@ def preview_note_diff(
     match = _note_body_match(document)
     if match is None:
         return tool_error("note_body_missing", "HTML note does not contain a .note-body element.", note_id=note["id"])
-    heading = normalize_text(args.get("heading"))
-    raw_html = str(args.get("html") or "")
-    position = normalize_text(args.get("position") or "append").lower()
-    if position not in {"append", "prepend", "after_heading", "replace_heading"}:
-        return tool_error("invalid_position", "position must be append, prepend, after_heading, or replace_heading.", note_id=note["id"])
-    current_body = match.group("body").strip()
-    target_exists = _find_heading_section(current_body, heading) is not None
-    fragment = _section_fragment(
-        heading=heading,
-        raw_html=raw_html,
-        heading_level=_heading_level_for(current_body, heading),
-        allow_heading_only=position == "replace_heading" and target_exists,
-    )
-    if not fragment:
-        return tool_error("empty_html", "html must contain safe note content.", note_id=note["id"])
-    next_body, changed = _apply_body_update(current_body, fragment=fragment, heading=heading, position=position)
-    if not changed:
-        return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
-    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
-    before_headings = _collect_headings(current_body)
-    after_headings = _collect_headings(next_body)
+    update, update_error = _prepare_note_section_update(args, document=document, match=match, note_id=note["id"])
+    if update_error:
+        return update_error
+    assert update is not None
     return {
         "success": True,
-        "changed": next_body != current_body,
+        "changed": update.next_body != update.current_body,
         "note_id": note["id"],
-        "heading": heading,
-        "position": position,
+        "heading": update.heading,
+        "position": update.position,
         "path": str(html_path),
         "before": {
-            "section_count": len(before_headings),
-            "body_chars": len(current_body),
+            "section_count": len(update.before_headings),
+            "body_chars": len(update.current_body),
         },
         "after": {
-            "section_count": len(after_headings),
-            "body_chars": len(next_body),
+            "section_count": len(update.after_headings),
+            "body_chars": len(update.next_body),
         },
-        "added_headings": _added_heading_names(before_headings, after_headings),
-        "summary": _diff_summary(current_body, next_body),
+        "added_headings": _added_heading_names(update.before_headings, update.after_headings),
+        "summary": _diff_summary(update.current_body, update.next_body),
         "snapshot_id": "",
     }
 
@@ -927,37 +1042,18 @@ def write_note_section(
     if match is None:
         return tool_error("note_body_missing", "HTML note does not contain a .note-body element.", note_id=note["id"])
 
-    heading = normalize_text(args.get("heading"))
-    raw_html = str(args.get("html") or "")
-    position = normalize_text(args.get("position") or "append").lower()
-    if position not in {"append", "prepend", "after_heading", "replace_heading"}:
-        return tool_error("invalid_position", "position must be append, prepend, after_heading, or replace_heading.", note_id=note["id"])
-
-    current_body = match.group("body").strip()
-    target_exists = _find_heading_section(current_body, heading) is not None
-    fragment = _section_fragment(
-        heading=heading,
-        raw_html=raw_html,
-        heading_level=_heading_level_for(current_body, heading),
-        allow_heading_only=position == "replace_heading" and target_exists,
-    )
-    if not fragment:
-        return tool_error("empty_html", "html must contain safe note content.", note_id=note["id"])
-
-    before_headings = _collect_headings(current_body)
+    update, update_error = _prepare_note_section_update(args, document=document, match=match, note_id=note["id"])
+    if update_error:
+        return update_error
+    assert update is not None
     before = {
-        "section_count": len(before_headings),
-        "body_chars": len(current_body),
+        "section_count": len(update.before_headings),
+        "body_chars": len(update.current_body),
     }
-    next_body, changed = _apply_body_update(current_body, fragment=fragment, heading=heading, position=position)
-    if not changed:
-        return tool_error("heading_not_found", f"Could not find heading: {heading}", note_id=note["id"])
-    next_body = _format_note_body_html(next_body, base_indent=_note_body_child_indent(document, match))
-    after_headings = _collect_headings(next_body)
 
     next_document = (
         document[:match.start("body")]
-        + _with_surrounding_newlines(next_body, trailing_indent=_note_body_container_indent(document, match))
+        + _with_surrounding_newlines(update.next_body, trailing_indent=_note_body_container_indent(document, match))
         + document[match.end("body"):]
     )
     atomic_write_text(html_path, next_document)
@@ -965,16 +1061,16 @@ def write_note_section(
         "success": True,
         "changed": next_document != document,
         "note_id": note["id"],
-        "heading": heading,
-        "position": position,
-        "added_headings": _added_heading_names(before_headings, after_headings),
-        "message": f"Updated HTML note section using {position}.",
-        "section_count": len(after_headings),
+        "heading": update.heading,
+        "position": update.position,
+        "added_headings": _added_heading_names(update.before_headings, update.after_headings),
+        "message": f"Updated HTML note section using {update.position}.",
+        "section_count": len(update.after_headings),
         "html_chars": len(next_document),
         "before": before,
         "after": {
-            "section_count": len(after_headings),
-            "body_chars": len(next_body),
+            "section_count": len(update.after_headings),
+            "body_chars": len(update.next_body),
         },
     }
 
@@ -1094,7 +1190,7 @@ def insert_note_image(
 
     heading = normalize_text(args.get("heading"))
     position = normalize_text(args.get("position") or ("after_heading" if heading else "append")).lower()
-    if position not in {"append", "prepend", "after_heading", "replace_heading"}:
+    if position not in _NOTE_SECTION_POSITIONS:
         return tool_error("invalid_position", "position must be append, prepend, after_heading, or replace_heading.", note_id=note["id"])
 
     figure_html = _image_figure_html(
@@ -1140,37 +1236,20 @@ def insert_note_image(
     }
 
 
-def update_note_metadata(args: dict[str, Any], *, library_path: Path | None = None) -> dict[str, Any]:
-    note_id = normalize_text(args.get("note_id") or args.get("id"))
-    if not note_id:
-        return tool_error("note_id_required", "note_id is required")
+def _unsupported_metadata_fields(args: dict[str, Any]) -> list[str]:
+    return sorted(key for key in args if key not in _METADATA_INPUT_KEYS)
 
-    allowed_input_keys = {
-        "note_id",
-        "id",
-        "summary",
-        "tags",
-        "venue",
-        "date",
-        "category_id",
-        "categoryId",
-        "collection",
-        "collection_name",
-        "collectionName",
-        "collection_path",
-        "collectionPath",
-    }
-    unknown = sorted(key for key in args if key not in allowed_input_keys)
-    if unknown:
-        return tool_error("unknown_metadata_fields", f"Unsupported metadata fields: {', '.join(unknown)}", note_id=note_id)
 
-    path = library_path if library_path is not None else None
-    library = read_library(path) if path is not None else read_library()
-    note = find_note(library, note_id)
-    if note is None:
-        return tool_error("note_not_found", f"Note not found: {note_id}", note_id=note_id)
+def _metadata_collection_value(args: dict[str, Any]) -> str:
+    return normalize_text(next((args.get(key) for key in _METADATA_COLLECTION_KEYS if args.get(key)), ""))
 
-    before = _note_detail(note, library)
+
+def _metadata_updates_from_args(
+    args: dict[str, Any],
+    *,
+    library: dict[str, Any],
+    note_id: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     updates: dict[str, Any] = {}
     if "summary" in args:
         updates["summary"] = normalize_text(args.get("summary"))
@@ -1185,21 +1264,38 @@ def update_note_metadata(args: dict[str, Any], *, library_path: Path | None = No
         updates["date"] = normalize_text(args.get("date"))
     if "category_id" in args or "categoryId" in args:
         updates["categoryId"] = normalize_text(args.get("category_id") or args.get("categoryId"))
-    collection_value = normalize_text(
-        args.get("collection")
-        or args.get("collection_name")
-        or args.get("collectionName")
-        or args.get("collection_path")
-        or args.get("collectionPath")
-    )
+
+    collection_value = _metadata_collection_value(args)
     if collection_value:
         resolved_category_id = _resolve_collection_id(library, collection_value)
         if not resolved_category_id:
-            return tool_error("collection_not_found", f"Collection not found: {collection_value}", note_id=note_id)
+            return {}, tool_error("collection_not_found", f"Collection not found: {collection_value}", note_id=note_id)
         updates["categoryId"] = resolved_category_id
 
     if not updates:
-        return tool_error("no_metadata_updates", "Provide at least one metadata field to update.", note_id=note_id)
+        return {}, tool_error("no_metadata_updates", "Provide at least one metadata field to update.", note_id=note_id)
+    return updates, None
+
+
+def update_note_metadata(args: dict[str, Any], *, library_path: Path | None = None) -> dict[str, Any]:
+    note_id = normalize_text(args.get("note_id") or args.get("id"))
+    if not note_id:
+        return tool_error("note_id_required", "note_id is required")
+
+    unknown = _unsupported_metadata_fields(args)
+    if unknown:
+        return tool_error("unknown_metadata_fields", f"Unsupported metadata fields: {', '.join(unknown)}", note_id=note_id)
+
+    path = library_path if library_path is not None else None
+    library = read_library(path) if path is not None else read_library()
+    note = find_note(library, note_id)
+    if note is None:
+        return tool_error("note_not_found", f"Note not found: {note_id}", note_id=note_id)
+
+    before = _note_detail(note, library)
+    updates, update_error = _metadata_updates_from_args(args, library=library, note_id=note_id)
+    if update_error:
+        return update_error
 
     note.update(updates)
     saved = write_library(library, path) if path is not None else write_library(library)

@@ -549,7 +549,7 @@ function renderAiSettings() {
       ].filter(Boolean).join(" · ") || "Signed in locally."
     : flow
       ? "Open the Codex sign-in page, enter the code below, then keep this dialog open. Cancel here if you closed the sign-in page."
-      : "Connect with your ChatGPT/Codex account. The token is stored locally and is never sent to the frontend.";
+      : "Connect with your ChatGPT/Codex account.";
   elements.codexAuthCode.hidden = !flow || settings.codexAuth.loggedIn;
   elements.codexAuthCode.textContent = flow ? flow.userCode : "";
   elements.codexAuthLink.hidden = !flow || settings.codexAuth.loggedIn || !safeLinkHref(flow.verificationUri);

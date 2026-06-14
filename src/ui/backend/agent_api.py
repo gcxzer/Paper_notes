@@ -34,6 +34,10 @@ def set_agent_service(service: AgentService | None) -> None:
     _AGENT_SERVICE = service
 
 
+def reset_agent_service() -> None:
+    set_agent_service(None)
+
+
 def register_agent_routes(app: FastAPI) -> None:
     @app.get("/api/agent/sessions")
     async def api_agent_sessions(

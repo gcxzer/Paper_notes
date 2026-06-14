@@ -13,7 +13,7 @@ from ui.backend import mcp_api
 def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch):
     settings_path = tmp_path / ".paper-notes" / "mcp-servers.json"
     resets = []
-    monkeypatch.setattr(mcp_api, "_reset_agent_service", lambda: resets.append(True))
+    monkeypatch.setattr(mcp_api, "reset_agent_service", lambda: resets.append(True))
 
     payload = mcp_api.update_mcp_settings({
         "servers": [{
@@ -63,7 +63,7 @@ def test_mcp_settings_api_saves_reads_and_redacts_secrets(tmp_path, monkeypatch)
 
 def test_mcp_settings_update_preserves_redacted_existing_secret(tmp_path, monkeypatch):
     settings_path = tmp_path / "mcp-servers.json"
-    monkeypatch.setattr(mcp_api, "_reset_agent_service", lambda: None)
+    monkeypatch.setattr(mcp_api, "reset_agent_service", lambda: None)
     mcp_api.update_mcp_settings({
         "servers": [{
             "id": "filesystem",

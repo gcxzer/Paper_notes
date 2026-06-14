@@ -15,6 +15,7 @@ from tools.mcp import (
     read_mcp_stderr_log,
     write_mcp_settings,
 )
+from ui.backend.agent_api import reset_agent_service
 
 
 def register_mcp_routes(app: FastAPI) -> None:
@@ -82,7 +83,7 @@ def update_mcp_settings(
     current = read_mcp_settings(settings_path)
     settings = normalize_mcp_settings_update(body, current=current)
     write_mcp_settings(settings, settings_path)
-    _reset_agent_service()
+    reset_agent_service()
     return public_mcp_settings(read_mcp_settings(settings_path), settings_path=settings_path)
 
 
@@ -119,7 +120,7 @@ def connect_mcp_server(
     if agent_service is None:
         if persist:
             write_mcp_settings(settings, settings_path)
-            _reset_agent_service()
+            reset_agent_service()
         from ui.backend.agent_api import get_agent_service
 
         agent_service = get_agent_service()
@@ -183,12 +184,6 @@ def _server_id_from_body(body: Any) -> str:
     if not server_id:
         raise ValueError("MCP server id is required.")
     return server_id
-
-
-def _reset_agent_service() -> None:
-    from ui.backend.agent_api import set_agent_service
-
-    set_agent_service(None)
 
 
 async def _json_body(request: Request) -> dict[str, Any]:

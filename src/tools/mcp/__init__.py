@@ -3,13 +3,12 @@ from __future__ import annotations
 from tools.mcp.manager import (
     MCPManager,
     MCPServerTask,
-    mcp_tool_name,
     probe_mcp_server,
     read_mcp_stderr_log,
     sanitize_mcp_error,
-    sanitize_mcp_name_component,
 )
 from tools.mcp.manifest import TOOL_GROUP, TOOLSET
+from tools.mcp.names import mcp_tool_name, sanitize_mcp_name_component
 from tools.mcp.settings import (
     DEFAULT_MCP_SETTINGS_PATH,
     mcp_secrets_path,

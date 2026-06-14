@@ -12,6 +12,7 @@ from app_config.ai_settings import (
     resolve_ai_settings,
     save_local_ai_settings,
 )
+from ui.backend.agent_api import reset_agent_service
 from ui.backend.codex_auth_api import get_codex_auth_status
 
 
@@ -52,7 +53,7 @@ def update_ai_settings(body: Any, *, secrets_path: str | Path | None = None) -> 
         secrets_path=secrets_path,
         codex_auth=get_codex_auth_status(),
     )
-    _reset_agent_service()
+    reset_agent_service()
     return settings.to_public_dict()
 
 
@@ -66,7 +67,7 @@ def delete_ai_api_key(
         secrets_path=secrets_path,
         codex_auth=get_codex_auth_status(),
     )
-    _reset_agent_service()
+    reset_agent_service()
     return settings.to_public_dict()
 
 
@@ -89,10 +90,3 @@ def _json_or_error(callback: Callable[[], dict[str, object]]) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(error), "code": "invalid_request"}, status_code=400)
     except Exception as error:
         return JSONResponse({"success": False, "error": str(error), "code": "settings_failed"}, status_code=400)
-
-
-def _reset_agent_service() -> None:
-    from ui.backend.agent_api import set_agent_service
-
-    set_agent_service(None)
-

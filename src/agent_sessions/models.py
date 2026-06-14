@@ -33,6 +33,16 @@ def date_bucket_for(value: datetime | str | None = None) -> str:
     return date_value.strftime("%d_%m_%Y")
 
 
+def metadata_with_note_scope(metadata: dict[str, Any], note_id: str | None) -> dict[str, Any]:
+    if note_id and not (metadata.get("originNoteId") or metadata.get("origin_note_id")):
+        metadata["originNoteId"] = note_id
+        metadata["origin_note_id"] = note_id
+    if note_id and not (metadata.get("currentNoteId") or metadata.get("current_note_id")):
+        metadata["currentNoteId"] = note_id
+        metadata["current_note_id"] = note_id
+    return metadata
+
+
 @dataclass(slots=True)
 class AgentTranscriptMessage:
     role: str
@@ -122,14 +132,8 @@ class AgentSessionMetadata:
         created_at = str(data.get("created_at") or now_iso())
         legacy_archived = bool(data.get("archived", False))
         state = normalize_session_state(data.get("state"), archived=legacy_archived)
-        metadata = copy.deepcopy(data.get("metadata") or {})
         note_id = data.get("note_id")
-        if note_id and not (metadata.get("originNoteId") or metadata.get("origin_note_id")):
-            metadata["originNoteId"] = note_id
-            metadata["origin_note_id"] = note_id
-        if note_id and not (metadata.get("currentNoteId") or metadata.get("current_note_id")):
-            metadata["currentNoteId"] = note_id
-            metadata["current_note_id"] = note_id
+        metadata = metadata_with_note_scope(copy.deepcopy(data.get("metadata") or {}), note_id)
         return cls(
             session_id=str(data["session_id"]),
             title=str(data.get("title") or "New chat"),

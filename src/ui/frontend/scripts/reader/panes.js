@@ -223,7 +223,9 @@ function setAskPaneVisible(visible) {
   elements.askPaneToggle?.setAttribute("aria-expanded", String(visible));
   localStorage.setItem(ASK_PANE_KEY, visible ? "shown" : "hidden");
   if (visible) {
-    renderReaderChatMessages({ scrollToBottom: true });
+    if (typeof renderReaderChatMessages === "function") {
+      renderReaderChatMessages({ scrollToBottom: true });
+    }
     requestAnimationFrame(() => {
       setAskWidth(readAskWidth());
       elements.readerChatInput?.focus();

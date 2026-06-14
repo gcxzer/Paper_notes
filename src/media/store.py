@@ -53,6 +53,21 @@ class MediaStore:
         self.project_root = Path(project_root) if project_root is not None else PROJECT_ROOT
         self.manifest_path = self.root / "artifacts.json"
 
+    def _artifact_file_target(
+        self,
+        *parts: str,
+        file_name: str,
+        fallback: str,
+        extension: str,
+        artifact_id: str,
+    ) -> tuple[Path, str]:
+        safe_name = _safe_file_name(file_name, fallback=fallback, extension=extension)
+        target = self.root.joinpath(*parts, safe_name)
+        if target.exists():
+            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target, safe_name
+
     def create_upload(
         self,
         data: str,
@@ -88,11 +103,14 @@ class MediaStore:
             if requested_mime == "text/plain" and original_requested_mime not in {"text/plain", "text/markdown"}:
                 extraction_metadata["detectedText"] = True
         safe_scope = _safe_segment(scope or "unsorted")
-        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
-        target = self.root / "uploads" / safe_scope / safe_name
-        if target.exists():
-            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target, safe_name = self._artifact_file_target(
+            "uploads",
+            safe_scope,
+            file_name=file_name,
+            fallback=f"{artifact_id}{extension}",
+            extension=extension,
+            artifact_id=artifact_id,
+        )
         target.write_bytes(data_bytes)
         artifact = self._register(
             artifact_id=artifact_id,
@@ -173,11 +191,14 @@ class MediaStore:
         artifact_id = self._new_id("mcp")
         extension = extension_for_mime(final_mime)
         safe_server = _safe_segment(server_id or "unknown")
-        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
-        target = self.root / "mcp" / safe_server / safe_name
-        if target.exists():
-            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target, _ = self._artifact_file_target(
+            "mcp",
+            safe_server,
+            file_name=file_name,
+            fallback=f"{artifact_id}{extension}",
+            extension=extension,
+            artifact_id=artifact_id,
+        )
         target.write_bytes(data)
         return self._register(
             artifact_id=artifact_id,
@@ -223,11 +244,14 @@ class MediaStore:
             raise MediaStoreError("MCP file payload is too large.")
         artifact_id = self._new_id("mcp")
         safe_server = _safe_segment(server_id or "unknown")
-        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
-        target = self.root / "mcp" / safe_server / safe_name
-        if target.exists():
-            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target, safe_name = self._artifact_file_target(
+            "mcp",
+            safe_server,
+            file_name=file_name,
+            fallback=f"{artifact_id}{extension}",
+            extension=extension,
+            artifact_id=artifact_id,
+        )
         target.write_bytes(data)
         artifact = self._register(
             artifact_id=artifact_id,
@@ -284,11 +308,14 @@ class MediaStore:
         artifact_id = self._new_id("mcp")
         extension = attachment_extension_for_mime(normalized_mime)
         safe_server = _safe_segment(server_id or "unknown")
-        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
-        target = self.root / "mcp" / safe_server / safe_name
-        if target.exists():
-            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target, safe_name = self._artifact_file_target(
+            "mcp",
+            safe_server,
+            file_name=file_name,
+            fallback=f"{artifact_id}{extension}",
+            extension=extension,
+            artifact_id=artifact_id,
+        )
         target.write_bytes(data)
         metadata = {
             "serverId": server_id,
@@ -334,11 +361,14 @@ class MediaStore:
         data = text.encode("utf-8")
         artifact_id = self._new_id("file")
         safe_session = _safe_segment(session_id or "unsorted")
-        safe_name = _safe_file_name(file_name, fallback=f"{artifact_id}{extension}", extension=extension)
-        target = self.root / "generated" / safe_session / safe_name
-        if target.exists():
-            target = target.with_name(f"{target.stem}-{artifact_id}{target.suffix}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target, _ = self._artifact_file_target(
+            "generated",
+            safe_session,
+            file_name=file_name,
+            fallback=f"{artifact_id}{extension}",
+            extension=extension,
+            artifact_id=artifact_id,
+        )
         target.write_bytes(data)
         artifact = self._register(
             artifact_id=artifact_id,

@@ -11,6 +11,7 @@ from app_infra.formatting import normalize_text
 from app_infra.storage import atomic_write_json, atomic_write_text
 from tools.skills import DEFAULT_SKILL_SETTINGS_PATH, SkillStore, default_skill_roots
 from tools.skills.settings import normalize_disabled_skills, normalize_external_directories, skill_settings_path
+from ui.backend.agent_api import reset_agent_service
 
 
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(?P<frontmatter>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)")
@@ -99,7 +100,7 @@ def update_skill(body: Any, *, settings_path: str | Path | None = None) -> dict[
         content=content_value,
     )
     atomic_write_text(skill_md, next_markdown)
-    _reset_agent_service()
+    reset_agent_service()
     return view_skill(name, settings_path=settings_path)
 
 
@@ -124,7 +125,7 @@ def update_skill_settings(body: Any, *, settings_path: str | Path | None = None)
         )
     )
     atomic_write_json(path, {"externalDirectories": external_directories, "disabledSkills": disabled_skills})
-    _reset_agent_service()
+    reset_agent_service()
     return _skill_settings_payload(settings_path=settings_path)
 
 
@@ -215,12 +216,6 @@ def _can_use_plain_yaml_scalar(text: str) -> bool:
     if re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text):
         return False
     return True
-
-
-def _reset_agent_service() -> None:
-    from ui.backend.agent_api import set_agent_service
-
-    set_agent_service(None)
 
 
 async def _json_body(request: Request) -> dict[str, Any]:

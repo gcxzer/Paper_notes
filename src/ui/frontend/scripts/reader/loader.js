@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "chat-mermaid-v1";
+const READER_SCRIPT_VERSION = "chat-markdown-split-v1";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-api-v1",
@@ -6,6 +6,7 @@ const READER_CLASSIC_SCRIPTS = [
   `scripts/reader/page_state.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/core.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/panes.js?v=${READER_SCRIPT_VERSION}`,
+  `scripts/reader/chat/markdown.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/render.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/prompts.js?v=${READER_SCRIPT_VERSION}`,
   `scripts/reader/chat/tools.js?v=${READER_SCRIPT_VERSION}`,

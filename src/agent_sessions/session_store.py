@@ -14,12 +14,13 @@ from agent_sessions.models import (
     AgentTranscriptMessage,
     SessionNotFoundError,
     date_bucket_for,
+    metadata_with_note_scope,
     now_iso,
     normalize_session_state,
 )
-
 from app_infra.paths import PROJECT_ROOT
 from app_infra.storage import atomic_write_json
+
 
 class AgentSessionStore:
 
@@ -47,14 +48,8 @@ class AgentSessionStore:
     ) -> AgentSession:
         now = self._clock()
         created_at = now_iso(now)
-        session_id = f"{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-        session_metadata_payload = dict(metadata or {})
-        if note_id and not (session_metadata_payload.get("originNoteId") or session_metadata_payload.get("origin_note_id")):
-            session_metadata_payload["originNoteId"] = note_id
-            session_metadata_payload["origin_note_id"] = note_id
-        if note_id and not (session_metadata_payload.get("currentNoteId") or session_metadata_payload.get("current_note_id")):
-            session_metadata_payload["currentNoteId"] = note_id
-            session_metadata_payload["current_note_id"] = note_id
+        session_id = _new_session_id(now)
+        session_metadata_payload = metadata_with_note_scope(dict(metadata or {}), note_id)
         session_metadata = AgentSessionMetadata(
             session_id=session_id,
             title=title or "New chat",
@@ -218,7 +213,7 @@ class AgentSessionStore:
             messages = read_transcript(self._transcript_path_for_metadata(source_metadata))
             now = self._clock()
             created_at = now_iso(now)
-            branch_id = f"{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            branch_id = _new_session_id(now)
             branch_metadata = AgentSessionMetadata(
                 session_id=branch_id,
                 title=title or f"{source_metadata.title} (branch)",
@@ -323,3 +318,7 @@ def _last_user_message_index(messages: list[dict[str, Any]]) -> int | None:
         if messages[index].get("role") == "user":
             return index
     return None
+
+
+def _new_session_id(now: datetime) -> str:
+    return f"{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

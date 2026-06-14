@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from openai_codex import Codex
 
+from ui.backend.agent_api import reset_agent_service
+
 
 DEFAULT_POLL_INTERVAL_SECONDS = 3
 
@@ -136,7 +138,7 @@ def logout_codex_auth(*, codex_factory: _CodexFactory = Codex) -> dict[str, obje
     _cancel_all_attempts()
     with codex_factory() as codex:
         codex.logout()
-    _reset_agent_service()
+    reset_agent_service()
     return get_codex_auth_status(codex_factory=codex_factory)
 
 
@@ -145,7 +147,7 @@ def _wait_for_login(attempt: CodexAuthAttempt) -> None:
         result = attempt.handle.wait()
         if bool(getattr(result, "success", False)):
             attempt.finish(status="connected")
-            _reset_agent_service()
+            reset_agent_service()
         else:
             attempt.finish(status="error", error=str(getattr(result, "error", "") or "Codex OAuth failed."))
     except Exception as error:
@@ -248,9 +250,3 @@ def _json_or_error(callback: Callable[[], dict[str, object]]) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(error), "code": "invalid_request"}, status_code=400)
     except Exception as error:
         return JSONResponse({"success": False, "error": str(error), "code": "codex_auth_failed"}, status_code=400)
-
-
-def _reset_agent_service() -> None:
-    from ui.backend.agent_api import set_agent_service
-
-    set_agent_service(None)
