@@ -8,6 +8,13 @@
       icon: "plus",
     },
     {
+      id: "compact",
+      trigger: "/compact",
+      title: "Compact",
+      description: "Summarize earlier turns to free context",
+      icon: "layers-3",
+    },
+    {
       id: "stop",
       trigger: "/stop",
       title: "Stop",
@@ -33,6 +40,12 @@
   function slashCommandStatus(command) {
     if (command.id === "stop") {
       if (!isChatSessionPending()) return { disabled: true, description: "No answer is running" };
+      return { disabled: false, description: command.description };
+    }
+    if (command.id === "compact") {
+      if (!getChatSessionId()) return { disabled: true, description: "No saved chat to compact" };
+      if (isChatSessionPending()) return { disabled: true, description: "Wait for the current answer" };
+      if (readerState.contextCompacting) return { disabled: true, description: "Compacting already in progress" };
       return { disabled: false, description: command.description };
     }
     return { disabled: false, description: command.description };
@@ -153,6 +166,8 @@
 
     if (command.id === "new") {
       await createReaderChatSession();
+    } else if (command.id === "compact") {
+      await compactReaderContext();
     } else if (command.id === "stop") {
       await cancelReaderChatRequest();
     }

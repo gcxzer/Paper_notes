@@ -19,6 +19,12 @@ class ToolContext:
     media_store: Any | None = None
     paper_image_analyzer: Any | None = None
     mcp_manager: Any | None = None
+    session_id: str = ""
+    provider_name: str = ""
+    model: str = ""
+    file_generation: dict[str, Any] | None = None
+    image_generation: dict[str, Any] | None = None
+    attachments: list[dict[str, Any]] | None = None
 
 
 def create_tools(
@@ -34,9 +40,19 @@ def create_tools(
     media_store: Any | None = None,
     paper_image_analyzer: Any | None = None,
     mcp_manager: Any | None = None,
+    session_id: str = "",
+    provider_name: str = "",
+    model: str = "",
+    file_generation: dict[str, Any] | None = None,
+    image_generation: dict[str, Any] | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> list[BaseTool]:
+    from tools.generated_files import create_tools as create_generated_file_tools
+    from tools.generated_images import create_tools as create_generated_image_tools
     from tools.paper_notes import create_tools as create_paper_notes_tools
     from tools.skills import create_tools as create_skills_tools
+    from tools.web_fetch import create_tools as create_web_fetch_tools
+    from tools.web_search import create_tools as create_web_search_tools
 
     context = context or ToolContext(
         library_path=library_path,
@@ -49,6 +65,12 @@ def create_tools(
         media_store=media_store,
         paper_image_analyzer=paper_image_analyzer,
         mcp_manager=mcp_manager,
+        session_id=session_id,
+        provider_name=provider_name,
+        model=model,
+        file_generation=file_generation,
+        image_generation=image_generation,
+        attachments=attachments,
     )
     tools: list[BaseTool] = []
     tools.extend(create_paper_notes_tools(
@@ -62,6 +84,23 @@ def create_tools(
         media_store=context.media_store,
         paper_image_analyzer=context.paper_image_analyzer,
     ))
+    tools.extend(create_generated_file_tools(
+        media_store=context.media_store,
+        session_id=context.session_id,
+        provider_name=context.provider_name,
+        model=context.model,
+        file_generation=context.file_generation,
+    ))
+    tools.extend(create_generated_image_tools(
+        media_store=context.media_store,
+        session_id=context.session_id,
+        provider_name=context.provider_name,
+        model=context.model,
+        image_generation=context.image_generation,
+        attachments=context.attachments,
+    ))
+    tools.extend(create_web_search_tools())
+    tools.extend(create_web_fetch_tools())
     tools.extend(create_skills_tools())
     if context.mcp_manager is not None:
         get_tools = getattr(context.mcp_manager, "tools", None)

@@ -139,9 +139,10 @@ async def _json_body(request: Request) -> dict[str, Any]:
 
 def _session_payload(session: Any) -> dict[str, Any]:
     metadata = _metadata_payload(session.metadata)
+    raw_metadata = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
     return {
         **metadata,
-        "metadata": metadata,
+        "metadata": raw_metadata,
         "messages": _jsonable(session.messages),
     }
 

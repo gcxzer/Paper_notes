@@ -58,16 +58,32 @@ def test_append_message_updates_transcript_and_index(tmp_path):
     assert payload["sessions"][session.metadata.session_id]["message_count"] == 2
 
 
-def test_transcript_escapes_c1_line_separator_characters(tmp_path):
+def test_transcript_keeps_non_ascii_text_readable(tmp_path):
     root = tmp_path / ".paper-notes" / "sessions"
     store = AgentSessionStore(root, clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
     session = store.create_session()
-    content = "binary-ish\u0085but still one JSONL record"
+    content = "你好，论文"
+
+    store.append_message(session.metadata.session_id, {"role": "user", "content": content})
+
+    transcript = store.transcript_path(session.metadata.session_id).read_text(encoding="utf-8")
+    assert content in transcript
+    assert "\\u4f60\\u597d" not in transcript
+    assert store.require_session(session.metadata.session_id).messages[0]["content"] == content
+
+
+def test_transcript_escapes_jsonl_line_separator_characters(tmp_path):
+    root = tmp_path / ".paper-notes" / "sessions"
+    store = AgentSessionStore(root, clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
+    session = store.create_session()
+    content = "binary-ish\u0085line\u2028paragraph\u2029but still one JSONL record"
 
     store.append_message(session.metadata.session_id, {"role": "tool", "content": content})
 
     transcript = store.transcript_path(session.metadata.session_id).read_text(encoding="utf-8")
     assert "\\u0085" in transcript
+    assert "\\u2028" in transcript
+    assert "\\u2029" in transcript
     assert store.require_session(session.metadata.session_id).messages[0]["content"] == content
 
 

@@ -5,6 +5,7 @@ from typing import Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from model_providers.core.types import ModelProviderConfig, model_kwargs
+from model_providers.providers.credentials import with_resolved_api_key
 
 
 GOOGLE_OPTIONS = {
@@ -46,4 +47,4 @@ GOOGLE_OPTIONS = {
 
 
 def create_google_chat_model(config: ModelProviderConfig) -> Any:
-    return ChatGoogleGenerativeAI(**model_kwargs(config, GOOGLE_OPTIONS))
+    return ChatGoogleGenerativeAI(**with_resolved_api_key(model_kwargs(config, GOOGLE_OPTIONS), "gemini"))

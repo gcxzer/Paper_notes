@@ -33,6 +33,7 @@ def get_model_providers(*, secrets_path: str | Path | None = None) -> dict[str, 
         "defaultProvider": settings.provider,
         "defaultModel": settings.model,
         "modelConnectionConfigured": settings.model_connection_configured,
+        "codexAuth": settings.codex_auth.to_public_dict(),
         "providers": [
             _profile_payload(
                 profile,

@@ -49,7 +49,7 @@ def test_agent_session_routes_manage_sessions(monkeypatch, tmp_path):
     loaded = client.get(f"/api/agent/sessions/{session_id}").json()
     assert loaded["session"]["id"] == session_id
     assert loaded["session"]["title"] == "Original"
-    assert loaded["session"]["metadata"]["title"] == "Original"
+    assert loaded["session"]["metadata"] == {}
     assert loaded["session"]["messages"][0]["content"] == "Hello"
 
     renamed = client.post(f"/api/agent/sessions/{session_id}/rename", json={"title": "Renamed"}).json()
@@ -88,6 +88,7 @@ def test_agent_session_model_route_updates_model_and_metadata(monkeypatch, tmp_p
     assert session["provider"] == "deepseek"
     assert session["model"] == "deepseek-v4-flash"
     assert session["deepseekThinkMode"] == "off"
+    assert session["metadata"]["deepseekThinkMode"] == "off"
 
 
 def test_agent_session_routes_return_404_for_missing_session(monkeypatch, tmp_path):

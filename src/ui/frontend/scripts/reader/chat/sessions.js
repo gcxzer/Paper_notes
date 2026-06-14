@@ -476,9 +476,10 @@ async function loadReaderChatSession(sessionId, { closeMenu = true, refreshList 
     readerState.chatEditingText = "";
     setCurrentChatSessionId(session?.id || payload.session?.id || nextSessionId);
     setReaderChatError("");
-    resumeActiveChatRunForCurrentSession();
+    await resumeActiveChatRunForCurrentSession();
     renderReaderChatMessages({ scrollToBottom: true });
     renderReaderModelControls();
+    scheduleReaderContextStatusRefresh();
     if (refreshList) await fetchReaderChatSessions({ silent: true });
     if (closeMenu) setChatSessionMenuOpen(false);
   } catch (error) {
@@ -486,15 +487,23 @@ async function loadReaderChatSession(sessionId, { closeMenu = true, refreshList 
   }
 }
 
-function resumeActiveChatRunForCurrentSession() {
+async function resumeActiveChatRunForCurrentSession() {
   const activeRun = activeChatRunForSession();
   if (!activeRun) {
     syncCurrentChatRunState();
     renderReaderChatComposerState();
     return;
   }
+  if (await recoverReaderChatFromSession({ sessionId: activeRun.sessionId })) return;
   setReaderChatPending(true, activeRun.sessionId);
   startReaderChatProgress(activeRun.requestId, activeRun.sessionId);
+  scheduleReaderChatRecoveryPoll({
+    sessionId: activeRun.sessionId,
+    requestId: activeRun.requestId,
+    delay: 1200
+  });
+  syncCurrentChatRunState();
+  renderReaderChatComposerState();
 }
 
 async function createReaderChatSession() {
@@ -680,22 +689,31 @@ function hasCompletedAssistantAfterLatestUser(messages) {
   return hasAssistantResponseAfterLatestUser(messages);
 }
 
-async function recoverReaderChatFromSession({ sessionId = "" } = {}) {
+async function recoverReaderChatFromSession({ sessionId = "", latestUserText = "" } = {}) {
   const targetSessionId = normalizeText(sessionId) || getChatSessionId();
   if (!targetSessionId) return false;
   try {
     const payload = await fetchAgentJson(`/api/agent/sessions/${encodeURIComponent(targetSessionId)}`);
     const messages = normalizeApiChatMessages(payload.session?.messages);
+    const expectedUserText = normalizeText(latestUserText);
+    if (expectedUserText) {
+      const latestUser = [...messages].reverse().find((message) => message?.role === "user");
+      if (normalizeText(latestUser?.text || latestUser?.content) !== expectedUserText) return false;
+    }
     if (!hasCompletedAssistantAfterLatestUser(messages)) return false;
     const session = upsertReaderChatSession(payload.session);
-    setCurrentChatSessionId(session?.id || payload.session?.id || targetSessionId);
+    const recoveredSessionId = session?.id || payload.session?.id || targetSessionId;
+    setCurrentChatSessionId(recoveredSessionId);
     readerState.chatMessages = messages;
     readerState.chatEditingIndex = -1;
     readerState.chatEditingText = "";
-    clearReaderChatProgress(payload.session?.id || targetSessionId);
+    clearReaderChatProgress(recoveredSessionId);
+    setReaderChatPending(false, recoveredSessionId);
+    forgetActiveChatRun(recoveredSessionId);
     setReaderChatError("");
     renderReaderChatMessages({ scrollToBottom: true });
     renderReaderModelControls();
+    scheduleReaderContextStatusRefresh();
     return true;
   } catch (error) {
     console.debug("Could not recover chat session after request error.", error);

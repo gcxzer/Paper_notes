@@ -18,6 +18,7 @@ async function initialize() {
 
   renderApp();
   applyScratchpadSettingControls();
+  void loadAiSettings();
   void openSettingsPanelFromUrl();
 }
 
@@ -247,7 +248,18 @@ elements.connectCodexButton?.addEventListener("click", handleCodexConnectAction)
 elements.logoutCodexButton?.addEventListener("click", logoutCodex);
 elements.openRagSettings?.addEventListener("click", settingsLinkHandler(openRagSettingsDialog));
 elements.closeRagSettingsDialog?.addEventListener("click", closeRagSettingsDialog);
-elements.doneRagSettings?.addEventListener("click", closeRagSettingsDialog);
+elements.cancelRagSettings?.addEventListener("click", (event) => {
+  event.preventDefault();
+  closeRagSettingsDialog();
+});
+elements.saveRagSettings?.addEventListener("click", (event) => {
+  event.preventDefault();
+  closeRagSettingsDialog();
+});
+elements.ragSettingsDialog?.addEventListener("close", () => {
+  setRagSettingsError("");
+  clearSettingsPanelUrl();
+});
 elements.refreshRagSettings?.addEventListener("click", () => {
   void loadRagSettings();
 });

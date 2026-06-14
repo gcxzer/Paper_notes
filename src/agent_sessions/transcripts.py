@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from app_infra.storage import atomic_write_text
 
 _LOCKS: dict[Path, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
+_JSONL_UNSAFE_CHARACTERS = re.compile(r"[\u007f-\u009f\u2028\u2029]")
 
 
 def transcript_path_for(sessions_root: str | Path, metadata: AgentSessionMetadata) -> Path:
@@ -49,7 +51,7 @@ def read_transcript(path: str | Path) -> list[dict[str, Any]]:
 def write_transcript(path: str | Path, messages: list[AgentTranscriptMessage | dict[str, Any]]) -> list[dict[str, Any]]:
     transcript_path = Path(path)
     normalized = [normalize_message(message) for message in messages]
-    text = "".join(json.dumps(message, ensure_ascii=True) + "\n" for message in normalized)
+    text = "".join(_dumps_transcript_message(message) + "\n" for message in normalized)
     atomic_write_text(transcript_path, text)
     return normalized
 
@@ -60,6 +62,11 @@ def append_transcript_message(path: str | Path, message: AgentTranscriptMessage 
         messages = read_transcript(transcript_path)
         messages.append(normalize_message(message))
         return write_transcript(transcript_path, messages)
+
+
+def _dumps_transcript_message(message: dict[str, Any]) -> str:
+    text = json.dumps(message, ensure_ascii=False)
+    return _JSONL_UNSAFE_CHARACTERS.sub(lambda match: f"\\u{ord(match.group(0)):04x}", text)
 
 
 def _lock_for(path: Path) -> threading.Lock:

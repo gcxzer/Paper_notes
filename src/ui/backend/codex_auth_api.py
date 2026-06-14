@@ -77,7 +77,7 @@ def register_codex_auth_routes(app: FastAPI) -> None:
 def get_codex_auth_status(*, codex_factory: _CodexFactory = Codex) -> dict[str, object]:
     try:
         with codex_factory() as codex:
-            account = codex.account()
+            account = codex.account(refresh_token=True)
     except Exception as error:
         return _logged_out_status(error=str(error))
     return _account_status_payload(account)
@@ -158,7 +158,7 @@ def _wait_for_login(attempt: CodexAuthAttempt) -> None:
 
 def _account_status_payload(response: Any) -> dict[str, object]:
     account = getattr(response, "account", None)
-    if account is None or bool(getattr(response, "requires_openai_auth", False)):
+    if account is None:
         return _logged_out_status()
     root = getattr(account, "root", account)
     account_type = _enum_value(getattr(root, "type", "")) or type(root).__name__

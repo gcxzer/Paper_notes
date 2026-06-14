@@ -81,12 +81,13 @@ class FakeCodex:
         self.state["handles"].append(self.handle)
         return self.handle
 
-    def account(self):
+    def account(self, *, refresh_token: bool = False):
+        self.state["refresh_requested"] = refresh_token
         if not self.state["logged_in"]:
             return FakeAccountResponse(account=None, requires_openai_auth=True)
         return FakeAccountResponse(
             account=FakeAccount(FakeAccountRoot()),
-            requires_openai_auth=False,
+            requires_openai_auth=bool(self.state.get("requires_openai_auth", False)),
         )
 
     def logout(self) -> None:
@@ -109,6 +110,15 @@ def test_codex_auth_status_maps_current_codex_account():
     assert payload["authMode"] == "chatgpt"
     assert payload["accountEmail"] == "user@example.test"
     assert payload["planType"] == "plus"
+
+
+def test_codex_auth_status_treats_returned_account_as_signed_in_even_if_openai_auth_required():
+    state = {"logged_in": True, "handles": [], "requires_openai_auth": True}
+
+    payload = get_codex_auth_status(codex_factory=fake_codex_factory(state))
+
+    assert payload["loggedIn"] is True
+    assert payload["accountEmail"] == "user@example.test"
 
 
 def test_codex_auth_start_poll_and_connect():

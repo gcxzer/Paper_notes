@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from app_config.secrets import default_env_paths, default_secrets_path, parse_env_file, write_env_values
-from model_providers.profiles import get_provider_profile, normalize_provider_profile_name
 
 
 AI_PROVIDER = "PAPER_NOTES_AI_PROVIDER"
@@ -20,6 +19,8 @@ GEMINI_MODEL = "GEMINI_MODEL"
 GOOGLE_API_KEY = "GOOGLE_API_KEY"
 OPENAI_API_KEY = "OPENAI_API_KEY"
 OPENAI_MODEL = "OPENAI_MODEL"
+TAVILY_API_KEY = "TAVILY_API_KEY"
+BRAVE_SEARCH_API_KEY = "BRAVE_SEARCH_API_KEY"
 
 OPENAI_PROVIDER = "openai"
 ANTHROPIC_PROVIDER = "anthropic"
@@ -33,6 +34,24 @@ SUPPORTED_AI_PROVIDERS = frozenset({
     DEEPSEEK_PROVIDER,
     GEMINI_PROVIDER,
 })
+AI_PROVIDER_ALIASES = {
+    "": "",
+    "api-key": OPENAI_PROVIDER,
+    "openai-api-key": OPENAI_PROVIDER,
+    OPENAI_PROVIDER: OPENAI_PROVIDER,
+    "claude": ANTHROPIC_PROVIDER,
+    ANTHROPIC_PROVIDER: ANTHROPIC_PROVIDER,
+    "codex": CODEX_PROVIDER,
+    CODEX_PROVIDER: CODEX_PROVIDER,
+    "openai-codex": CODEX_PROVIDER,
+    "deep-seek": DEEPSEEK_PROVIDER,
+    DEEPSEEK_PROVIDER: DEEPSEEK_PROVIDER,
+    "google": GEMINI_PROVIDER,
+    "google-ai-studio": GEMINI_PROVIDER,
+    "google-gemini": GEMINI_PROVIDER,
+    "google-genai": GEMINI_PROVIDER,
+    GEMINI_PROVIDER: GEMINI_PROVIDER,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +265,22 @@ def resolve_gemini_api_key(
     return gemini if gemini.value else resolve_setting_value(GOOGLE_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
 
 
+def resolve_tavily_api_key(
+    *,
+    secrets_path: str | Path | None = None,
+    env_paths: tuple[Path, ...] | None = None,
+) -> ResolvedValue:
+    return resolve_setting_value(TAVILY_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
+
+
+def resolve_brave_search_api_key(
+    *,
+    secrets_path: str | Path | None = None,
+    env_paths: tuple[Path, ...] | None = None,
+) -> ResolvedValue:
+    return resolve_setting_value(BRAVE_SEARCH_API_KEY, secrets_path=secrets_path, env_paths=env_paths)
+
+
 def resolve_setting_value(
     name: str,
     *,
@@ -325,10 +360,7 @@ def delete_local_ai_api_key(
 
 def normalize_ai_provider(value: object) -> str:
     provider = str(value or "").strip().lower().replace("_", "-")
-    if not provider:
-        return ""
-    normalized = normalize_provider_profile_name(provider)
-    return normalized if normalized in SUPPORTED_AI_PROVIDERS else ""
+    return AI_PROVIDER_ALIASES.get(provider, provider if provider in SUPPORTED_AI_PROVIDERS else "")
 
 
 def model_env_name(provider: str) -> str:
@@ -403,6 +435,8 @@ def _auto_selected_provider(
 def _model_or_profile_default(provider: str, resolved: ResolvedValue) -> ResolvedValue:
     if resolved.value:
         return resolved
+    from model_providers.profiles.registry import get_provider_profile
+
     profile = get_provider_profile(provider)
     if profile is not None and profile.default_model:
         return ResolvedValue(profile.default_model, "profile")
@@ -414,11 +448,11 @@ def _current_codex_auth_settings() -> CodexAuthSettings:
         from openai_codex import Codex
 
         with Codex() as codex:
-            response = codex.account()
+            response = codex.account(refresh_token=True)
     except Exception:
         return CodexAuthSettings()
     account = getattr(response, "account", None)
-    if account is None or bool(getattr(response, "requires_openai_auth", False)):
+    if account is None:
         return CodexAuthSettings()
     root = getattr(account, "root", account)
     account_type = _enum_value(getattr(root, "type", "")) or type(root).__name__
@@ -459,4 +493,3 @@ def _display_path(path: Path) -> str:
         return str(path.expanduser().resolve().relative_to(Path.cwd().resolve()))
     except ValueError:
         return str(path)
-

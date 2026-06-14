@@ -35,7 +35,11 @@ function normalizeRunTrace(rawTrace) {
       message: sanitizeChatProgressDetail(event?.message || event?.detail),
       at: normalizeText(event?.at),
       data: event?.data && typeof event.data === "object" ? event.data : {}
-    })).filter((event) => event.type || event.message)
+    })).filter((event) => {
+      const traceType = normalizeText(event.data?.traceType || event.data?.trace_type || event.stage || event.type);
+      const text = sanitizeChatProgressDetail(event.data?.text || event.data?.delta || event.message);
+      return (event.type || event.message) && !isStructuredToolCallProgressText(traceType, text);
+    })
     : [];
   const durationMs = Number(rawTrace.durationMs || rawTrace.duration_ms || 0);
   if (!events.length && !durationMs) return null;
@@ -58,8 +62,9 @@ function normalizeWorkTrace(rawTrace) {
       text: sanitizeChatProgressDetail(item?.text || item?.detail),
       at: normalizeText(item?.at),
       source: normalizeText(item?.source),
+      data: item?.data && typeof item.data === "object" ? item.data : {},
       complete: item?.complete === true
-    })).filter((item) => item.text)
+    })).filter((item) => item.text && !isStructuredToolCallProgressText(item.type, item.text))
     : [];
   const items = sortTraceItemsChronologically(compactWorkTraceItems(rawItems));
   if (!items.length) return null;
@@ -88,6 +93,26 @@ function compactWorkTraceItems(items) {
     const text = sanitizeChatProgressDetail(item?.text || item?.detail);
     if (!text) continue;
     const source = normalizeText(item?.source);
+    const identity = workTraceItemIdentity(item);
+    const identityIndex = identity
+      ? compacted.findIndex((existing) => (
+        existing.type === type
+        && existing.source === source
+        && workTraceItemIdentity(existing) === identity
+      ))
+      : -1;
+    if (identityIndex !== -1) {
+      const existing = compacted[identityIndex];
+      compacted[identityIndex] = {
+        ...existing,
+        ...item,
+        type,
+        source,
+        text: text.length >= normalizeText(existing.text).length ? text : normalizeText(existing.text),
+        complete: item.complete === true || (existing.complete === true && item.complete !== false),
+      };
+      continue;
+    }
     const duplicateIndex = compacted.findIndex((existing) => (
       existing.type === type
       && existing.text === text
@@ -111,6 +136,18 @@ function compactWorkTraceItems(items) {
   return compacted;
 }
 
+function workTraceItemIdentity(item) {
+  const data = item?.data && typeof item.data === "object" ? item.data : {};
+  return normalizeText(
+    data.itemId
+    || data.item_id
+    || data.id
+    || data.item?.id
+    || data.item?.itemId
+    || data.item?.item_id
+  );
+}
+
 function canMergeStreamingWorkTraceType(type) {
   return ["summary", "commentary", "reasoning"].includes(normalizeText(type));
 }
@@ -120,6 +157,25 @@ function workTraceTextsOverlap(first, second) {
   const b = normalizeText(second);
   if (!a || !b) return false;
   return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+}
+
+function isStructuredToolCallProgressText(type, text) {
+  const normalizedType = normalizeText(type);
+  if (normalizedType && normalizedType !== "commentary" && normalizedType !== "progress") return false;
+  const detail = sanitizeChatProgressDetail(text).trim();
+  if (!detail || (detail[0] !== "{" && detail[0] !== "[")) return false;
+  try {
+    return payloadHasStructuredToolCalls(JSON.parse(detail));
+  } catch (_error) {
+    return false;
+  }
+}
+
+function payloadHasStructuredToolCalls(payload) {
+  if (Array.isArray(payload)) return payload.some((item) => payloadHasStructuredToolCalls(item));
+  if (!payload || typeof payload !== "object") return false;
+  if (normalizeText(payload.kind) === "tool_calls") return true;
+  return Array.isArray(payload.tool_calls) || Array.isArray(payload.toolCalls);
 }
 
 function normalizeImageArtifacts(rawArtifacts) {
@@ -584,7 +640,7 @@ function normalizeChatProgress(progress) {
     requestId: normalizeText(progress.requestId),
     status: normalizeText(progress.status) || "running",
     stage: normalizeText(progress.visibleStage || progress.stage) || "working",
-    detail: sanitizeChatProgressDetail(progress.visibleDetail || progress.detail) || "Working...",
+    detail: sanitizeChatProgressDetail(progress.visibleDetail || progress.detail),
     events,
     visibleEvents,
     workTrace: normalizeWorkTrace(progress.workTrace)
@@ -599,10 +655,47 @@ function renderChatProgress() {
   const progress = normalizeChatProgress(currentChatProgress());
   if (!progress) return "";
   if (!isChatSessionPending()) return "";
+  const compactionMarkerHtml = renderContextCompactionMarker(progress.events, { running: true });
   const rows = progressInlineRows(progress);
   const activeToolIndex = activeProgressToolRowIndex(rows);
   const rowsHtml = rows.map((row, index) => renderProgressInlineRow(row, { active: index === activeToolIndex })).join("");
-  return rowsHtml;
+  return `${compactionMarkerHtml}${rowsHtml}`;
+}
+
+function renderManualContextCompactionProgress() {
+  if (!readerState.contextCompacting) return "";
+  return renderContextCompactionDivider("Compacting context", "running");
+}
+
+function renderContextCompactionMarker(events, { running = false } = {}) {
+  const normalizedEvents = Array.isArray(events) ? events : [];
+  const hasCompacted = normalizedEvents.some((event) => normalizeText(event?.type) === "context_compressed");
+  const hasCompacting = normalizedEvents.some((event) => normalizeText(event?.type) === "context_compressing");
+  if (hasCompacted) return renderContextCompactionDivider("Context compacted", "done");
+  if (hasCompacting && running) return renderContextCompactionDivider("Compacting context", "running");
+  return "";
+}
+
+function messageContextCompactionMarker(message, options = {}) {
+  const normalized = normalizeChatMessage(message);
+  if (normalized.role !== "assistant") return "";
+  return renderContextCompactionMarker(normalized.runTrace?.events, options);
+}
+
+function renderContextCompactionDivider(text, state = "done") {
+  const running = state === "running";
+  return `
+    <div class="ask-context-compaction-divider is-${escapeHtml(state)}" role="status" aria-live="polite">
+      <span></span>
+      <strong>
+        ${running
+          ? `<span class="ask-context-compaction-spinner" aria-hidden="true"></span>`
+          : `<span class="ask-context-compaction-icon" aria-hidden="true">▧</span>`}
+        <span>${escapeHtml(text)}</span>
+      </strong>
+      <span></span>
+    </div>
+  `;
 }
 
 function progressInlineRows(progress) {
@@ -797,6 +890,7 @@ function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
   const message = sanitizeChatProgressDetail(event?.message);
   const data = event?.data && typeof event.data === "object" ? event.data : {};
   const text = sanitizeChatProgressDetail(data.text || data.delta || message);
+  const traceType = normalizeText(data.trace_type || data.traceType) || eventType;
   const nativeWebSearchText = providerNativeWebSearchText(data);
   if (eventType === "model_response" && nativeWebSearchText) {
     return {
@@ -807,10 +901,10 @@ function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
       complete: true,
     };
   }
-  if (!text || isHiddenRunSummaryMessage(eventType, text)) return null;
+  if (!text || isHiddenRunSummaryMessage(eventType, text) || isStructuredToolCallProgressText(traceType, text)) return null;
   if (eventType === "work_trace_item" || eventType === "work_trace_delta") {
     return {
-      type: normalizeText(data.trace_type || data.traceType) || "summary",
+      type: traceType || "summary",
       text,
       at: event.at,
       source: normalizeText(data.source) || "provider",
@@ -1015,7 +1109,7 @@ function workTraceFromProgressPayload(progress) {
   const visibleRows = rows.filter((row) => {
     const type = progressInlineType(row.type);
     const text = sanitizeChatProgressDetail(row.text);
-    return Boolean(text) && !isHiddenRunSummaryMessage(type, text);
+    return Boolean(text) && !isHiddenRunSummaryMessage(type, text) && !isStructuredToolCallProgressText(type, text);
   });
   return normalizeWorkTrace({ status: normalized.status, items: visibleRows });
 }
@@ -1103,7 +1197,8 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   if (!elements.readerChatMessages) return;
   const previousScrollTop = elements.readerChatMessages.scrollTop;
   const wasNearBottom = readerChatIsNearBottom(elements.readerChatMessages);
-  if (!readerState.chatMessages.length && !isChatSessionPending()) {
+  const manualContextCompactionHtml = renderManualContextCompactionProgress();
+  if (!readerState.chatMessages.length && !isChatSessionPending() && !manualContextCompactionHtml) {
     elements.readerChatMessages.innerHTML = `
       <div class="ask-empty-chat">
         <p>Ask about this paper, or tell me what to do.</p>
@@ -1113,7 +1208,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
   }
 
   const latestUserIndex = latestReaderUserMessageIndex();
-  const chatProgressHtml = renderChatProgress();
+  const chatProgressHtml = `${renderChatProgress()}${manualContextCompactionHtml}`;
   const streamingAssistantIndex = isChatSessionPending()
     ? readerState.chatMessages.findIndex((message, index) => (
       index > latestUserIndex
@@ -1129,9 +1224,19 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     if (message.role === "divider") {
       return `${progressBeforeMessage}${renderChatDivider(message)}`;
     }
+    const nextCompactionMarkerHtml = message.role === "user"
+      ? messageContextCompactionMarker(readerState.chatMessages[index + 1])
+      : "";
     const sourcesHtml = message.role === "assistant" ? renderChatSources(message.sources) : "";
     const imageHtml = renderChatImages([...(message.attachments || []), ...(message.artifacts || [])]);
     const toolActivityHtml = message.role === "assistant" ? renderChatToolActivity(message.toolActivity, { activityScope: `message-${index}` }) : "";
+    const previousMessage = normalizeChatMessage(readerState.chatMessages[index - 1]);
+    const moveCompactionMarkerToPreviousUser = message.role === "assistant"
+      && previousMessage.role === "user"
+      && Boolean(renderContextCompactionMarker(message.runTrace?.events));
+    const compactionMarkerHtml = message.role === "assistant" && !moveCompactionMarkerToPreviousUser
+      ? renderContextCompactionMarker(message.runTrace?.events)
+      : "";
     const traceHtml = message.role === "assistant" ? renderRunTraceSummary(message.runTrace, message.workTrace) : "";
     const editing = message.role === "user" && readerState.chatEditingIndex === index;
     const userContextBadgesHtml = message.role === "user" ? renderUserContextBadges(message) : "";
@@ -1141,7 +1246,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
       : message.text
         ? `<div class="ask-bubble">${rawMessage.streaming ? renderStreamingChatText(message.text) : renderChatMarkdown(message.text)}</div>`
         : "";
-    return `${progressBeforeMessage}
+    return `${progressBeforeMessage}${nextCompactionMarkerHtml}${compactionMarkerHtml}
     <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}">
       <div class="ask-message-stack">
         ${traceHtml}
@@ -1189,7 +1294,9 @@ function renderUserContextBadges(message) {
 }
 
 function renderChatDivider(message) {
-  const text = message.text || "Divider";
+  const text = ["context_compaction_marker", "context_compaction"].includes(message.markerType)
+    ? "Context compacted"
+    : (message.text || "Divider");
   return `
     <div class="ask-message-divider" role="status">
       <span></span>

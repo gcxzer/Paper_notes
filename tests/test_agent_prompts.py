@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agent_prompts import AgentPromptContext, build_agent_instructions, build_context_section, extract_tool_names
+from media import MediaStore
 from tools import create_tools
 
 
@@ -13,6 +14,8 @@ CURRENT_PAPER_NOTES_TOOLS = {
     "search_notes",
     "skill_view",
     "skills_list",
+    "web_fetch",
+    "web_search",
     "write_note",
     "write_note_media",
 }
@@ -31,8 +34,25 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance():
         assert tool_name in prompt
     assert "# Tool use and grounding" in prompt
     assert "# Paper library search queries" in prompt
+    assert "# External web lookup" in prompt
     assert "# Paper note-writing workflow" in prompt
     assert "Paper_Notes/.paper-notes/media" in prompt
+
+
+def test_prompt_includes_generated_artifact_tools_when_media_store_is_available(tmp_path):
+    tools = create_tools(
+        media_store=MediaStore(tmp_path / "media"),
+        provider_name="openai",
+        model="gpt-5.5",
+    )
+    names = extract_tool_names(tools)
+
+    prompt = build_agent_instructions(tools=tools, model="gpt-5.5")
+
+    assert {"create_file_artifact", "create_image_artifact"} <= names
+    assert "# Generated artifacts" in prompt
+    assert "create_file_artifact" in prompt
+    assert "create_image_artifact" in prompt
 
 
 def test_prompt_without_tools_does_not_claim_retrieval_capability():
@@ -104,9 +124,12 @@ def test_extract_tool_names_supports_openai_shapes_and_langchain_tools():
         [
             {"type": "function", "function": {"name": "search_notes"}},
             {"type": "function", "name": "read_paper"},
+            {"type": "web_search"},
+            {"type": "web_search_20260209", "name": "web_search"},
+            {"google_search": {}},
             {"not": "a tool"},
             create_tools()[1],
         ]
     )
 
-    assert names == {"search_notes", "read_paper", "get_note_context"}
+    assert names == {"search_notes", "read_paper", "web_search", "get_note_context"}

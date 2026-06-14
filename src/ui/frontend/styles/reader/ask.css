@@ -117,6 +117,46 @@
   background: color-mix(in srgb, var(--panel-hover) 72%, transparent);
 }
 
+.ask-context-button {
+  position: relative;
+  border: 1px solid transparent;
+}
+
+.ask-context-button:hover,
+.ask-context-button:focus-visible,
+.ask-context-button[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-hover) 72%, transparent);
+  outline: none;
+}
+
+.ask-context-ring {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background:
+    conic-gradient(var(--accent) calc(var(--context-percent, 0) * 1%), color-mix(in srgb, var(--line) 82%, transparent) 0),
+    var(--panel);
+  mask: radial-gradient(circle at center, transparent 48%, #000 50%);
+}
+
+.ask-context-button.is-loading .ask-context-ring {
+  animation: askContextRingSpin 0.9s linear infinite;
+}
+
+.ask-context-button.is-ready .ask-context-ring {
+  background:
+    conic-gradient(color-mix(in srgb, #efb84a 82%, var(--accent)) calc(var(--context-percent, 0) * 1%), color-mix(in srgb, var(--line) 82%, transparent) 0),
+    var(--panel);
+}
+
+@keyframes askContextRingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ask-icon-button {
   display: inline-flex;
   align-items: center;
@@ -224,6 +264,23 @@
   backdrop-filter: blur(16px);
 }
 
+.ask-context-popover {
+  position: absolute;
+  top: 46px;
+  right: 96px;
+  z-index: 73;
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100% - 24px));
+  max-height: min(460px, calc(100% - 70px));
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
 .ask-model-popover {
   position: absolute;
   top: 46px;
@@ -263,10 +320,144 @@
 }
 
 .ask-project-popover[hidden],
+.ask-context-popover[hidden],
 .ask-session-popover[hidden],
 .ask-model-popover[hidden],
 .ask-tool-popover[hidden] {
   display: none;
+}
+
+.ask-context-title {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.ask-context-percent {
+  font-size: 1.55rem;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.ask-context-tokens,
+.ask-context-model {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.ask-context-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  margin: 4px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  font-size: 0.78rem;
+}
+
+.ask-context-grid span {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.ask-context-grid strong {
+  color: var(--text);
+  font-weight: 720;
+  text-align: right;
+}
+
+.ask-context-help {
+  position: relative;
+  width: fit-content;
+  cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 55%, transparent);
+  text-underline-offset: 3px;
+}
+
+.ask-context-help::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 2;
+  width: min(260px, 72vw);
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+  color: var(--text);
+  content: attr(data-tooltip);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ask-context-help:hover::after,
+.ask-context-help:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ask-context-warning,
+.ask-context-status {
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ask-context-warning {
+  border: 1px solid color-mix(in srgb, #ef6666 44%, var(--line));
+  background: color-mix(in srgb, #ef6666 12%, var(--panel-alt));
+  color: color-mix(in srgb, #ef6666 68%, var(--text));
+}
+
+.ask-context-status {
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  color: var(--muted);
+}
+
+.ask-context-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ask-context-focus,
+.ask-context-compact {
+  min-height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  color: var(--text);
+  font: inherit;
+}
+
+.ask-context-focus {
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.ask-context-compact {
+  padding: 0 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ask-context-compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .ask-project-popover-header,

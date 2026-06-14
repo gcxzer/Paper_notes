@@ -5,6 +5,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 from model_providers.core.types import ModelProviderConfig, model_kwargs
+from model_providers.providers.credentials import with_resolved_api_key
 
 
 OPENAI_OPTIONS = {
@@ -24,6 +25,7 @@ OPENAI_OPTIONS = {
     "model_kwargs": "model_kwargs",
     "n": "n",
     "organization": "organization",
+    "output_version": "output_version",
     "presence_penalty": "presence_penalty",
     "reasoning": "reasoning",
     "reasoning_effort": "reasoning_effort",
@@ -46,4 +48,4 @@ OPENAI_OPTIONS = {
 
 
 def create_openai_chat_model(config: ModelProviderConfig) -> Any:
-    return ChatOpenAI(**model_kwargs(config, OPENAI_OPTIONS))
+    return ChatOpenAI(**with_resolved_api_key(model_kwargs(config, OPENAI_OPTIONS), "openai"))

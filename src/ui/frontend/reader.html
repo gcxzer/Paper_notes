@@ -104,6 +104,9 @@
             </button>
           </div>
           <div class="ask-pane-controls">
+            <button class="ask-icon-button ask-context-button" type="button" id="readerContextButton" aria-label="Show context window" aria-haspopup="dialog" aria-expanded="false" title="Context window">
+              <span class="ask-context-ring" aria-hidden="true"></span>
+            </button>
             <div class="ask-session-tabs" aria-label="Chat session views">
               <button class="ask-session-tab" type="button" id="chatSessionArchivedButton" data-session-view="archived" aria-label="Archived chats" aria-haspopup="dialog" aria-expanded="false" title="Archived chats">
                 <span data-paper-icon="archive" data-paper-icon-size="18"></span>
@@ -120,6 +123,7 @@
           </div>
         </header>
         <div class="ask-project-popover" id="readerProjectPopover" role="dialog" aria-label="Ask projects" hidden></div>
+        <div class="ask-context-popover" id="readerContextPopover" role="dialog" aria-label="Context window" hidden></div>
         <div class="ask-session-popover" id="chatSessionPopover" role="dialog" aria-label="Ask sessions" hidden>
           <div class="ask-session-popover-header">
             <strong id="chatSessionPopoverTitle">Sessions</strong>
@@ -442,6 +446,6 @@
   </dialog>
 
   <script src="/node_modules/katex/dist/katex.min.js"></script>
-  <script type="module" src="scripts/reader/loader.js?v=chat-mermaid-v1"></script>
+  <script type="module" src="scripts/reader/loader.js?v=reader-context-compact-v4"></script>
 </body>
 </html>

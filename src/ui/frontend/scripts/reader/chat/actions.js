@@ -22,9 +22,17 @@ function cancelReaderUserMessageEdit() {
 function readerRequestOptions() {
   const provider = currentReaderProvider();
   const normalizedProvider = normalizeProviderName(provider);
+  if (normalizedProvider === "codex-oauth") {
+    const thinkMode = currentGptThinkMode(currentReaderModel(), normalizedProvider);
+    return thinkMode.enabled
+      ? { effort: thinkMode.effort, summary: "auto" }
+      : { effort: "none", summary: "none" };
+  }
   if (providerSupportsGptThinkMode(normalizedProvider)) {
     const thinkMode = currentGptThinkMode(currentReaderModel(), normalizedProvider);
     return {
+      use_responses_api: true,
+      output_version: "responses/v1",
       reasoning: thinkMode.enabled
         ? { effort: thinkMode.effort, summary: "auto" }
         : { effort: "none" },
@@ -34,12 +42,12 @@ function readerRequestOptions() {
     const model = currentReaderModel();
     const thinkMode = currentGeminiThinkMode(model);
     if (model === "gemini-3-pro-preview") {
-      return { thinkingConfig: { thinkingLevel: thinkMode.effort, includeThoughts: true } };
+      return { thinking_level: thinkMode.effort, include_thoughts: true };
     }
     if (!thinkMode.enabled) {
-      return { thinkingConfig: { thinkingLevel: "minimal" } };
+      return { thinking_level: "minimal", include_thoughts: false };
     }
-    return { thinkingConfig: { thinkingLevel: thinkMode.effort, includeThoughts: true } };
+    return { thinking_level: thinkMode.effort, include_thoughts: true };
   }
   if (providerSupportsAnthropicThinkMode(normalizedProvider, currentReaderModel())) {
     const thinkMode = currentAnthropicThinkMode(currentReaderModel());
@@ -345,6 +353,9 @@ async function sendReaderChatMessage(options = {}) {
   renderReaderChatMessages({ forceScrollToBottom: true });
   setReaderChatPending(true, sessionRunKey);
   startReaderChatProgress(requestId, sessionRunKey);
+  if (activeSessionId) {
+    scheduleReaderChatRecoveryPoll({ sessionId: activeSessionId, requestId, latestUserText: text });
+  }
   const abortController = new AbortController();
   readerState.chatAbortControllersBySession[sessionRunKey] = abortController;
   syncCurrentChatRunState();
@@ -411,6 +422,7 @@ async function sendReaderChatMessage(options = {}) {
           );
           setCurrentChatSessionId(startedSession?.id || startedSessionId);
           rememberActiveChatRun(startedSessionId, requestId);
+          scheduleReaderChatRecoveryPoll({ sessionId: startedSessionId, requestId, latestUserText: text });
         }
       });
     } catch (streamError) {
@@ -461,7 +473,10 @@ async function sendReaderChatMessage(options = {}) {
       return;
     }
     if (readerState.chatProgressRequestIdsBySession[sessionRunKey] !== requestId) return;
-    if (isCurrentChatSessionRunKey(sessionRunKey) && await recoverReaderChatFromSession({ sessionId: activeSessionId || requestSessionId })) return;
+    if (isCurrentChatSessionRunKey(sessionRunKey) && await recoverReaderChatFromSession({
+      sessionId: activeSessionId || requestSessionId,
+      latestUserText: text
+    })) return;
     if (!isCurrentChatSessionRunKey(sessionRunKey)) {
       await fetchReaderChatSessions({ silent: true });
       return;
@@ -490,6 +505,7 @@ async function sendReaderChatMessage(options = {}) {
       if (shouldUpdateVisible) {
         renderReaderChatMessages({ scrollToBottom: true });
         if (hasSuccessfulAssistantAfterLatestReaderUser()) setReaderChatError("");
+        scheduleReaderContextStatusRefresh();
         elements.readerChatInput?.focus();
       } else {
         await fetchReaderChatSessions({ silent: true });
@@ -508,16 +524,21 @@ function initializeReaderChat() {
   initializeReaderProjects();
   renderReaderChatMessages({ preserveScrollTop: true });
   renderReaderModelControls();
+  renderReaderContextControls();
   renderReaderToolControls();
   renderAttachmentTray();
   void loadReaderModelCatalog({ silent: true });
+  scheduleReaderContextStatusRefresh(300);
   elements.readerChatForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (isChatSessionPending()) {
       if (event.submitter === elements.sendReaderChat) cancelReaderChatRequest();
       return;
     }
-    sendReaderChatMessage();
+    sendReaderChatMessage().catch((error) => {
+      console.error("Reader chat submit failed.", error);
+      setReaderChatError(error.message || GENERIC_AGENT_ERROR);
+    });
   });
   elements.readerChatMessages?.addEventListener("click", handleChatSourceClick);
   elements.readerChatMessages?.addEventListener("click", handleChatProgressClick);
@@ -570,6 +591,20 @@ function initializeReaderChat() {
   elements.readerAttachmentTray?.addEventListener("click", handleAttachmentTrayClick);
   elements.readerModelBack?.addEventListener("click", showReaderProviderMenu);
   elements.readerModelProvider?.addEventListener("click", closeReaderModelMenu);
+  elements.readerContextButton?.addEventListener("click", () => {
+    setReaderContextPopoverOpen(!readerState.contextPopoverOpen);
+  });
+  elements.readerContextPopover?.addEventListener("input", (event) => {
+    if (event.target?.id === "readerContextCompactFocus") {
+      readerState.contextCompactFocus = event.target.value;
+    }
+  });
+  elements.readerContextPopover?.addEventListener("click", (event) => {
+    const action = event.target?.closest?.("[data-context-action]")?.dataset?.contextAction;
+    if (action === "compact") {
+      compactReaderContext();
+    }
+  });
   elements.clearTrashSessions?.addEventListener("click", openClearTrashDialog);
   elements.newChatSession?.addEventListener("click", createReaderChatSession);
   elements.cancelClearTrash?.addEventListener("click", closeClearTrashDialog);
@@ -610,6 +645,13 @@ function initializeReaderChat() {
       closeReaderModelMenu();
     }
     if (
+      readerState.contextPopoverOpen
+      && !elements.readerContextPopover?.contains(event.target)
+      && !elements.readerContextButton?.contains(event.target)
+    ) {
+      closeReaderContextPopover();
+    }
+    if (
       readerState.toolMenuOpen
       && !elements.readerToolPopover?.contains(event.target)
       && !elements.readerToolMenuButton?.contains(event.target)
@@ -622,6 +664,7 @@ function initializeReaderChat() {
     if (readerState.chatSessionMenuOpen) setChatSessionMenuOpen(false);
     if (readerState.chatProjectMenuOpen) closeReaderProjectMenu();
     if (readerState.modelMenuOpen) closeReaderModelMenu();
+    if (readerState.contextPopoverOpen) closeReaderContextPopover();
     if (readerState.toolMenuOpen) closeReaderToolMenu();
   });
   resizeReaderChatInput();

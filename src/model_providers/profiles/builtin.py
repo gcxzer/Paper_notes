@@ -19,7 +19,6 @@ OPENAI_CONTEXT_WINDOWS: dict[str, int] = {
 }
 
 CODEX_CONTEXT_WINDOWS: dict[str, int] = {
-    "gpt-5.3-codex": 258_000,
     "gpt-5.3-codex-spark": 128_000,
     "gpt-5.4-mini": 258_000,
     "gpt-5.5": 258_000,
@@ -126,7 +125,6 @@ CODEX_PROFILE = ModelProviderProfile(
         ModelOption("gpt-5.5", "GPT-5.5", "5.5", "Best Codex OAuth default", CODEX_CAPABILITIES.with_context_window(CODEX_CONTEXT_WINDOWS["gpt-5.5"])),
         ModelOption("gpt-5.4-mini", "GPT-5.4 mini", "5.4 mini", "Faster Codex model", CODEX_CAPABILITIES.with_context_window(CODEX_CONTEXT_WINDOWS["gpt-5.4-mini"])),
         ModelOption("gpt-5.4", "GPT-5.4", "5.4", "Codex CLI family", CODEX_CAPABILITIES.with_context_window(CODEX_CONTEXT_WINDOWS["gpt-5.4"])),
-        ModelOption("gpt-5.3-codex", "GPT-5.3 Codex", "5.3 codex", "Codex-optimized", CODEX_CAPABILITIES.with_context_window(CODEX_CONTEXT_WINDOWS["gpt-5.3-codex"])),
         ModelOption(
             "gpt-5.3-codex-spark",
             "GPT-5.3 Codex Spark",
@@ -137,7 +135,7 @@ CODEX_PROFILE = ModelProviderProfile(
                 supports_vision=False,
                 supports_image_generation=False,
                 supports_image_artifact_generation=False,
-                supports_web_search=False,
+                supports_web_search=True,
                 supports_reasoning_off=False,
                 image_input_mode="unsupported",
                 context_window=CODEX_CONTEXT_WINDOWS["gpt-5.3-codex-spark"],

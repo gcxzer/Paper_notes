@@ -434,6 +434,8 @@ function toggleAiKeyVisibility() {
   elements.aiKeyInput?.focus({ preventScroll: true });
 }
 
+let aiSettingsLoadPromise = null;
+
 function renderAiSettings() {
   if (!elements.aiSettingsDialog) return;
   orderAiProviderPanels();
@@ -573,29 +575,43 @@ function renderAiSettings() {
   elements.logoutCodexButton.disabled = state.aiSettingsLoading || state.codexAuthStarting || state.codexAuthPolling;
 }
 
-async function loadAiSettings() {
+async function loadAiSettings({ force = false } = {}) {
+  if (!force && state.aiSettingsLoaded && state.aiSettings && state.aiProviderCatalog) {
+    renderModelConnectionStatus();
+    renderAiSettings();
+    return state.aiSettings;
+  }
+  if (aiSettingsLoadPromise) return aiSettingsLoadPromise;
   state.aiSettingsLoading = true;
   renderModelConnectionStatus();
   renderAiSettings();
-  try {
-    const [payload, providerCatalog] = await Promise.all([
-      fetchJson("/api/settings/ai"),
-      fetchJson("/api/model/providers")
-    ]);
-    state.aiSettings = normalizeAiSettings(payload);
-    state.aiProviderCatalog = providerCatalog || null;
-    elements.aiProviderInput.value = state.aiSettings.provider;
-    elements.aiKeyInput.value = "";
-    setAiKeyVisibility(false);
-    setAiSettingsError("");
-  } catch (error) {
-    setAiSettingsError(error.message || "Could not load AI provider settings.");
-    console.error(error);
-  } finally {
-    state.aiSettingsLoading = false;
-    renderModelConnectionStatus();
-    renderAiSettings();
-  }
+  aiSettingsLoadPromise = (async () => {
+    try {
+      const [payload, providerCatalog] = await Promise.all([
+        fetchJson("/api/settings/ai"),
+        fetchJson("/api/model/providers")
+      ]);
+      state.aiSettings = normalizeAiSettings(payload);
+      state.aiProviderCatalog = providerCatalog || null;
+      state.aiSettingsLoaded = true;
+      elements.aiProviderInput.value = state.aiSettings.provider;
+      elements.aiKeyInput.value = "";
+      setAiKeyVisibility(false);
+      setAiSettingsError("");
+      return state.aiSettings;
+    } catch (error) {
+      state.aiSettingsLoaded = false;
+      setAiSettingsError(error.message || "Could not load AI provider settings.");
+      console.error(error);
+      return null;
+    } finally {
+      aiSettingsLoadPromise = null;
+      state.aiSettingsLoading = false;
+      renderModelConnectionStatus();
+      renderAiSettings();
+    }
+  })();
+  return aiSettingsLoadPromise;
 }
 
 async function openAiSettingsDialog() {
@@ -723,7 +739,7 @@ async function saveAiSettings(options = {}) {
 
 async function refreshAiSettingsAfterSave({ showError = false } = {}) {
   try {
-    await loadAiSettings();
+    await loadAiSettings({ force: true });
   } catch (refreshError) {
     console.error(refreshError);
     if (showError) {
@@ -769,7 +785,7 @@ async function performDeleteAiKey(provider = "openai") {
     elements.aiProviderInput.value = state.aiSettings.provider;
     elements.aiKeyInput.value = "";
     setAiKeyVisibility(false);
-    await loadAiSettings();
+    await loadAiSettings({ force: true });
     setAiSettingsError("");
     renderAiSettings();
   } catch (error) {

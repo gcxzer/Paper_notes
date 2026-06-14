@@ -5,6 +5,7 @@ from typing import Any
 from langchain_deepseek import ChatDeepSeek
 
 from model_providers.core.types import ModelProviderConfig, model_kwargs
+from model_providers.providers.credentials import with_resolved_api_key
 
 
 DEEPSEEK_OPTIONS = {
@@ -46,4 +47,14 @@ DEEPSEEK_OPTIONS = {
 
 
 def create_deepseek_chat_model(config: ModelProviderConfig) -> Any:
-    return ChatDeepSeek(**model_kwargs(config, DEEPSEEK_OPTIONS))
+    return ChatDeepSeek(**with_resolved_api_key(_deepseek_model_kwargs(config), "deepseek"))
+
+
+def _deepseek_model_kwargs(config: ModelProviderConfig) -> dict[str, Any]:
+    kwargs = model_kwargs(config, DEEPSEEK_OPTIONS)
+    thinking = config.options.get("thinking")
+    if thinking is not None:
+        extra_body = dict(kwargs.get("extra_body") or {})
+        extra_body["thinking"] = thinking
+        kwargs["extra_body"] = extra_body
+    return kwargs

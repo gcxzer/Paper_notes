@@ -66,6 +66,16 @@ PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE = (
     "says success is true."
 )
 
+PAPER_NOTES_GENERATED_ARTIFACT_GUIDANCE = (
+    "# Generated artifacts\n"
+    "- Use `create_file_artifact` for generated/downloadable text files when it is available.\n"
+    "- Use `create_image_artifact` for generated/downloadable images or image edits when it is available.\n"
+    "- If `create_image_artifact` is not listed in the available tools and the user asks to generate or edit an "
+    "image, explain that the current provider/model cannot generate images in Paper Notes. Do not substitute "
+    "code execution, SVG/HTML, Markdown image tags, base64/data URLs, or local/temp files for image generation. "
+    "Suggest switching to the OpenAI API key provider or Codex OAuth provider."
+)
+
 
 TOOL_GUIDANCE_BY_NAME = {
     "search_notes": (
@@ -105,5 +115,20 @@ TOOL_GUIDANCE_BY_NAME = {
     ),
     "review_note": (
         "Use review_note to validate note HTML or preview a safe HTML diff before writing."
+    ),
+    "create_file_artifact": (
+        "Use create_file_artifact when the user asks for a generated, saved, exported, or downloadable text file."
+    ),
+    "create_image_artifact": (
+        "Use create_image_artifact when the user asks for a generated/downloadable image, diagram, visual, or image edit."
+    ),
+    "web_search": (
+        "Use web_search for current external web facts, source attribution, and information outside the local "
+        "Paper Notes library. Prefer it before answering questions about recent events, prices, schedules, "
+        "or other facts that may have changed."
+    ),
+    "web_fetch": (
+        "Use web_fetch to read a specific public URL supplied by the user, or after web_search when snippets are "
+        "insufficient. Do not use it for local/private network URLs."
     ),
 }

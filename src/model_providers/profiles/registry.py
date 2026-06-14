@@ -60,7 +60,7 @@ def model_options_for_provider(provider: object, selected_model: object = "") ->
     profile = get_provider_profile(provider)
     options = list(profile.models if profile else ())
     selected = str(selected_model or "").strip()
-    if selected and all(option.value != selected for option in options):
+    if selected and _provider_allows_custom_model(provider) and all(option.value != selected for option in options):
         options.append(ModelOption(selected, selected, selected, "Current saved model"))
     return options
 
@@ -101,6 +101,10 @@ def _lookup_context_length(model_name: str, table: dict[str, int]) -> int:
 
 def _normalize_provider_alias(name: object) -> str:
     return str(name or "").strip().lower().replace("_", "-")
+
+
+def _provider_allows_custom_model(provider: object) -> bool:
+    return normalize_provider_profile_name(provider) not in {CODEX_PROVIDER, GEMINI_PROVIDER}
 
 
 for _profile in BUILTIN_PROFILES:

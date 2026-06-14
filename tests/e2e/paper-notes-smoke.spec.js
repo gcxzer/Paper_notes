@@ -1927,8 +1927,9 @@ test("reader ask send button stops a pending request locally", async ({ page }) 
 
   await askInput.fill("/");
   await expect(page.locator("#readerSlashCommandMenu")).toBeVisible();
-  await expect(page.locator(".slash-command-item")).toHaveCount(2);
+  await expect(page.locator(".slash-command-item")).toHaveCount(3);
   await expect(page.locator("[data-slash-command='new']")).toBeEnabled();
+  await expect(page.locator("[data-slash-command='compact']")).toBeDisabled();
   await expect(page.locator("[data-slash-command='stop']")).toBeEnabled();
 
   await askInput.fill("draft next question");
@@ -2151,6 +2152,165 @@ test("reader trash uses clear all with confirmation", async ({ page }) => {
   await expect(page.locator("#readerClearTrashDialog")).toBeVisible();
   await page.locator("#readerConfirmClearTrash").click();
   await expect.poll(() => deletedSessionIds).toEqual(["trashed-session-1", "trashed-session-2"]);
+});
+
+test("reader restores structured session message content as text", async ({ page }) => {
+  const activeSession = {
+    id: "structured-session-1",
+    sessionId: "structured-session-1",
+    title: "Structured chat",
+    updatedAt: "2026-05-15T09:00:00.000Z",
+    state: "active",
+  };
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.addInitScript((noteId) => {
+    localStorage.setItem("paper-notes-agent-session-by-note-v1", JSON.stringify({
+      [noteId]: "structured-session-1",
+    }));
+  }, E2E_NOTE_ID);
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [activeSession] }),
+    });
+  });
+  await page.route(/\/api\/agent\/sessions\/structured-session-1$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          ...activeSession,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "搜索一下网络上agent有什么新闻" },
+                { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "这是恢复后的答案。" },
+                { type: "output_text", text: "第二段。" },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await expect(page.locator("#readerChatMessages")).toContainText("搜索一下网络上agent有什么新闻");
+  await expect(page.locator("#readerChatMessages")).toContainText("这是恢复后的答案。");
+  await expect(page.locator("#readerChatMessages")).toContainText("第二段。");
+  await expect(page.locator("#readerChatMessages")).not.toContainText("[object Object]");
+});
+
+test("reader context compact button calls compress and shows marker", async ({ page }) => {
+  const compactCalls = [];
+  const activeSession = {
+    id: "compact-session-1",
+    sessionId: "compact-session-1",
+    title: "Compact chat",
+    updatedAt: "2026-05-15T09:00:00.000Z",
+    state: "active",
+  };
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.addInitScript((noteId) => {
+    localStorage.setItem("paper-notes-agent-session-by-note-v1", JSON.stringify({
+      [noteId]: "compact-session-1",
+    }));
+  }, E2E_NOTE_ID);
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [activeSession] }),
+    });
+  });
+  await page.route(/\/api\/agent\/sessions\/compact-session-1$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          ...activeSession,
+          messages: [
+            { role: "user", content: "old question" },
+            { role: "assistant", content: "old answer" },
+            { role: "user", content: "current question" },
+          ],
+        },
+      }),
+    });
+  });
+  await page.route("**/api/chat/context**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        context: {
+          sessionId: "compact-session-1",
+          provider: "openai",
+          model: "gpt-5.5",
+          contextLength: 1050000,
+          tokensUsed: 42000,
+          thresholdTokens: 1037000,
+          percentFull: 4,
+          messageCount: 3,
+          compactionEnabled: true,
+          summaryAvailable: compactCalls.length > 0,
+          compressionCount: compactCalls.length,
+        },
+      }),
+    });
+  });
+  await page.route("**/api/chat/compress", async (route) => {
+    const payload = route.request().postDataJSON();
+    compactCalls.push(payload);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessionId: "compact-session-1",
+        session: activeSession,
+        compressed: true,
+        context: {
+          sessionId: "compact-session-1",
+          provider: "openai",
+          model: "gpt-5.5",
+          contextLength: 1050000,
+          tokensUsed: 12000,
+          thresholdTokens: 1037000,
+          percentFull: 1,
+          messageCount: 3,
+          compactionEnabled: true,
+          summaryAvailable: true,
+          compressionCount: 1,
+        },
+        message: {
+          role: "divider",
+          content: "Context compacted",
+          metadata: { type: "context_compaction_marker" },
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await showAskPane(page);
+
+  await page.getByRole("button", { name: "Show context window" }).click();
+  await expect(page.locator("#readerContextPopover")).toContainText("Context window");
+  await page.locator("#readerContextCompactFocus").fill("important decisions");
+  await page.getByRole("button", { name: "Compact now" }).click();
+
+  await expect.poll(() => compactCalls.length).toBe(1);
+  expect(compactCalls[0].focus).toBe("important decisions");
+  await expect(page.locator("#readerChatMessages")).toContainText("Context compacted");
+  await expect(page.locator("#readerContextPopover")).toContainText("Context compacted.");
 });
 
 test("reader session tabs expose archive trash and active views", async ({ page }) => {
@@ -4147,7 +4307,7 @@ test("reader disables image generation for Codex Spark", async ({ page }) => {
               supportsTools: true,
               supportsVision: false,
               supportsImageGeneration: false,
-              supportsWebSearch: false,
+              supportsWebSearch: true,
               supportsReasoningOff: false,
               imageInputMode: "unsupported",
             },

@@ -1,3 +1,5 @@
+let readerModelCatalogLoadPromise = null;
+
 function renderReaderIcon(name, label = "", className = "", size = 16) {
   return window.renderPaperIcon
     ? window.renderPaperIcon(name, { label, className, size })
@@ -424,30 +426,47 @@ function setReaderModelMenuOpen(open) {
   }
 }
 
-async function loadReaderModelCatalog({ silent = false } = {}) {
+async function loadReaderModelCatalog({ silent = false, force = false } = {}) {
+  if (!force && readerState.modelCatalogLoaded && readerState.modelCatalog) {
+    renderReaderModelControls();
+    return readerState.modelCatalog;
+  }
+  if (readerModelCatalogLoadPromise) return readerModelCatalogLoadPromise;
   readerState.modelCatalogLoading = true;
   renderReaderModelControls();
-  try {
-    const payload = await fetchAgentJson("/api/model/providers");
-    const catalog = normalizeReaderModelCatalog(payload);
-    readerState.modelCatalog = catalog;
-    const provider = normalizeProviderName(catalog.defaultProvider) || "openai";
-    const profile = providerProfileFor(provider);
-    readerState.aiSettings = normalizeReaderAiSettings({
-      provider,
-      model: catalog.defaultModel || profile?.model || profile?.defaultModel,
-      modelSource: profile?.modelSource || "profile",
-      configured: catalog.modelConnectionConfigured,
-      ready: catalog.modelConnectionConfigured
-    });
-    readerState.modelStatus = "";
-  } catch (error) {
-    if (!silent) setReaderChatError(error.message || GENERIC_AGENT_ERROR);
-    readerState.modelStatus = "Could not load model settings.";
-  } finally {
-    readerState.modelCatalogLoading = false;
-    renderReaderModelControls();
-  }
+  readerModelCatalogLoadPromise = (async () => {
+    try {
+      const payload = await fetchAgentJson("/api/model/providers");
+      const catalog = normalizeReaderModelCatalog(payload);
+      readerState.modelCatalog = catalog;
+      readerState.modelCatalogLoaded = true;
+      const provider = normalizeProviderName(catalog.defaultProvider) || "openai";
+      const profile = providerProfileFor(provider);
+      const existingSettings = readerState.aiSettings || normalizeReaderAiSettings({});
+      readerState.aiSettings = normalizeReaderAiSettings({
+        ...existingSettings,
+        provider,
+        model: catalog.defaultModel || profile?.model || profile?.defaultModel,
+        modelSource: profile?.modelSource || "profile",
+        configured: catalog.modelConnectionConfigured,
+        ready: catalog.modelConnectionConfigured,
+        codexAuth: catalog.codexAuth || existingSettings.codexAuth
+      });
+      readerState.modelStatus = "";
+      return catalog;
+    } catch (error) {
+      readerState.modelCatalogLoaded = false;
+      if (!silent) setReaderChatError(error.message || GENERIC_AGENT_ERROR);
+      readerState.modelStatus = "Could not load model settings.";
+      return null;
+    } finally {
+      readerModelCatalogLoadPromise = null;
+      readerState.modelCatalogLoading = false;
+      renderReaderModelControls();
+      renderReaderContextControls();
+    }
+  })();
+  return readerModelCatalogLoadPromise;
 }
 
 async function loadReaderAiSettings(options = {}) {
@@ -487,6 +506,7 @@ async function selectReaderModel(model) {
     if (!keepMenuOpen) setReaderModelMenuOpen(false);
     setReaderChatError("");
     renderReaderModelControls();
+    resetReaderContextStatus();
     return;
   }
 
@@ -504,6 +524,7 @@ async function selectReaderModel(model) {
     });
     const session = upsertReaderChatSession(payload.session);
     if (session?.id) setCurrentChatSessionId(session.id);
+    resetReaderContextStatus({ refresh: true });
     readerState.modelStatus = keepMenuOpen ? selectedStatus : "";
     if (!keepMenuOpen) setReaderModelMenuOpen(false);
     setReaderChatError("");

@@ -38,7 +38,7 @@ def test_model_capabilities_include_model_specific_context_windows() -> None:
     assert spark.context_window == 128_000
     assert spark.supports_vision is False
     assert spark.supports_image_artifact_generation is False
-    assert spark.supports_web_search is False
+    assert spark.supports_web_search is True
     assert spark.supports_reasoning_off is False
     assert capabilities_for_provider_model("anthropic", "claude-haiku-4-5-20251001").context_length == 200_000
     assert capabilities_for_provider_model("gemini", "gemini-3-pro-preview").context_window == 1_048_576
@@ -80,3 +80,5 @@ def test_provider_profile_registry_accepts_registered_profile_names() -> None:
     assert normalize_provider_profile_name("local_test_provider") == "local-test-provider"
     assert get_provider_profile("local_test_provider") is profile
     assert model_options_for_provider("openai", "saved-custom-model")[-1].description == "Current saved model"
+    assert all(option.value != "gpt-5.3-codex" for option in model_options_for_provider("codex", "gpt-5.3-codex"))
+    assert any(option.value == "gpt-5.3-codex-spark" for option in model_options_for_provider("codex"))

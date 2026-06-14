@@ -594,7 +594,7 @@ function readerToolSettingsPayload() {
   const enabledToolsets = settings.enabledToolsets?.length ? ["default", ...settings.enabledToolsets] : [];
   const nativeSearchEnabled = readerNativeWebSearchEnabledForCurrentProvider(settings);
   const disabledTools = [...(settings.disabledTools || [])];
-  if (nativeSearchEnabled && !readerCustomWebSearchEnabled(settings) && !disabledTools.includes("web_search")) {
+  if (nativeSearchEnabled && !disabledTools.includes("web_search")) {
     disabledTools.push("web_search");
   }
   return {
@@ -615,17 +615,18 @@ function readerNativeWebSearchEnabledForCurrentProvider(settings) {
     return false;
   }
   const native = settings?.webSearchProviders?.native_provider || {};
+  const customSearchEnabled = readerCustomWebSearchEnabled(settings);
   if (provider === "codex-oauth") {
     return Boolean(native.openaiCodex?.enabled || settings?.nativeWebSearchEnabled);
   }
   if (provider === "openai") {
-    return Boolean(native.openaiAPIKey?.enabled || settings?.nativeWebSearchEnabled);
+    return Boolean(native.openaiAPIKey?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
   }
   if (provider === "anthropic") {
-    return Boolean(native.anthropic?.enabled || settings?.nativeWebSearchEnabled);
+    return Boolean(native.anthropic?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
   }
   if (provider === "gemini") {
-    return Boolean(native.gemini?.enabled || settings?.nativeWebSearchEnabled);
+    return Boolean(native.gemini?.enabled || settings?.nativeWebSearchEnabled || !customSearchEnabled);
   }
   return false;
 }
@@ -922,6 +923,27 @@ function syncReaderThinkModesFromStorage() {
 
 syncReaderThinkModesFromStorage();
 
+function normalizeApiChatContentText(value) {
+  if (typeof value === "string") return normalizeText(value);
+  if (Array.isArray(value)) {
+    return value
+      .map(normalizeApiChatContentText)
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (!value || typeof value !== "object") return normalizeText(value);
+
+  const nested = value.text ?? value.content ?? value.input_text ?? value.output_text;
+  if (nested !== undefined) return normalizeApiChatContentText(nested);
+  return "";
+}
+
+function normalizeApiChatMessageText(rawMessage) {
+  const text = normalizeApiChatContentText(rawMessage?.text);
+  return text || normalizeApiChatContentText(rawMessage?.content);
+}
+
 function normalizeApiChatMessage(rawMessage) {
   const role = rawMessage?.role === "user" ? "user" : rawMessage?.role === "assistant" ? "assistant" : rawMessage?.role === "divider" ? "divider" : "";
   if (!role) return null;
@@ -931,7 +953,7 @@ function normalizeApiChatMessage(rawMessage) {
       ? rawMessage.toolCalls
       : [];
   if (role === "assistant" && toolCalls.length) return null;
-  const text = normalizeText(rawMessage?.text || rawMessage?.content);
+  const text = normalizeApiChatMessageText(rawMessage);
   const attachments = normalizeImageArtifacts(rawMessage?.attachments);
   const artifacts = normalizeImageArtifacts(rawMessage?.artifacts);
   const toolActivity = normalizeToolActivity(rawMessage?.toolActivity);
@@ -970,6 +992,64 @@ function normalizeApiChatMessages(rawMessages) {
     .filter(Boolean);
 }
 
+function normalizeContextStatus(payload) {
+  const raw = payload?.context && typeof payload.context === "object" ? payload.context : (payload || {});
+  const contextLength = Math.max(0, Math.round(Number(raw.contextLength || raw.contextWindow || raw.context_length || raw.context_window) || 0));
+  const tokensUsed = Math.max(0, Math.round(Number(
+    raw.tokensUsed
+    || raw.estimatedTokens
+    || raw.requestTokens
+    || raw.estimatedRequestTokens
+    || raw.tokens_used
+    || raw.estimated_tokens
+  ) || 0));
+  const estimatedRequestTokens = Math.max(0, Math.round(Number(raw.estimatedRequestTokens || raw.estimated_request_tokens || tokensUsed) || 0));
+  const percentFullRaw = raw.percentFull ?? raw.percent_full ?? (contextLength ? Math.round((tokensUsed / contextLength) * 100) : 0);
+  const thresholdTokens = Math.max(0, Math.round(Number(raw.thresholdTokens || raw.compactionTriggerTokens || raw.threshold_tokens || raw.compaction_trigger_tokens) || 0));
+  const thresholdPercentRaw = raw.thresholdPercent ?? raw.threshold_percent ?? (contextLength && thresholdTokens ? Math.round((thresholdTokens / contextLength) * 100) : 0);
+  const compressionCount = Math.max(0, Math.round(Number(raw.compressionCount || raw.compression_count) || 0));
+  return {
+    sessionId: normalizeText(raw.sessionId || raw.session_id),
+    provider: normalizeProviderName(raw.provider) || currentReaderProvider(),
+    model: normalizeText(raw.model) || currentReaderModel(),
+    contextLength,
+    tokensUsed,
+    estimatedRequestTokens,
+    actualInputTokens: Math.max(0, Math.round(Number(raw.actualInputTokens || raw.actual_input_tokens) || 0)),
+    estimatedPercent: Math.min(100, Math.max(0, Math.round(Number(percentFullRaw) || 0))),
+    actualUsageAvailable: Boolean(raw.actualUsageAvailable ?? raw.actual_usage_available),
+    usageUpdatedAt: normalizeText(raw.usageUpdatedAt || raw.usage_updated_at),
+    usageRequestId: normalizeText(raw.usageRequestId || raw.usage_request_id),
+    messageTokens: Math.max(0, Math.round(Number(raw.messageTokens || raw.message_tokens) || 0)),
+    instructionTokens: Math.max(0, Math.round(Number(raw.instructionTokens || raw.instruction_tokens) || 0)),
+    toolSchemaTokens: Math.max(0, Math.round(Number(raw.toolSchemaTokens || raw.toolTokens || raw.tool_schema_tokens || raw.tool_tokens) || 0)),
+    thresholdTokens,
+    percentFull: Math.min(100, Math.max(0, Math.round(Number(percentFullRaw) || 0))),
+    thresholdPercent: Math.min(100, Math.max(0, Math.round(Number(thresholdPercentRaw) || 0))),
+    messageCount: Math.max(0, Math.round(Number(raw.messageCount || raw.message_count) || 0)),
+    compactionEnabled: Boolean(raw.compactionEnabled ?? raw.compaction_enabled),
+    compactionReady: Boolean(raw.compactionReady ?? raw.compaction_ready),
+    compressionCount,
+    lastCompressedAt: normalizeText(raw.lastCompressedAt || raw.last_compressed_at),
+    summaryAvailable: Boolean(raw.summaryAvailable ?? raw.summary_available ?? compressionCount),
+    lastCompressionError: normalizeText(raw.lastCompressionError || raw.last_compression_error),
+    fallbackUsed: Boolean(raw.fallbackUsed ?? raw.fallback_used)
+  };
+}
+
+function formatTokenCount(value) {
+  const count = Math.max(0, Math.round(Number(value) || 0));
+  if (count >= 1_000_000) {
+    const rounded = count / 1_000_000;
+    return `${rounded >= 10 ? Math.round(rounded) : rounded.toFixed(1)}m`;
+  }
+  if (count >= 1000) {
+    const rounded = count / 1000;
+    return `${rounded >= 10 ? Math.round(rounded) : rounded.toFixed(1)}k`;
+  }
+  return String(count);
+}
+
 function hasAssistantResponseAfterLatestUser(messages, { normalizeMessage = null } = {}) {
   const normalizedMessages = Array.isArray(messages) ? messages : [];
   const lastUserIndex = normalizedMessages.reduce((latest, message, index) => (
@@ -977,7 +1057,7 @@ function hasAssistantResponseAfterLatestUser(messages, { normalizeMessage = null
   ), -1);
   return normalizedMessages.slice(Math.max(0, lastUserIndex + 1)).some((message) => {
     const normalized = typeof normalizeMessage === "function" ? normalizeMessage(message) : message;
-    return normalized?.role === "assistant" && normalizeText(normalized.text || normalized.content) && !normalized.error;
+    return normalized?.role === "assistant" && normalizeApiChatMessageText(normalized) && !normalized.error;
   });
 }
 
@@ -1076,7 +1156,23 @@ function normalizeReaderModelCatalog(payload) {
     defaultProvider,
     defaultModel: normalizeText(payload?.defaultModel || payload?.model),
     modelConnectionConfigured: Boolean(payload?.modelConnectionConfigured || payload?.configured),
+    codexAuth: payload && Object.prototype.hasOwnProperty.call(payload, "codexAuth")
+      ? normalizeReaderCodexAuth(payload.codexAuth)
+      : null,
     providers
+  };
+}
+
+function normalizeReaderCodexAuth(payload) {
+  const auth = payload && typeof payload === "object" ? payload : {};
+  return {
+    loggedIn: Boolean(auth.loggedIn),
+    authMode: normalizeText(auth.authMode || ""),
+    planType: normalizeText(auth.planType || ""),
+    accountId: normalizeText(auth.accountId || ""),
+    accountEmail: normalizeText(auth.accountEmail || ""),
+    lastRefresh: normalizeText(auth.lastRefresh || ""),
+    authStorePath: normalizeText(auth.authStorePath || "")
   };
 }
 
@@ -1087,7 +1183,8 @@ function normalizeReaderAiSettings(payload) {
     model: normalizeText(payload?.model),
     modelSource: normalizeText(payload?.modelSource || "missing"),
     configured: Boolean(payload?.configured),
-    ready: Boolean(payload?.ready)
+    ready: Boolean(payload?.ready),
+    codexAuth: normalizeReaderCodexAuth(payload?.codexAuth)
   };
 }
 
@@ -1166,10 +1263,19 @@ function modelOptionsForProvider(provider, selectedModel = "") {
     });
   };
   ensureOption(normalizeText(profile?.model || profile?.defaultModel), "", "Provider default");
-  if (normalizeProviderName(provider) !== "gemini" || geminiModelIsSupported(selected)) {
+  if (providerAllowsSavedModel(provider, selected, options)) {
     ensureOption(selected, "", "Current saved model");
   }
   return options;
+}
+
+function providerAllowsSavedModel(provider, model, options = null) {
+  const selected = normalizeText(model);
+  if (!selected) return false;
+  const normalizedProvider = normalizeProviderName(provider);
+  const catalogOptions = options || (providerProfileFor(provider)?.models || []);
+  if (catalogOptions.some((option) => option.value === selected)) return true;
+  return normalizedProvider !== "codex-oauth" && normalizedProvider !== "gemini";
 }
 
 function defaultModelForProvider(provider) {
@@ -1181,22 +1287,19 @@ function currentReaderModel() {
   const activeSessionId = getChatSessionId();
   const sessionModel = normalizeText(currentReaderSession()?.model);
   const provider = currentReaderProvider();
-  if (sessionModel) {
-    if (provider === "gemini" && !geminiModelIsSupported(sessionModel)) return defaultModelForProvider(provider);
-    return sessionModel;
-  }
+  if (sessionModel) return sessionModel;
   if (activeSessionId) {
     return defaultModelForProvider(provider)
       || (normalizeProviderName(readerState.aiSettings?.provider) === provider ? normalizeText(readerState.aiSettings?.model) : "");
   }
   if (normalizeProviderName(readerState.pendingChatProvider) === provider) {
     const pendingModel = normalizeText(readerState.pendingChatModel);
-    if (pendingModel && (provider !== "gemini" || geminiModelIsSupported(pendingModel))) return pendingModel;
+    if (providerAllowsSavedModel(provider, pendingModel)) return pendingModel;
   }
   const stored = readStoredReaderModelSelection();
   if (normalizeProviderName(stored.provider) === provider && normalizeText(stored.model)) {
     const storedModel = normalizeText(stored.model);
-    if (provider !== "gemini" || geminiModelIsSupported(storedModel)) return storedModel;
+    if (providerAllowsSavedModel(provider, storedModel)) return storedModel;
   }
   return defaultModelForProvider(provider)
     || (normalizeProviderName(readerState.aiSettings?.provider) === provider ? normalizeText(readerState.aiSettings?.model) : "");
@@ -1397,7 +1500,8 @@ function migrateChatRunState(fromRunKey, toSessionId) {
     readerState.chatPendingBySession,
     readerState.chatProgressBySession,
     readerState.chatProgressRequestIdsBySession,
-    readerState.chatAbortControllersBySession
+    readerState.chatAbortControllersBySession,
+    readerState.chatRecoveryTimersBySession
   ]) {
     if (Object.prototype.hasOwnProperty.call(store, fromKey)) {
       store[toKey] = store[fromKey];
@@ -1409,7 +1513,12 @@ function migrateChatRunState(fromRunKey, toSessionId) {
 }
 
 function setCurrentChatSessionId(sessionId) {
+  const previousSessionId = readerState.chatSessionId;
   readerState.chatSessionId = normalizeText(sessionId);
+  if (readerState.chatSessionId !== previousSessionId) {
+    readerState.contextStatus = null;
+    readerState.contextCompactStatus = "";
+  }
   if (!readerState.chatSessionId) {
     readerState.currentChatSession = null;
   } else {
@@ -1421,6 +1530,7 @@ function setCurrentChatSessionId(sessionId) {
   renderReaderChatComposerState();
   renderChatSessionControls();
   renderReaderModelControls();
+  if (typeof renderReaderContextControls === "function") renderReaderContextControls();
   renderReaderToolControls();
 }
 

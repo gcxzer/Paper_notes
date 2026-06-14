@@ -493,13 +493,43 @@ function progressVisibleEventKey(event) {
 function mergeProgressWorkTrace(previousTrace, nextTrace, status = "running") {
   const previous = normalizeWorkTrace(previousTrace);
   const next = normalizeWorkTrace(nextTrace);
-  const items = mergeProgressItems(previous?.items || [], next?.items || [], progressWorkTraceKey);
+  const items = mergeProgressWorkTraceItems(previous?.items || [], next?.items || []);
   if (!items.length) return null;
   return { status: normalizeText(next?.status || previous?.status || status) || "running", items };
 }
 
 function progressWorkTraceKey(item) {
-  return [normalizeText(item?.type), normalizeText(item?.source), sanitizeChatProgressDetail(item?.text || item?.detail)].join("\n");
+  const identity = typeof workTraceItemIdentity === "function" ? workTraceItemIdentity(item) : "";
+  return [
+    normalizeText(item?.type),
+    normalizeText(item?.source),
+    identity || sanitizeChatProgressDetail(item?.text || item?.detail)
+  ].join("\n");
+}
+
+function mergeProgressWorkTraceItems(previousItems, nextItems) {
+  const output = [];
+  const indexByKey = new Map();
+  for (const item of [...(previousItems || []), ...(nextItems || [])]) {
+    const key = progressWorkTraceKey(item);
+    if (!key.trim()) continue;
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, output.length);
+      output.push(item);
+      continue;
+    }
+    const previous = output[existingIndex];
+    const nextText = sanitizeChatProgressDetail(item?.text || item?.detail);
+    const previousText = sanitizeChatProgressDetail(previous?.text || previous?.detail);
+    output[existingIndex] = {
+      ...previous,
+      ...item,
+      text: nextText.length >= previousText.length ? nextText : previousText,
+      complete: item?.complete === true || (previous?.complete === true && item?.complete !== false),
+    };
+  }
+  return output;
 }
 
 function appendProgressStatusWorkTrace(progress, text) {
@@ -530,8 +560,47 @@ function finalizeReaderChatProgress(progress, { text = "Agent run stopped.", err
   flushReaderStreamingRender();
 }
 
+function clearReaderChatRecoveryPoll(sessionId = getChatSessionId()) {
+  const runKey = chatSessionRunKey(sessionId);
+  const timer = readerState.chatRecoveryTimersBySession[runKey];
+  if (timer) window.clearTimeout(timer);
+  delete readerState.chatRecoveryTimersBySession[runKey];
+}
+
+function scheduleReaderChatRecoveryPoll({ sessionId, requestId, latestUserText = "", delay = 2400 } = {}) {
+  const targetSessionId = normalizeText(sessionId);
+  const targetRequestId = normalizeText(requestId);
+  if (!targetSessionId || !targetRequestId) return;
+  const runKey = chatSessionRunKey(targetSessionId);
+  clearReaderChatRecoveryPoll(runKey);
+  readerState.chatRecoveryTimersBySession[runKey] = window.setTimeout(async () => {
+    delete readerState.chatRecoveryTimersBySession[runKey];
+    if (readerState.chatProgressRequestIdsBySession[runKey] !== targetRequestId) return;
+    try {
+      if (typeof recoverReaderChatFromSession === "function") {
+        const recovered = await recoverReaderChatFromSession({
+          sessionId: targetSessionId,
+          latestUserText
+        });
+        if (recovered) return;
+      }
+    } catch (error) {
+      console.debug("Could not recover pending chat run yet.", error);
+    }
+    if (readerState.chatProgressRequestIdsBySession[runKey] === targetRequestId) {
+      scheduleReaderChatRecoveryPoll({
+        sessionId: targetSessionId,
+        requestId: targetRequestId,
+        latestUserText,
+        delay: Math.min(6000, Math.round(delay * 1.25))
+      });
+    }
+  }, delay);
+}
+
 function clearReaderChatProgress(sessionId = getChatSessionId()) {
   const runKey = chatSessionRunKey(sessionId);
+  clearReaderChatRecoveryPoll(runKey);
   delete readerState.chatProgressBySession[runKey];
   delete readerState.chatProgressRequestIdsBySession[runKey];
   if (isCurrentChatSessionRunKey(runKey)) syncCurrentChatRunState();
@@ -550,14 +619,27 @@ function resizeReaderChatInput() {
 
 function startReaderChatProgress(requestId, sessionId = getChatSessionId()) {
   const runKey = chatSessionRunKey(sessionId);
+  const startedAt = new Date().toISOString();
+  const startText = "Starting agent run.";
   clearReaderChatProgress(runKey);
   readerState.chatProgressRequestIdsBySession[runKey] = requestId;
   setReaderChatProgress({
     requestId,
     status: "running",
-    stage: "thinking",
-    detail: "Thinking with local paper context...",
-    events: []
+    stage: "starting",
+    detail: startText,
+    visibleEvents: [{ stage: "starting", detail: startText, at: startedAt }],
+    events: [],
+    workTrace: {
+      status: "running",
+      items: [{
+        type: "status",
+        text: startText,
+        at: startedAt,
+        source: "runtime",
+        complete: true
+      }]
+    }
   }, runKey);
 }
 
@@ -565,18 +647,57 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
   const text = normalizeText(data?.text || data?.delta);
   if (!text) return;
   const itemType = normalizeText(data?.traceType || data?.trace_type) || "summary";
+  if (isStructuredToolCallProgressText(itemType, text)) return;
   const source = normalizeText(data?.source) || "provider";
+  const at = normalizeText(data?.at) || new Date().toISOString();
+  const itemData = data?.data && typeof data.data === "object" ? data.data : {};
   const isDelta = normalizeText(eventType) === "work_trace_delta" || Boolean(normalizeText(data?.delta));
+  const explicitComplete = itemData.statusComplete === true || itemData.complete === true
+    ? true
+    : itemData.statusComplete === false || itemData.complete === false
+      ? false
+      : null;
   const progress = normalizeChatProgress(readerState.chatProgressBySession[runKey]) || {
     requestId: readerState.chatProgressRequestIdsBySession[runKey],
     status: "running",
     stage: "thinking",
-    detail: "Thinking with local paper context...",
     events: [],
     workTrace: { status: "running", items: [] },
   };
   const trace = normalizeWorkTrace(progress.workTrace) || { status: progress.status || "running", items: [] };
   const canMerge = canMergeStreamingWorkTraceType(itemType);
+  const itemIdentity = typeof workTraceItemIdentity === "function" ? workTraceItemIdentity({ data: itemData }) : "";
+  const relatedByIdentity = () => itemIdentity
+    ? trace.items.findIndex((item) => (
+      item.type === itemType
+      && item.source === source
+      && workTraceItemIdentity(item) === itemIdentity
+    ))
+    : -1;
+  const upsertWorkTraceItem = (complete) => {
+    const relatedIndex = relatedByIdentity();
+    if (relatedIndex !== -1) {
+      const previous = trace.items[relatedIndex];
+      const previousText = normalizeText(previous.text);
+      trace.items[relatedIndex] = {
+        ...previous,
+        text: text.length >= previousText.length ? text : previousText,
+        source,
+        at,
+        data: itemData,
+        complete,
+      };
+      return;
+    }
+    trace.items.push({
+      type: itemType,
+      text,
+      source,
+      at,
+      data: itemData,
+      complete,
+    });
+  };
   const exactDuplicate = () => trace.items.some((item) => (
     item.type === itemType
     && item.source === source
@@ -588,13 +709,8 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
       text.startsWith(normalizeText(last.text)) || normalizeText(last.text).startsWith(text)
     )) {
       last.text = text;
-    } else if (!exactDuplicate()) {
-      trace.items.push({
-        type: itemType,
-        text,
-        source,
-        complete: false,
-      });
+    } else if (itemIdentity || !exactDuplicate()) {
+      upsertWorkTraceItem(explicitComplete ?? false);
     }
   } else {
     const last = trace.items[trace.items.length - 1];
@@ -602,14 +718,9 @@ function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), e
       text.startsWith(normalizeText(last.text)) || normalizeText(last.text).startsWith(text)
     )) {
       last.text = text.length >= normalizeText(last.text).length ? text : normalizeText(last.text);
-      last.complete = true;
-    } else if (!exactDuplicate()) {
-      trace.items.push({
-        type: itemType,
-        text,
-        source,
-        complete: true,
-      });
+      last.complete = explicitComplete ?? true;
+    } else if (itemIdentity || !exactDuplicate()) {
+      upsertWorkTraceItem(explicitComplete ?? true);
     }
   }
   progress.workTrace = trace;
@@ -669,4 +780,198 @@ function readerChatContext() {
         quote: annotation.quote || ""
       }))
   };
+}
+
+function emptyReaderContextStatus() {
+  return normalizeContextStatus({
+    sessionId: getChatSessionId(),
+    provider: currentReaderProvider(),
+    model: currentReaderModel()
+  });
+}
+
+function currentReaderContextStatus() {
+  const sessionId = getChatSessionId();
+  const status = readerState.contextStatus ? normalizeContextStatus(readerState.contextStatus) : emptyReaderContextStatus();
+  if (!sessionId) return status.sessionId ? emptyReaderContextStatus() : status;
+  return status.sessionId === sessionId ? status : emptyReaderContextStatus();
+}
+
+function resetReaderContextStatus({ refresh = false } = {}) {
+  readerState.contextStatus = null;
+  readerState.contextCompactStatus = "";
+  renderReaderContextControls();
+  if (refresh && getChatSessionId()) scheduleReaderContextStatusRefresh(0);
+}
+
+function renderReaderContextControls() {
+  const status = currentReaderContextStatus();
+  const percent = Math.min(100, Math.max(0, status.percentFull ?? status.estimatedPercent ?? 0));
+  const provider = currentReaderProvider();
+  const model = currentReaderModel();
+  const providerName = providerDisplayName(status.provider || provider);
+  const modelLabel = modelDisplayLabel(status.model || model, status.provider || provider, "label") || status.model || model || "Model";
+  const tokenPair = status.contextLength ? `${formatTokenCount(status.tokensUsed)} / ${formatTokenCount(status.contextLength)}` : "";
+  const contextHeadline = readerState.contextStatusLoading
+    ? "Checking..."
+    : `${percent}% full${tokenPair ? ` · ${tokenPair}` : ""}`;
+  const contextHint = status.contextLength ? "" : "No saved chat context";
+  const sessionId = getChatSessionId();
+  const pending = isChatSessionPending(sessionId);
+  const canCompact = Boolean(sessionId && status.compactionEnabled && !pending && !readerState.contextCompacting);
+  const compactTitle = pending
+    ? "Wait for current answer to finish"
+    : readerState.contextCompacting
+      ? "Compacting already in progress"
+      : status.compactionEnabled
+        ? "Compact now"
+        : "Context compaction unavailable";
+  const compressedLine = status.compressionCount
+    ? `${status.compressionCount} compacted${status.lastCompressedAt ? ` · ${formatChatSessionTime(status.lastCompressedAt)}` : ""}`
+    : "No compaction yet";
+  const repeatedCompressionWarning = status.compressionCount >= 2
+    ? `Session compacted ${status.compressionCount} times\nAccuracy may degrade. Consider starting a new chat.`
+    : "";
+  const warningText = status.lastCompressionError
+    || (status.fallbackUsed ? "Fallback marker was used during the last compaction." : "")
+    || repeatedCompressionWarning;
+
+  if (elements.readerContextButton) {
+    elements.readerContextButton.style.setProperty("--context-percent", String(percent));
+    elements.readerContextButton.classList.toggle("is-loading", readerState.contextStatusLoading);
+    elements.readerContextButton.classList.toggle("is-ready", Boolean(status.compactionReady));
+    elements.readerContextButton.title = contextHint ? `${contextHeadline} · ${contextHint}` : contextHeadline;
+    elements.readerContextButton.setAttribute("aria-expanded", String(readerState.contextPopoverOpen));
+  }
+
+  if (!elements.readerContextPopover) return;
+  elements.readerContextPopover.hidden = !readerState.contextPopoverOpen;
+  if (!readerState.contextPopoverOpen) return;
+  elements.readerContextPopover.innerHTML = `
+    <div class="ask-context-title">Context window</div>
+    <div class="ask-context-percent">${escapeHtml(contextHeadline)}</div>
+    ${contextHint ? `<div class="ask-context-tokens">${escapeHtml(contextHint)}</div>` : ""}
+    <div class="ask-context-model">${escapeHtml(`${providerName} · ${modelLabel}`)}</div>
+    <div class="ask-context-grid">
+      <span>Messages</span><strong>${escapeHtml(String(status.messageCount))}</strong>
+      <span class="ask-context-help" tabindex="0" aria-label="Shows whether earlier chat has been summarized for this session." data-tooltip="When a chat gets long, earlier messages can be summarized so the model can keep using them. This shows whether that summary exists.">Summary</span><strong>${escapeHtml(status.summaryAvailable ? "available" : "not yet")}</strong>
+      <span>Compactions</span><strong>${escapeHtml(compressedLine)}</strong>
+    </div>
+    ${warningText ? `<div class="ask-context-warning">${escapeHtml(warningText).replace(/\n/g, "<br>")}</div>` : ""}
+    ${readerState.contextCompactStatus ? `<div class="ask-context-status">${escapeHtml(readerState.contextCompactStatus)}</div>` : ""}
+    <div class="ask-context-actions">
+      <input class="ask-context-focus" id="readerContextCompactFocus" type="text" value="${escapeHtml(readerState.contextCompactFocus)}" placeholder="Focus" aria-label="Compaction focus">
+      <button class="ask-context-compact" type="button" data-context-action="compact" title="${escapeHtml(compactTitle)}" ${canCompact ? "" : "disabled"}>${escapeHtml(readerState.contextCompacting ? "Compacting" : "Compact now")}</button>
+    </div>
+  `;
+}
+
+function setReaderContextPopoverOpen(open) {
+  readerState.contextPopoverOpen = Boolean(open);
+  if (readerState.contextPopoverOpen) {
+    if (typeof setChatSessionMenuOpen === "function") setChatSessionMenuOpen(false);
+    if (typeof closeReaderProjectMenu === "function") closeReaderProjectMenu();
+    if (typeof closeReaderModelMenu === "function") closeReaderModelMenu();
+    if (typeof closeReaderToolMenu === "function") closeReaderToolMenu();
+    void loadReaderContextStatus({ silent: true });
+  }
+  renderReaderContextControls();
+}
+
+function closeReaderContextPopover() {
+  readerState.contextPopoverOpen = false;
+  renderReaderContextControls();
+}
+
+function scheduleReaderContextStatusRefresh(delay = 160) {
+  if (readerState.contextRefreshTimer) {
+    clearTimeout(readerState.contextRefreshTimer);
+  }
+  readerState.contextRefreshTimer = setTimeout(() => {
+    readerState.contextRefreshTimer = 0;
+    void loadReaderContextStatus({ silent: true });
+  }, delay);
+}
+
+async function loadReaderContextStatus({ silent = false } = {}) {
+  const sessionId = getChatSessionId();
+  if (!sessionId) {
+    readerState.contextStatus = normalizeContextStatus({});
+    readerState.contextStatusLoading = false;
+    renderReaderContextControls();
+    return;
+  }
+  const params = new URLSearchParams();
+  const provider = currentReaderProvider();
+  const model = currentReaderModel();
+  const noteId = currentChatNoteId();
+  const context = readerChatContext();
+  params.set("sessionId", sessionId);
+  if (provider) params.set("provider", provider);
+  if (model) params.set("model", model);
+  if (noteId) params.set("noteId", noteId);
+  if (readerState.note?.title) params.set("noteTitle", readerState.note.title);
+  if (context.currentPage) params.set("currentPage", String(context.currentPage));
+
+  readerState.contextStatusLoading = true;
+  renderReaderContextControls();
+  try {
+    const payload = await fetchAgentJson(`/api/chat/context?${params.toString()}`);
+    readerState.contextStatus = normalizeContextStatus(payload);
+  } catch (error) {
+    readerState.contextStatus = null;
+    if (readerState.contextPopoverOpen) {
+      readerState.contextCompactStatus = sanitizeVisibleAgentError(error.message || "Could not load context.");
+    }
+    if (!silent) setReaderChatError(error.message || GENERIC_AGENT_ERROR);
+  } finally {
+    readerState.contextStatusLoading = false;
+    renderReaderContextControls();
+  }
+}
+
+async function compactReaderContext() {
+  const sessionId = getChatSessionId();
+  if (!sessionId || isChatSessionPending(sessionId) || readerState.contextCompacting) return;
+  const context = readerChatContext();
+  readerState.contextCompacting = true;
+  readerState.contextCompactStatus = "Compacting context...";
+  renderReaderContextControls();
+  renderReaderChatMessages({ scrollToBottom: true });
+  try {
+    const payload = await fetchAgentJson("/api/chat/compress", {
+      method: "POST",
+      body: {
+        sessionId,
+        focus: readerState.contextCompactFocus,
+        provider: currentReaderProvider(),
+        model: currentReaderModel(),
+        requestOptions: readerRequestOptions(),
+        ...readerToolSettingsPayload(),
+        noteId: currentChatNoteId(),
+        noteTitle: readerState.note?.title || "",
+        currentPage: context.currentPage,
+        selectionText: context.selectionText,
+        context
+      }
+    });
+    readerState.contextStatus = normalizeContextStatus(payload);
+    readerState.contextCompactStatus = payload?.compressed ? "Context compacted." : "Nothing to compact yet.";
+    if (payload?.compressed) {
+      const marker = normalizeApiChatMessage(payload?.message);
+      if (marker) {
+        readerState.chatMessages = [...readerState.chatMessages, marker];
+      } else {
+        await recoverReaderChatFromSession({ sessionId });
+      }
+    }
+    setReaderChatError("");
+    if (typeof fetchReaderChatSessions === "function") await fetchReaderChatSessions({ silent: true });
+  } catch (error) {
+    readerState.contextCompactStatus = sanitizeVisibleAgentError(error.message || "Could not compact context.");
+  } finally {
+    readerState.contextCompacting = false;
+    renderReaderContextControls();
+    renderReaderChatMessages({ scrollToBottom: true });
+  }
 }

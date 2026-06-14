@@ -61,6 +61,8 @@ const elements = {
   closeAskPane: document.querySelector("#closeAskPane"),
   readerProjectButton: document.querySelector("#readerProjectButton"),
   readerProjectPopover: document.querySelector("#readerProjectPopover"),
+  readerContextButton: document.querySelector("#readerContextButton"),
+  readerContextPopover: document.querySelector("#readerContextPopover"),
   chatSessionMenuButton: document.querySelector("#chatSessionMenuButton"),
   chatSessionArchivedButton: document.querySelector("#chatSessionArchivedButton"),
   chatSessionTrashButton: document.querySelector("#chatSessionTrashButton"),
@@ -301,6 +303,7 @@ const readerState = {
   chatAbortController: null,
   chatAbortControllersBySession: {},
   chatStreamRenderTimer: 0,
+  chatRecoveryTimersBySession: {},
   chatPending: false,
   chatPendingBySession: {},
   chatEditingIndex: -1,
@@ -319,6 +322,7 @@ const readerState = {
   aiSettingsLoading: false,
   modelCatalog: null,
   modelCatalogLoading: false,
+  modelCatalogLoaded: false,
   modelMenuOpen: false,
   modelMenuLevel: "providers",
   modelDraftProvider: "",
@@ -346,7 +350,14 @@ const readerState = {
   fileGenerationFormat: "markdown",
   writeToolMode: readStoredWriteToolMode(),
   toolStatus: "",
-  toolStatusLevel: ""
+  toolStatusLevel: "",
+  contextStatus: null,
+  contextStatusLoading: false,
+  contextCompacting: false,
+  contextCompactFocus: "",
+  contextCompactStatus: "",
+  contextPopoverOpen: false,
+  contextRefreshTimer: 0
 };
 
 const PDF_ANNOTATION_TYPES = new Set(["highlight", "underline", "area", "note"]);

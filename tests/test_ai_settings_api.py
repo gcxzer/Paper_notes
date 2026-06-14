@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app_config.ai_settings import resolve_brave_search_api_key, resolve_tavily_api_key
 from app_config.secrets import parse_env_file
 from ui.backend import model_providers_api, settings_api
 from ui.backend.model_providers_api import get_model_providers
@@ -21,6 +22,18 @@ def _logged_out_codex_status() -> dict[str, object]:
     }
 
 
+def _logged_in_codex_status() -> dict[str, object]:
+    return {
+        "loggedIn": True,
+        "authMode": "chatgpt",
+        "planType": "prolite",
+        "accountId": "",
+        "accountEmail": "reader@example.test",
+        "lastRefresh": "",
+        "authStorePath": "",
+    }
+
+
 def _isolate_ai_env(monkeypatch, tmp_path) -> None:
     for name in (
         "PAPER_NOTES_AI_PROVIDER",
@@ -34,6 +47,8 @@ def _isolate_ai_env(monkeypatch, tmp_path) -> None:
         "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "OPENAI_MODEL",
+        "TAVILY_API_KEY",
+        "BRAVE_SEARCH_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PAPER_NOTES_ENV_PATHS", str(tmp_path / "missing.env"))
@@ -95,6 +110,15 @@ def test_update_ai_settings_can_save_provider_key_without_changing_default(monke
     assert "OPENAI_API_KEY" not in values
 
 
+def test_web_search_api_keys_resolve_from_local_secrets(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    secrets_path = tmp_path / "secrets.env"
+    secrets_path.write_text("TAVILY_API_KEY=tavily-secret\nBRAVE_SEARCH_API_KEY=brave-secret\n", encoding="utf-8")
+
+    assert resolve_tavily_api_key(secrets_path=secrets_path).value == "tavily-secret"
+    assert resolve_brave_search_api_key(secrets_path=secrets_path).value == "brave-secret"
+
+
 def test_delete_ai_key_removes_only_requested_local_key(monkeypatch, tmp_path):
     _isolate_ai_env(monkeypatch, tmp_path)
     secrets_path = tmp_path / "secrets.env"
@@ -135,6 +159,22 @@ def test_model_providers_returns_catalog_and_configured_status(monkeypatch, tmp_
     assert providers["anthropic"]["model"] == "claude-sonnet-4-6"
     assert providers["gemini"]["model"] == "gemini-3-flash-preview"
     assert providers["deepseek"]["model"] == "deepseek-v4-flash"
+
+
+def test_model_providers_includes_codex_auth_status(monkeypatch, tmp_path):
+    _isolate_ai_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(model_providers_api, "get_codex_auth_status", _logged_in_codex_status)
+    secrets_path = tmp_path / "secrets.env"
+    update_ai_settings({"provider": "codex-oauth", "model": "gpt-5.5"}, secrets_path=secrets_path)
+
+    payload = get_model_providers(secrets_path=secrets_path)
+
+    assert payload["defaultProvider"] == "codex-oauth"
+    assert payload["modelConnectionConfigured"] is True
+    assert payload["codexAuth"]["loggedIn"] is True
+    assert payload["codexAuth"]["accountEmail"] == "reader@example.test"
+    providers = {provider["name"]: provider for provider in payload["providers"]}
+    assert providers["codex-oauth"]["configured"] is True
 
 
 def test_ai_settings_routes_are_registered_and_redact_keys(monkeypatch, tmp_path):

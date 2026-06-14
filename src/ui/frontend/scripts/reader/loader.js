@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "chat-markdown-split-v1";
+const READER_SCRIPT_VERSION = "reader-context-compact-v4";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-api-v1",

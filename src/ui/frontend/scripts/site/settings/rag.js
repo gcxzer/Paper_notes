@@ -163,6 +163,8 @@ async function openRagSettingsDialog() {
 
 function closeRagSettingsDialog() {
   setRagSettingsError("");
-  elements.ragSettingsDialog?.close();
+  if (elements.ragSettingsDialog?.open) {
+    elements.ragSettingsDialog.close();
+  }
   clearSettingsPanelUrl();
 }

@@ -16,7 +16,7 @@ from middleware import with_configured_middleware
 def run_agent_loop(
     model: str | BaseChatModel,
     messages: Sequence[BaseMessage] | str,
-    tools: Sequence[BaseTool] | None = None,
+    tools: Sequence[BaseTool | dict[str, Any]] | None = None,
     *,
     app_config: AppConfig | None = None,
     system_prompt: str | BaseMessage | None = None,
@@ -24,6 +24,7 @@ def run_agent_loop(
     thread_id: str = "default",
     run_config: dict[str, Any] | None = None,
     stream_mode: str = "values",
+    stream_version: str | None = None,
 ) -> Iterator[Any]:
     config = _with_thread_id(run_config, thread_id)
     resolved_middleware = _with_context_management(
@@ -37,10 +38,13 @@ def run_agent_loop(
         system_prompt=system_prompt,
         middleware=resolved_middleware,
     )
+    stream_kwargs: dict[str, Any] = {"stream_mode": stream_mode}
+    if stream_version:
+        stream_kwargs["version"] = stream_version
     yield from agent.stream(
         {"messages": _coerce_messages(messages)},
         config=config,
-        stream_mode=stream_mode,
+        **stream_kwargs,
     )
 
 
