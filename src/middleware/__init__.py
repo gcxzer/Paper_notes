@@ -20,7 +20,7 @@ from middleware.tool_output_placeholder import (
     ToolOutputPlaceholderMiddleware,
     create_tool_output_placeholder_middleware,
 )
-from middleware.tool_output_trunction import (
+from middleware.tool_output_truncation import (
     DEFAULT_TOOL_OUTPUT_MAX_TOKENS,
     ToolOutputTruncationMiddleware,
     create_tool_output_truncation_middleware,

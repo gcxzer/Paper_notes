@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 
 from agent_runtime import AgentService, AgentServiceRequest
-from agent_runtime.service import _model_response_trace_events
+from agent_runtime.run_trace import model_response_trace_events
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from tools import create_tools
@@ -181,7 +181,7 @@ def test_model_response_trace_extracts_provider_native_web_search():
         response_metadata={"model_provider": "openai"},
     )
 
-    events = _model_response_trace_events([message], at=datetime(2026, 6, 14, tzinfo=timezone.utc))
+    events = model_response_trace_events([message], at=datetime(2026, 6, 14, tzinfo=timezone.utc))
 
     assert events == [{
         "type": "model_response",

@@ -215,11 +215,12 @@ function renderReaderProjectEmptyState() {
 }
 
 function renderReaderProjectCreateForm() {
+  const draftValue = escapeHtml(readerState.chatProjectCreateDraft || "");
   return `
     <form class="ask-project-create" data-project-create>
       <label>
         <span class="sr-only">New project name</span>
-        <input id="readerProjectCreateInput" type="text" name="name" maxlength="80" autocomplete="off" placeholder="New project">
+        <input id="readerProjectCreateInput" type="text" name="name" maxlength="80" autocomplete="off" placeholder="New project" value="${draftValue}">
       </label>
       <button type="submit" aria-label="Create project">${readerProjectIcon("plus", 15)}</button>
     </form>
@@ -377,6 +378,12 @@ function rememberReaderProjectListScroll() {
   readerState.chatProjectListScrollTop = list.scrollTop;
 }
 
+function rememberReaderProjectCreateDraft() {
+  const input = elements.readerProjectPopover?.querySelector("#readerProjectCreateInput");
+  if (!input) return;
+  readerState.chatProjectCreateDraft = input.value || "";
+}
+
 function restoreReaderProjectListScroll() {
   const list = elements.readerProjectPopover?.querySelector(".ask-project-list");
   if (!list) return;
@@ -388,6 +395,7 @@ function restoreReaderProjectListScroll() {
 
 function renderReaderProjectControls() {
   rememberReaderProjectListScroll();
+  rememberReaderProjectCreateDraft();
   removeReaderProjectFlyout();
   renderReaderProjectButton();
   if (!elements.readerProjectPopover) return;
@@ -421,6 +429,8 @@ function setReaderProjectMenuOpen(open) {
     readerState.openProjectActionMenuId = "";
     readerState.confirmingDeleteChatProjectId = "";
     readerState.chatProjectListScrollTop = 0;
+  } else {
+    readerState.chatProjectCreateDraft = "";
   }
   readerState.chatProjectMenuOpen = open;
   renderReaderProjectControls();
@@ -449,6 +459,7 @@ function closeReaderProjectMenu() {
   readerState.confirmingDeleteChatProjectId = "";
   readerState.expandedChatProjectId = "";
   readerState.chatProjectScopeId = "";
+  readerState.chatProjectCreateDraft = "";
   removeReaderProjectFlyout();
   renderReaderProjectControls();
 }
@@ -504,6 +515,7 @@ async function createReaderChatProject(name) {
     readerState.openProjectActionMenuId = "";
     readerState.renamingChatProjectId = "";
     readerState.confirmingDeleteChatProjectId = "";
+    readerState.chatProjectCreateDraft = "";
     setReaderChatError("");
     renderReaderProjectControls();
     renderChatSessionList();
@@ -755,7 +767,13 @@ function handleReaderProjectPopoverSubmit(event) {
     return;
   }
   input.value = "";
+  readerState.chatProjectCreateDraft = "";
   void createReaderChatProject(name);
+}
+
+function handleReaderProjectPopoverInput(event) {
+  if (!event.target.closest("#readerProjectCreateInput")) return;
+  readerState.chatProjectCreateDraft = event.target.value || "";
 }
 
 function initializeReaderProjects() {
@@ -766,6 +784,7 @@ function initializeReaderProjects() {
   elements.readerProjectPopover?.addEventListener("click", handleReaderProjectPopoverClick);
   elements.readerProjectPopover?.addEventListener("pointerover", handleReaderProjectPopoverPointerOver);
   elements.readerProjectPopover?.addEventListener("pointerleave", hideReaderProjectFlyoutIfOutside);
+  elements.readerProjectPopover?.addEventListener("input", handleReaderProjectPopoverInput);
   elements.readerProjectPopover?.addEventListener("submit", handleReaderProjectPopoverSubmit);
   void fetchReaderChatProjects({ silent: true });
 }

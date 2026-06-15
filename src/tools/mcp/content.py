@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-import base64
 from typing import Any
 
+from media.base64_payload import (
+    Base64PayloadErrors,
+    base64_payload_text,
+    decoded_base64_payload_size,
+    parse_base64_payload,
+)
 from tools.mcp.errors import mcp_error_payload
 from tools.mcp.security import extend_security_warnings, mcp_security_warnings, sanitize_mcp_error
 from tools.mcp.utils import first_field, format_exception
@@ -10,6 +15,11 @@ from tools.mcp.utils import first_field, format_exception
 
 _MAX_MCP_FILE_BYTES = 30 * 1024 * 1024
 _MCP_FILE_PREVIEW_CHARS = 4000
+_MCP_FILE_BASE64_ERRORS = Base64PayloadErrors(
+    empty="MCP file content is required.",
+    invalid="MCP file content must be valid base64.",
+    too_large="MCP file payload is too large.",
+)
 _SAFE_MCP_FILE_MIME_TYPES = frozenset({
     "text/plain",
     "text/markdown",
@@ -199,9 +209,7 @@ def mcp_image_summary(
 
 
 def mcp_image_data_value(data: Any) -> str:
-    if isinstance(data, bytes):
-        return base64.b64encode(data).decode("ascii")
-    return str(data or "")
+    return base64_payload_text(data)
 
 
 def mcp_file_summary(
@@ -297,10 +305,12 @@ def decode_mcp_file_content(data: Any) -> str:
     if isinstance(data, bytes):
         raw = data
     else:
-        text = str(data or "").strip()
-        if text.startswith("data:") and "," in text:
-            text = text.split(",", 1)[1]
-        raw = base64.b64decode(text, validate=True)
+        raw, _declared_mime = parse_base64_payload(
+            str(data or ""),
+            max_bytes=_MAX_MCP_FILE_BYTES,
+            errors=_MCP_FILE_BASE64_ERRORS,
+            error_type=ValueError,
+        )
     if len(raw) > _MAX_MCP_FILE_BYTES:
         raise ValueError("MCP file payload is too large.")
     try:
@@ -326,15 +336,7 @@ def is_safe_mcp_pdf_mime(mime_type: str) -> bool:
 
 
 def decoded_media_size(data: Any) -> int:
-    if isinstance(data, bytes):
-        return len(data)
-    text = str(data or "").strip()
-    if text.startswith("data:") and "," in text:
-        text = text.split(",", 1)[1]
-    try:
-        return len(base64.b64decode(text, validate=True))
-    except Exception:
-        return len(text)
+    return decoded_base64_payload_size(data, max_bytes=_MAX_MCP_FILE_BYTES, errors=_MCP_FILE_BASE64_ERRORS)
 
 
 def file_name_from_resource_uri(uri: str) -> str:
@@ -345,25 +347,12 @@ def file_name_from_resource_uri(uri: str) -> str:
 
 
 def summarize_blob(blob: Any) -> str:
-    if isinstance(blob, bytes):
-        return f"[binary content: {len(blob)} bytes]"
-    text = str(blob)
-    try:
-        decoded_size = len(base64.b64decode(text, validate=True))
-    except Exception:
-        decoded_size = len(text)
+    decoded_size = decoded_base64_payload_size(blob, max_bytes=_MAX_MCP_FILE_BYTES, errors=_MCP_FILE_BASE64_ERRORS)
     return f"[binary content: {decoded_size} bytes]"
 
 
 def summarize_media(data: Any, mime_type: str) -> str:
-    if isinstance(data, bytes):
-        size = len(data)
-    else:
-        text = str(data)
-        try:
-            size = len(base64.b64decode(text, validate=True))
-        except Exception:
-            size = len(text)
+    size = decoded_base64_payload_size(data, max_bytes=_MAX_MCP_FILE_BYTES, errors=_MCP_FILE_BASE64_ERRORS)
     return f"[MCP media content: {mime_type}, {size} bytes]"
 
 

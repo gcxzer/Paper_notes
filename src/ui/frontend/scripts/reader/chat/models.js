@@ -342,7 +342,7 @@ function setReaderModelMenuOpen(open) {
     readerState.modelMenuLevel = "providers";
     readerState.modelDraftProvider = currentReaderProvider();
     readerState.modelStatus = "";
-    setChatSessionMenuOpen(false);
+    if (typeof setChatSessionMenuOpen === "function") setChatSessionMenuOpen(false);
     closeReaderToolMenu();
     renderReaderModelControls();
     void loadReaderModelCatalog({ silent: true });

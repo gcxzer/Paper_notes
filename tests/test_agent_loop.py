@@ -6,7 +6,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 
 from agent_runtime import run_agent_loop
-from agent_runtime.agent_loop import _with_context_management
+from agent_runtime.agent_loop import with_context_management
 from app_config import AppConfig
 from middleware import (
     SUMMARY_MESSAGE_PREFIX,
@@ -106,7 +106,7 @@ def test_context_management_inserts_message_based_collapse_middleware() -> None:
         path=None,
     )
 
-    middleware = _with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
 
     collapse = next(item for item in middleware if isinstance(item, ContextCollapseMiddleware))
     assert collapse.trigger == [("messages", 12), ("tokens", 40_000)]
@@ -129,7 +129,7 @@ def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
         path=None,
     )
 
-    middleware = _with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
 
     truncation = next(item for item in middleware if isinstance(item, ToolOutputTruncationMiddleware))
     placeholder = next(item for item in middleware if isinstance(item, ToolOutputPlaceholderMiddleware))
@@ -166,6 +166,13 @@ def test_tool_output_truncation_middleware_writes_oversized_outputs(tmp_path) ->
     assert "Beginning of output:" in result.content
     assert "01234567" in result.content
     assert content not in result.content
+
+
+def test_tool_output_trunction_typo_module_remains_compatible() -> None:
+    from middleware.tool_output_truncation import ToolOutputTruncationMiddleware as CorrectName
+    from middleware.tool_output_trunction import ToolOutputTruncationMiddleware as TypoName
+
+    assert TypoName is CorrectName
 
 
 def test_tool_output_placeholder_middleware_omits_old_outputs() -> None:

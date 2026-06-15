@@ -259,6 +259,7 @@ const readerState = {
   openProjectActionMenuId: "",
   renamingChatProjectId: "",
   confirmingDeleteChatProjectId: "",
+  chatProjectCreateDraft: "",
   chatProjectListScrollTop: 0,
   chatProjectsMutationVersion: 0,
   chatNoticeTimer: 0,

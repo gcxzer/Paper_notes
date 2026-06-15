@@ -10,11 +10,12 @@ from app_config.ai_settings import CODEX_PROVIDER, OPENAI_PROVIDER, resolve_open
 from app_infra.formatting import normalize_text
 from media import MediaStore, MediaStoreError
 from model_providers.profiles import capabilities_for_provider_model
-from model_providers.providers.codex_provider import (
+from model_providers.providers.codex.auth import (
     DEFAULT_CODEX_BASE_URL,
-    _codex_default_headers,
-    _runtime_codex_credentials,
+    codex_default_headers,
+    runtime_codex_credentials,
 )
+from tools.generated_artifacts.payloads import generated_artifact_success_payload
 
 
 CREATE_IMAGE_ARTIFACT_TOOL_NAME = "create_image_artifact"
@@ -153,13 +154,7 @@ def create_image_artifact(
     if not result.get("success"):
         return result
     artifact = result["artifact"]
-    return {
-        "success": True,
-        "changed": True,
-        "summary": f"Generated {artifact.get('fileName') or 'image'}.",
-        "artifact": artifact,
-        "artifacts": [artifact],
-    }
+    return generated_artifact_success_payload(f"Generated {artifact.get('fileName') or 'image'}.", artifact)
 
 
 def _generate_with_openai(
@@ -173,7 +168,8 @@ def _generate_with_openai(
     host_model: str,
     session_id: str,
 ) -> dict[str, Any]:
-    if not resolve_openai_api_key().value:
+    api_key = resolve_openai_api_key().value
+    if not api_key:
         return {
             "success": False,
             "error": "OPENAI_API_KEY is required for OpenAI image generation.",
@@ -181,7 +177,7 @@ def _generate_with_openai(
         }
     from openai import OpenAI
 
-    client = OpenAI(api_key=resolve_openai_api_key().value)
+    client = OpenAI(api_key=api_key)
     try:
         if input_artifact_ids or mode == "edit":
             response = _openai_image_edit(client, media_store, prompt, input_artifact_ids, size=size, quality=quality)
@@ -221,7 +217,7 @@ def _generate_with_codex(
     host_model: str,
     session_id: str,
 ) -> dict[str, Any]:
-    credentials = _runtime_codex_credentials()
+    credentials = runtime_codex_credentials()
     if not credentials.access_token:
         return {
             "success": False,
@@ -235,7 +231,7 @@ def _generate_with_codex(
     client = OpenAI(
         api_key=credentials.access_token,
         base_url=(credentials.base_url or DEFAULT_CODEX_BASE_URL).rstrip("/"),
-        default_headers=_codex_default_headers(credentials),
+        default_headers=codex_default_headers(credentials),
     )
     prompt_content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
     for artifact_id in input_artifact_ids:

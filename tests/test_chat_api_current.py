@@ -13,7 +13,7 @@ from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from media import MediaStore
 from model_providers import ModelProviderConfig
-from ui.backend import agent_api, chat_api
+from ui.backend import agent_api, chat_api, chat_preparation
 from ui.backend.server import create_app
 
 
@@ -206,7 +206,7 @@ def test_chat_request_options_are_forwarded_to_model_config(monkeypatch, tmp_pat
 
 
 def test_chat_image_generation_prompt_falls_back_when_tool_is_unavailable():
-    prompt = chat_api._system_prompt(
+    prompt = chat_preparation.system_prompt(
         {"imageGeneration": {"enabled": True}},
         tools=[],
         model="gpt-5.3-codex-spark",
@@ -288,7 +288,7 @@ def test_chat_context_status_prefers_actual_usage_tokens(monkeypatch, tmp_path):
 
 
 def test_chat_system_prompt_uses_agent_instructions_for_current_note():
-    prompt = chat_api._system_prompt({
+    prompt = chat_preparation.system_prompt({
         "noteId": "pdf-deepseek-v4-mqcvdnpd",
         "noteTitle": "DeepSeek V4",
         "currentPage": 1,
@@ -319,7 +319,7 @@ def test_prepare_chat_run_system_prompt_includes_enabled_tool_guidance(tmp_path)
         use_default_tools=False,
     )
 
-    _agent_service, request, _attachments, _visible_text = chat_api._prepare_chat_run(
+    prepared = chat_preparation.prepare_chat_run(
         {
             "message": "这篇论文说了啥",
             "noteId": "pdf-deepseek-v4-mqcvdnpd",
@@ -330,6 +330,7 @@ def test_prepare_chat_run_system_prompt_includes_enabled_tool_guidance(tmp_path)
         media_store=MediaStore(tmp_path / "media"),
     )
 
+    request = prepared.request
     assert request.system_prompt is not None
     assert "# Tool use and grounding" in request.system_prompt
     assert "Available local tools:" in request.system_prompt

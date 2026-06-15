@@ -4,8 +4,6 @@ import json
 import re
 import shutil
 import uuid
-import base64
-import binascii
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +15,7 @@ from media.attachment_extractors import (
     ensure_supported_attachment,
     extract_attachment_text,
 )
+from media.base64_payload import Base64PayloadErrors, parse_base64_payload as _parse_base64_payload_data
 from media.image import (
     data_url_for_bytes,
     extension_for_mime,
@@ -27,6 +26,7 @@ from media.image import (
     sniff_image_mime,
 )
 from media.types import ImageArtifact
+from app_infra.artifact_generation import GENERATED_TEXT_MIME_KINDS, generated_text_artifact_kind
 from app_infra.formatting import normalize_text
 from app_infra.paths import LOCAL_STATE_DIR, PROJECT_ROOT, is_relative_to
 from app_infra.storage import atomic_write_json
@@ -37,16 +37,11 @@ class MediaStoreError(ValueError):
 
 
 DEFAULT_MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024
-_DATA_URL_RE = re.compile(r"^data:(?P<mime>[-\w.]+/[-\w.+]+);base64,(?P<data>.*)$", re.IGNORECASE | re.DOTALL)
-GENERATED_TEXT_MIME_KINDS = {
-    "text/markdown": ("text", ".md"),
-    "text/plain": ("text", ".txt"),
-    "application/json": ("json", ".json"),
-    "text/csv": ("csv", ".csv"),
-    "text/html": ("html", ".html"),
-}
-
-
+_BASE64_ATTACHMENT_ERRORS = Base64PayloadErrors(
+    empty="Attachment data is required.",
+    invalid="Attachment data must be valid base64.",
+    too_large="Attachment payload is too large.",
+)
 class MediaStore:
     def __init__(self, root: str | Path | None = None, *, project_root: str | Path | None = None) -> None:
         self.root = Path(root) if root is not None else LOCAL_STATE_DIR / "media"
@@ -229,7 +224,7 @@ class MediaStore:
         file_name: str = "",
     ) -> ImageArtifact:
         normalized_mime = normalize_text(mime_type).lower()
-        kind, extension = GENERATED_TEXT_MIME_KINDS.get(normalized_mime, ("", ""))
+        kind, extension = generated_text_artifact_kind(normalized_mime)
         if not kind:
             raise MediaStoreError(f"Unsupported MCP file MIME type: {mime_type}")
         if isinstance(content, bytes):
@@ -352,7 +347,7 @@ class MediaStore:
         metadata: dict[str, Any] | None = None,
     ) -> ImageArtifact:
         normalized_mime = normalize_text(mime_type).lower()
-        kind, extension = GENERATED_TEXT_MIME_KINDS.get(normalized_mime, ("", ""))
+        kind, extension = generated_text_artifact_kind(normalized_mime)
         if not kind:
             raise MediaStoreError(f"Unsupported generated file MIME type: {mime_type}")
         text = str(content)
@@ -627,21 +622,12 @@ def _mime_for_format(value: str) -> str:
 
 
 def _parse_base64_payload(value: str, *, max_bytes: int = DEFAULT_MAX_ATTACHMENT_BYTES) -> tuple[bytes, str]:
-    text = str(value or "").strip()
-    if not text:
-        raise MediaStoreError("Attachment data is required.")
-    declared_mime = ""
-    match = _DATA_URL_RE.match(text)
-    if match:
-        declared_mime = match.group("mime").lower()
-        text = match.group("data")
-    try:
-        data = base64.b64decode(text, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise MediaStoreError("Attachment data must be valid base64.") from error
-    if len(data) > max_bytes:
-        raise MediaStoreError("Attachment payload is too large.")
-    return data, declared_mime
+    return _parse_base64_payload_data(
+        value,
+        max_bytes=max_bytes,
+        errors=_BASE64_ATTACHMENT_ERRORS,
+        error_type=MediaStoreError,
+    )
 
 
 def _path_size(path: Path) -> int:
@@ -649,3 +635,11 @@ def _path_size(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
+
+
+__all__ = [
+    "DEFAULT_MAX_ATTACHMENT_BYTES",
+    "GENERATED_TEXT_MIME_KINDS",
+    "MediaStore",
+    "MediaStoreError",
+]

@@ -27,7 +27,7 @@ def run_agent_loop(
     stream_version: str | None = None,
 ) -> Iterator[Any]:
     config = _with_thread_id(run_config, thread_id)
-    resolved_middleware = _with_context_management(
+    resolved_middleware = with_context_management(
         model=model,
         middleware=middleware,
         app_config=app_config,
@@ -62,10 +62,16 @@ def _with_thread_id(run_config: dict[str, Any] | None, thread_id: str) -> dict[s
     return config
 
 
-def _with_context_management(
+def with_context_management(
     *,
     model: str | BaseChatModel,
     middleware: Sequence[AgentMiddleware] | None,
     app_config: AppConfig | None,
 ) -> list[AgentMiddleware]:
     return with_configured_middleware(model=model, middleware=middleware, app_config=app_config)
+
+
+_with_context_management = with_context_management
+
+
+__all__ = ["run_agent_loop", "with_context_management"]

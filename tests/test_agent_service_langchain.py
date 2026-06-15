@@ -9,11 +9,11 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from agent_runtime import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
-from agent_runtime.service import _with_generated_artifacts_on_latest_assistant
 from agent_runtime.streaming import events_from_langchain_chunk
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from model_providers import ModelProviderConfig
+from tools.generated_artifacts.payloads import with_generated_artifacts_on_latest_assistant
 
 
 def _config() -> AppConfig:
@@ -595,7 +595,7 @@ def test_agent_service_attaches_generated_tool_artifact_to_latest_assistant():
         {"role": "assistant", "content": "已生成 summary.md。"},
     ]
 
-    updated = _with_generated_artifacts_on_latest_assistant(messages, start_index=0)
+    updated = with_generated_artifacts_on_latest_assistant(messages, start_index=0)
 
     assert updated[-1]["metadata"]["response_metadata"]["artifacts"] == [artifact]
     assert "metadata" not in updated[1]

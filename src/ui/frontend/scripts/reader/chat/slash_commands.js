@@ -54,6 +54,7 @@
   function matchingSlashCommands(query) {
     const normalized = normalizeText(query).toLowerCase();
     return SLASH_COMMANDS.filter((command) => {
+      if (command.id === "compact" && !normalized && !isChatSessionPending()) return false;
       if (!normalized) return true;
       return command.trigger.slice(1).startsWith(normalized)
         || command.title.toLowerCase().includes(normalized);

@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import io
-import re
 from pathlib import Path
 from typing import Any
+
+from media.base64_payload import Base64PayloadErrors, parse_base64_payload as _parse_base64_payload
 
 
 SUPPORTED_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 DEFAULT_RESIZE_TARGET_BYTES = 5 * 1024 * 1024
 DEFAULT_RETRY_IMAGE_MAX_BYTES = 100 * 1024 * 1024
-
-_DATA_URL_RE = re.compile(r"^data:(?P<mime>[-\w.]+/[-\w.+]+);base64,(?P<data>.*)$", re.IGNORECASE | re.DOTALL)
+_BASE64_IMAGE_ERRORS = Base64PayloadErrors(
+    empty="Image data is required.",
+    invalid="Image data must be valid base64.",
+    too_large="Image payload is too large.",
+)
 
 
 class ImageValidationError(ValueError):
@@ -42,20 +45,12 @@ def extension_for_mime(mime_type: str) -> str:
 
 
 def parse_base64_image(value: str, *, max_bytes: int = DEFAULT_MAX_IMAGE_BYTES) -> tuple[bytes, str]:
-    text = str(value or "").strip()
-    if not text:
-        raise ImageValidationError("Image data is required.")
-    declared_mime = ""
-    match = _DATA_URL_RE.match(text)
-    if match:
-        declared_mime = match.group("mime").lower()
-        text = match.group("data")
-    try:
-        data = base64.b64decode(text, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise ImageValidationError("Image data must be valid base64.") from error
-    if len(data) > max_bytes:
-        raise ImageValidationError("Image payload is too large.")
+    data, declared_mime = _parse_base64_payload(
+        value,
+        max_bytes=max_bytes,
+        errors=_BASE64_IMAGE_ERRORS,
+        error_type=ImageValidationError,
+    )
     sniffed_mime = sniff_image_mime(data)
     if sniffed_mime not in SUPPORTED_IMAGE_MIME_TYPES:
         raise ImageValidationError("Unsupported image type.")

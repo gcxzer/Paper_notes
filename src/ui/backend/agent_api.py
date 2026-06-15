@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from agent_runtime import AgentService
 from agent_sessions import SessionNotFoundError
+from ui.backend.chat_payloads import message_artifacts
 
 
 _AGENT_SERVICE: AgentService | None = None
@@ -158,35 +159,10 @@ def _session_message_payload(message: Any) -> Any:
     if not isinstance(message, dict):
         return message
     payload = dict(message)
-    artifacts = _message_artifacts(payload)
+    artifacts = message_artifacts(payload)
     if artifacts:
         payload["artifacts"] = artifacts
     return payload
-
-
-def _message_artifacts(message: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates: list[Any] = []
-    if isinstance(message.get("artifacts"), list):
-        candidates.append(message.get("artifacts"))
-    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
-    response_metadata = metadata.get("response_metadata") if isinstance(metadata.get("response_metadata"), dict) else {}
-    if isinstance(response_metadata.get("artifacts"), list):
-        candidates.append(response_metadata.get("artifacts"))
-    artifacts: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        if not isinstance(candidate, list):
-            continue
-        for artifact in candidate:
-            if not isinstance(artifact, dict):
-                continue
-            artifact_id = str(artifact.get("id") or artifact.get("artifactId") or "")
-            if artifact_id and artifact_id in seen:
-                continue
-            if artifact_id:
-                seen.add(artifact_id)
-            artifacts.append(dict(artifact))
-    return artifacts
 
 
 def _metadata_payload(metadata: Any) -> dict[str, Any]:

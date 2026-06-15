@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
-from model_providers.providers import codex_provider
-from model_providers.providers.codex_provider import CodexChatModel
+from model_providers.providers.codex.auth import runtime_codex_credentials
+from model_providers.providers.codex.provider import CodexChatModel
 
 
 def _lookup_note(query: str) -> str:
@@ -346,7 +346,7 @@ def test_codex_auth_store_reads_current_codex_tokens(tmp_path):
         },
     }), encoding="utf-8")
 
-    credentials = codex_provider._runtime_codex_credentials(auth_path=auth_path)
+    credentials = runtime_codex_credentials(auth_path=auth_path)
 
     assert credentials.access_token == "access-token"
     assert credentials.refresh_token == "refresh-token"

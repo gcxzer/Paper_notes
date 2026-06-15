@@ -5,9 +5,10 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from app_infra.artifact_generation import GENERATED_TEXT_MIME_KINDS
 from app_infra.formatting import normalize_text
 from media import MediaStore, MediaStoreError
-from media.store import GENERATED_TEXT_MIME_KINDS
+from tools.generated_artifacts.payloads import generated_artifact_success_payload
 
 
 CREATE_FILE_ARTIFACT_TOOL_NAME = "create_file_artifact"
@@ -95,14 +96,7 @@ def create_file_artifact(
         )
     except MediaStoreError as error:
         return {"success": False, "error": str(error), "code": "artifact_create_failed"}
-    payload = artifact.to_dict()
-    return {
-        "success": True,
-        "changed": True,
-        "summary": f"Created {artifact.file_name}.",
-        "artifact": payload,
-        "artifacts": [payload],
-    }
+    return generated_artifact_success_payload(f"Created {artifact.file_name}.", artifact)
 
 
 def _validate_file_request(*, file_name: str, mime_type: str, content: Any) -> dict[str, str]:

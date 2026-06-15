@@ -5,15 +5,15 @@ from types import SimpleNamespace
 
 import httpx
 
-from tools.mcp.content import tool_result_payload
+from tools.mcp.content import decode_mcp_file_content, decoded_media_size, tool_result_payload
 from tools.mcp.errors import mcp_error_payload
-from tools.mcp.manager import _mcp_http_request_hook, _normalize_mcp_input_schema, mcp_tool_name
+from tools.mcp.names import mcp_tool_name
 from tools.mcp.schema import normalize_mcp_input_schema
 from tools.mcp.summaries import prompt_message_summary, resource_summary, server_tool_summaries
+from tools.mcp.transport import mcp_http_request_hook
 
 
 def test_mcp_schema_conversion_repairs_common_sdk_shapes():
-    assert _normalize_mcp_input_schema is normalize_mcp_input_schema
     assert normalize_mcp_input_schema(None) == {"type": "object", "properties": {}}
     assert normalize_mcp_input_schema({}) == {"type": "object", "properties": {}}
 
@@ -98,6 +98,13 @@ def test_mcp_content_payload_preserves_text_structured_content_and_redacts_error
     assert "secret-value" not in failed["error"]
 
 
+def test_mcp_file_content_decodes_data_url_with_shared_base64_parser():
+    data_url = "data:text/plain;base64,SGVsbG8="
+
+    assert decode_mcp_file_content(data_url) == "Hello"
+    assert decoded_media_size(data_url) == len(b"Hello")
+
+
 def test_mcp_summaries_cover_resources_prompts_and_filtered_utilities():
     resource = resource_summary(SimpleNamespace(
         uri="file:///paper.md",
@@ -147,7 +154,7 @@ def test_streamable_http_cross_origin_redirect_strips_configured_and_sensitive_h
             "mcp-protocol-version": "2025-03-26",
         },
     )
-    hook = _mcp_http_request_hook(
+    hook = mcp_http_request_hook(
         "https://origin.example/mcp",
         {"Authorization": "Bearer secret", "X-Fixture-Token": "fixture-secret"},
     )

@@ -264,8 +264,8 @@ function setReaderToolMenuOpen(open) {
   readerState.toolMenuOpen = open;
   if (open) {
     readerState.toolMenuLevel = "root";
-    setChatSessionMenuOpen(false);
-    closeReaderModelMenu();
+    if (typeof setChatSessionMenuOpen === "function") setChatSessionMenuOpen(false);
+    if (typeof closeReaderModelMenu === "function") closeReaderModelMenu();
   }
   renderReaderToolControls();
 }

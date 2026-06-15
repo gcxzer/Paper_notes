@@ -4,7 +4,7 @@ from typing import Any
 
 from app_config import AppConfig
 from model_providers.core.types import ModelProviderConfig, canonical_provider_name
-from model_providers.providers.codex_provider import create_codex_chat_model
+from model_providers.providers.codex import create_codex_chat_model
 from model_providers.providers.deepseek_provider import create_deepseek_chat_model
 from model_providers.providers.openai_provider import create_openai_chat_model
 

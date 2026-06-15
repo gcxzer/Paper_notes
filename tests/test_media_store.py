@@ -7,6 +7,7 @@ import zipfile
 import pytest
 
 from media import MediaStore, MediaStoreError
+from media.base64_payload import Base64PayloadErrors, parse_base64_payload
 
 
 PNG_DATA_URL = (
@@ -33,6 +34,17 @@ def test_media_store_uploads_and_serves_registered_image(tmp_path):
     assert artifact.download_url == f"/api/media/{artifact.id}/download"
     assert store.data_url_for_artifact(artifact.id).startswith("data:image/png;base64,")
     assert store.path_for(artifact.id).exists()
+
+
+def test_shared_base64_payload_parser_accepts_data_urls_and_reports_declared_mime():
+    data, mime_type = parse_base64_payload(
+        "data:text/plain;base64,SGVsbG8=",
+        max_bytes=1024,
+        errors=Base64PayloadErrors(empty="empty", invalid="invalid", too_large="large"),
+    )
+
+    assert data == b"Hello"
+    assert mime_type == "text/plain"
 
 
 def test_media_store_creates_mcp_image_artifact(tmp_path):

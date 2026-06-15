@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,10 +8,10 @@ from langchain_core.messages import RemoveMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from middleware.tool_output_common import PLACEHOLDER_PREFIX, is_placeholder_content, saved_output_path, tool_output_text
+
 
 DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 20
-_SAVED_PATH_RE = re.compile(r"^Full output path:\s*(?P<path>.+)$", re.MULTILINE)
-_PLACEHOLDER_PREFIX = "[tool output omitted]"
 
 
 @dataclass(slots=True)
@@ -63,7 +61,7 @@ def placeholder_old_tool_outputs(messages: list[Any], *, keep_recent: int) -> li
 
 
 def _placeholder_message(message: ToolMessage) -> ToolMessage:
-    if _is_placeholder(message.content):
+    if is_placeholder_content(message.content):
         return message
     content = _tool_output_placeholder(message)
     if message.content == content:
@@ -71,38 +69,20 @@ def _placeholder_message(message: ToolMessage) -> ToolMessage:
     return message.model_copy(update={"content": content})
 
 
-def _is_placeholder(content: Any) -> bool:
-    return _content_text(content).startswith(_PLACEHOLDER_PREFIX)
-
-
 def _tool_output_placeholder(message: ToolMessage) -> str:
-    content = _content_text(message.content)
-    saved_path = _saved_output_path(content)
+    content = tool_output_text(message.content)
+    output_path = saved_output_path(content)
     lines = [
-        _PLACEHOLDER_PREFIX,
+        PLACEHOLDER_PREFIX,
         "This older tool output was omitted to reduce context size.",
         f"Tool call id: {message.tool_call_id}",
         f"Estimated original tokens: {count_tokens_approximately([message])}",
     ]
     if message.name:
         lines.insert(2, f"Tool: {message.name}")
-    if saved_path:
-        lines.append(f"Full output path: {saved_path}")
+    if output_path:
+        lines.append(f"Full output path: {output_path}")
     return "\n".join(lines)
-
-
-def _content_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    try:
-        return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True)
-    except TypeError:
-        return str(content)
-
-
-def _saved_output_path(content: str) -> str:
-    match = _SAVED_PATH_RE.search(content)
-    return match.group("path").strip() if match else ""
 
 
 __all__ = [

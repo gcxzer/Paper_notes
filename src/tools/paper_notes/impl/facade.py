@@ -11,6 +11,7 @@ from app_infra.formatting import normalize_text
 from tools.paper_notes.impl.annotations import create_annotation, delete_annotation, update_annotation
 from tools.paper_notes.impl.common import resolve_note, tool_error, truthy
 from tools.paper_notes.impl.media import write_note_from_paper_image
+from tools.paper_notes.impl.note_html_body import resolve_media_source_args
 from tools.paper_notes.impl.notes import (
     append_note_section,
     build_note_context,
@@ -19,7 +20,6 @@ from tools.paper_notes.impl.notes import (
     preview_note_diff,
     read_note_html,
     replace_note_section,
-    _resolve_media_source_args,
     search_library,
     update_note_metadata,
     validate_note_html,
@@ -339,7 +339,7 @@ def review_note(
     if action == "validate_html":
         return validate_note_html(args, library_path=library_path, html_dir=html_dir)
     if action == "preview_note_diff":
-        resolved_args, error = _resolve_media_source_args(args, media_store)
+        resolved_args, error = resolve_media_source_args(args, media_store)
         if error:
             return error
         return preview_note_diff(resolved_args, library_path=library_path, html_dir=html_dir)
