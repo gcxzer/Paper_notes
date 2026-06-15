@@ -229,6 +229,9 @@ def _role_text(value: Any) -> str:
 
 
 def _is_summary_transcript_message(message: dict[str, Any]) -> bool:
+    role = _role_text(message.get("role"))
+    if role == "summary":
+        return True
     content = message.get("content", "")
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
 

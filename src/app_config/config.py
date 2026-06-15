@@ -32,10 +32,16 @@ DEFAULT_IMAGE_CAPTIONING_MODEL = "gpt-5.4-mini"
 DEFAULT_IMAGE_CAPTIONING_MAX_IMAGES = 20
 DEFAULT_IMAGE_CAPTIONING_MAX_IMAGE_BYTES = 8 * 1024 * 1024
 DEFAULT_IMAGE_CAPTIONING_TIMEOUT = 120.0
+DEFAULT_IMAGE_CAPTIONING_CONCURRENCY = 4
 DEFAULT_IMAGE_CAPTIONING_PROMPT = (
-    "Describe this academic-paper image for retrieval. Include visible labels, axes, legends, table fields, "
-    "equations, entities, and the main relationship or result. Be concise, factual, and use plain text only. "
-    "If details are unreadable, say what is visible instead of guessing."
+    "Create a retrieval-oriented description of this academic-paper visual. Use any supplied original PDF "
+    "caption/text as grounding context, but verify it against the visible image. Identify the visual type "
+    "(chart, table, algorithm, architecture diagram, flowchart, qualitative example, equation block, or page "
+    "crop), and preserve readable titles, panel labels, axes, legends, color/shape encodings, table headers, "
+    "equations, variables, entities, datasets, metrics, and key numeric values. Summarize the main relationship, "
+    "trend, comparison, workflow, or result shown, including what the visual is evidence for in the paper. "
+    "Be concise and factual. Do not invent unreadable labels, values, or conclusions; if details are unclear, "
+    "state only the visible structure or say they are unreadable. Output plain text only, with no JSON."
 )
 DEFAULT_LLAMAPARSE_TIER = "agentic"
 DEFAULT_LLAMAPARSE_VERSION = "latest"
@@ -44,16 +50,21 @@ DEFAULT_LLAMAPARSE_POLLING_INTERVAL = 2.0
 DEFAULT_LLAMAPARSE_MAX_INTERVAL = 20.0
 DEFAULT_LLAMAPARSE_IMAGE_DOWNLOAD_TIMEOUT = 60.0
 DEFAULT_LLAMAPARSE_CUSTOM_PROMPT = (
-    "Parse this academic paper into clean Markdown. Preserve section headings, "
-    "equations, citations, figure captions, table captions, tables, and references. "
-    "Keep the reading order correct for multi-column paper layouts."
+    "Parse this academic paper into faithful, RAG-ready Markdown. Preserve semantic reading order for "
+    "multi-column layouts; keep section/subsection headings, paragraphs, citations, footnotes, equations as "
+    "LaTeX Markdown, algorithms/pseudocode, figure and table captions, table structure, appendices, and "
+    "references. Keep captions tied to their figure/table numbers and nearby discussion when possible; do not "
+    "summarize, translate, or invent missing text, omit repeated running headers/footers/page numbers unless "
+    "they carry content, and mark unreadable fragments as [unreadable]."
 )
 DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES = ("embedded", "layout")
-DEFAULT_SIMILARITY_TOP_K = 5
-DEFAULT_BM25_SIMILARITY_TOP_K = 5
+DEFAULT_VECTOR_TOP_K = 5
+DEFAULT_BM25_TOP_K = 5
+DEFAULT_RESULT_TOP_K = 5
 DEFAULT_HYBRID_WEIGHTS = (0.7, 0.3)
 DEFAULT_INDEX_KEY = "default"
 DEFAULT_TOOL_OUTPUT_ROOT = PROJECT_ROOT / ".paper-notes" / "tool-outputs"
+DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR = "continue"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +173,43 @@ class ToolOutputConfig:
 
     def limit_for(self, tool_name: str) -> int:
         return self.tool_limits.get(str(tool_name or ""), self.default_max_tokens)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallLimitRuleConfig:
+    tool_name: str | None = None
+    thread_limit: int | None = None
+    run_limit: int | None = None
+    exit_behavior: str = DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR
+
+    @classmethod
+    def from_mapping(cls, value: object) -> ToolCallLimitRuleConfig:
+        data = _mapping(value)
+        tool_name = _optional_text(data, "tool_name", "toolName")
+        exit_behavior = _tool_call_limit_exit_behavior(data.get("exit_behavior", data.get("exitBehavior")))
+        return cls(
+            tool_name=tool_name,
+            thread_limit=_optional_int(data, "thread_limit", "threadLimit", minimum=1),
+            run_limit=_optional_int(data, "run_limit", "runLimit", minimum=1),
+            exit_behavior=exit_behavior,
+        )
+
+    def has_limit(self) -> bool:
+        return self.thread_limit is not None or self.run_limit is not None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallLimitConfig:
+    enabled: bool = False
+    limits: tuple[ToolCallLimitRuleConfig, ...] = ()
+
+    @classmethod
+    def from_mapping(cls, value: object) -> ToolCallLimitConfig:
+        data = _mapping(value)
+        return cls(
+            enabled=_bool(data, "enabled", default=False),
+            limits=_tool_call_limit_rules(data.get("limits")),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,6 +375,7 @@ class RagImageCaptioningConfig:
     max_images: int = DEFAULT_IMAGE_CAPTIONING_MAX_IMAGES
     max_image_bytes: int = DEFAULT_IMAGE_CAPTIONING_MAX_IMAGE_BYTES
     timeout: float = DEFAULT_IMAGE_CAPTIONING_TIMEOUT
+    concurrency: int = DEFAULT_IMAGE_CAPTIONING_CONCURRENCY
     prompt: str = DEFAULT_IMAGE_CAPTIONING_PROMPT
 
     @classmethod
@@ -351,44 +400,63 @@ class RagImageCaptioningConfig:
                 minimum=1,
             ),
             timeout=_float(data, "timeout", default=DEFAULT_IMAGE_CAPTIONING_TIMEOUT, minimum=1.0),
+            concurrency=_int(
+                data,
+                "concurrency",
+                default=DEFAULT_IMAGE_CAPTIONING_CONCURRENCY,
+                minimum=1,
+                maximum=16,
+            ),
             prompt=_text(data, "prompt", default=DEFAULT_IMAGE_CAPTIONING_PROMPT),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class RagRetrievalConfig:
-    similarity_top_k: int = DEFAULT_SIMILARITY_TOP_K
-    bm25_similarity_top_k: int = DEFAULT_BM25_SIMILARITY_TOP_K
+    vector_top_k: int = DEFAULT_VECTOR_TOP_K
+    bm25_top_k: int = DEFAULT_BM25_TOP_K
+    result_top_k: int = DEFAULT_RESULT_TOP_K
     hybrid_weights: tuple[float, float] = DEFAULT_HYBRID_WEIGHTS
 
     @classmethod
     def from_mapping(cls, value: object) -> RagRetrievalConfig:
         data = _mapping(value)
         return cls(
-            similarity_top_k=_int(
+            vector_top_k=_int(
                 data,
-                "similarity_top_k",
-                "similarityTopK",
-                default=DEFAULT_SIMILARITY_TOP_K,
+                "vector_top_k",
+                "vectorTopK",
+                default=DEFAULT_VECTOR_TOP_K,
                 minimum=1,
                 maximum=20,
             ),
-            bm25_similarity_top_k=_int(
+            bm25_top_k=_int(
                 data,
-                "bm25_similarity_top_k",
-                "bm25SimilarityTopK",
-                default=DEFAULT_BM25_SIMILARITY_TOP_K,
+                "bm25_top_k",
+                "bm25TopK",
+                default=DEFAULT_BM25_TOP_K,
+                minimum=1,
+                maximum=20,
+            ),
+            result_top_k=_int(
+                data,
+                "result_top_k",
+                "resultTopK",
+                default=DEFAULT_RESULT_TOP_K,
                 minimum=1,
                 maximum=20,
             ),
             hybrid_weights=_float_pair(data, "hybrid_weights", "hybridWeights", default=DEFAULT_HYBRID_WEIGHTS),
         )
 
-    def similarity_top_k_for(self, value: int | None = None) -> int:
-        return _bounded_int(value, default=self.similarity_top_k, minimum=1, maximum=20)
+    def vector_top_k_for(self, value: int | None = None) -> int:
+        return _bounded_int(value, default=self.vector_top_k, minimum=1, maximum=20)
 
-    def bm25_similarity_top_k_for(self, value: int | None = None) -> int:
-        return _bounded_int(value, default=self.bm25_similarity_top_k, minimum=1, maximum=20)
+    def bm25_top_k_for(self, value: int | None = None) -> int:
+        return _bounded_int(value, default=self.bm25_top_k, minimum=1, maximum=20)
+
+    def result_top_k_for(self, value: int | None = None) -> int:
+        return _bounded_int(value, default=self.result_top_k, minimum=1, maximum=20)
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,6 +565,7 @@ class AppConfig:
     context_collapse: ContextCollapseConfig | None = None
     context_compaction: ContextCompactionConfig | None = None
     tool_output: ToolOutputConfig | None = None
+    tool_call_limit: ToolCallLimitConfig | None = None
     library: LibraryConfig | None = None
     rag: RagConfig | None = None
 
@@ -518,6 +587,11 @@ class AppConfig:
             self.context_compaction or ContextCompactionConfig.from_mapping(self.data.get("context_compaction")),
         )
         object.__setattr__(self, "tool_output", self.tool_output or ToolOutputConfig.from_mapping(self.data.get("tool_output")))
+        object.__setattr__(
+            self,
+            "tool_call_limit",
+            self.tool_call_limit or ToolCallLimitConfig.from_mapping(self.data.get("tool_call_limit")),
+        )
         object.__setattr__(self, "library", self.library or LibraryConfig.from_mapping(self.data.get("library")))
         object.__setattr__(self, "rag", self.rag or RagConfig.from_mapping(self.data.get("rag")))
 
@@ -583,6 +657,17 @@ def _tool_limits(value: object) -> dict[str, int]:
     return limits
 
 
+def _tool_call_limit_rules(value: object) -> tuple[ToolCallLimitRuleConfig, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    rules: list[ToolCallLimitRuleConfig] = []
+    for item in value:
+        rule = ToolCallLimitRuleConfig.from_mapping(item)
+        if rule.has_limit():
+            rules.append(rule)
+    return tuple(rules)
+
+
 def _pick(data: dict[str, Any], *keys: str, default: Any) -> Any:
     for key in keys:
         if key in data:
@@ -596,6 +681,14 @@ def _text(data: dict[str, Any], *keys: str, default: str) -> str:
     return text or default
 
 
+def _optional_text(data: dict[str, Any], *keys: str) -> str | None:
+    value = _pick(data, *keys, default=None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _bool(data: dict[str, Any], *keys: str, default: bool) -> bool:
     value = _pick(data, *keys, default=default)
     if isinstance(value, bool):
@@ -603,6 +696,19 @@ def _bool(data: dict[str, Any], *keys: str, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _optional_int(data: dict[str, Any], *keys: str, minimum: int | None = None) -> int | None:
+    value = _pick(data, *keys, default=None)
+    if value is None or value == "":
+        return None
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    if minimum is not None:
+        result = max(minimum, result)
+    return result
 
 
 def _int(
@@ -678,3 +784,10 @@ def _bounded_int(value: int | None, *, default: int, minimum: int, maximum: int)
     except (TypeError, ValueError):
         result = default
     return max(minimum, min(result, maximum))
+
+
+def _tool_call_limit_exit_behavior(value: object) -> str:
+    behavior = str(value or DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR).strip().lower()
+    if behavior in {"continue", "error", "end"}:
+        return behavior
+    return DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR

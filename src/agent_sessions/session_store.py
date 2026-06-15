@@ -369,11 +369,15 @@ def _last_user_message_index(messages: list[dict[str, Any]]) -> int | None:
 
 def _appended_transcript_tail(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(current) < len(previous):
-        return []
+        return current
     for index, previous_message in enumerate(previous):
-        if not _messages_match_for_append(previous_message, current[index]):
-            return []
+        if not _messages_match_for_debug_prefix(previous_message, current[index]):
+            return current
     return current[len(previous):]
+
+
+def _messages_match_for_debug_prefix(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return _messages_match_for_append(left, right) or _same_message_ignoring_debug_fields(left, right)
 
 
 def _messages_match_for_append(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -396,8 +400,26 @@ def _same_tool_result_message(left: dict[str, Any], right: dict[str, Any]) -> bo
     return not left_name or not right_name or left_name == right_name
 
 
+def _same_message_ignoring_debug_fields(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return _without_debug_update_fields(left) == _without_debug_update_fields(right)
+
+
 def _without_created_at(message: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in message.items() if key != "created_at"}
+
+
+def _without_debug_update_fields(message: dict[str, Any]) -> dict[str, Any]:
+    ignored = {
+        "created_at",
+        "metadata",
+        "runTrace",
+        "run_trace",
+        "workTrace",
+        "work_trace",
+        "attachments",
+        "text",
+    }
+    return {key: value for key, value in message.items() if key not in ignored}
 
 
 def _new_session_id(now: datetime) -> str:

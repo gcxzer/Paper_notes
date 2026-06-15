@@ -19,12 +19,15 @@ from tools.paper_notes.impl.common import (
 )
 
 
+PAPER_VISUALS_DIR = PROJECT_ROOT / "resources" / "Paper-visuals"
+
+
 def render_paper_page(
     args: dict[str, Any],
     *,
     library_path: Path | None = None,
     papers_dir: Path | None = None,
-    paper_page_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
     media_store: Any | None = None,
 ) -> dict[str, Any]:
     note_result = resolve_note(args, library_path=library_path)
@@ -42,7 +45,7 @@ def render_paper_page(
         pdf_path=pdf_path["pdf_path"],
         page_number=page_number,
         scale=scale,
-        paper_page_cache_dir=paper_page_cache_dir,
+        paper_visual_cache_dir=paper_visual_cache_dir,
     )
     _attach_artifact(
         result,
@@ -63,7 +66,7 @@ def extract_paper_images(
     *,
     library_path: Path | None = None,
     papers_dir: Path | None = None,
-    paper_image_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
     media_store: Any | None = None,
 ) -> dict[str, Any]:
     note_result = resolve_note(args, library_path=library_path)
@@ -81,7 +84,7 @@ def extract_paper_images(
         page_start=args.get("page_start"),
         page_end=args.get("page_end"),
         limit=limit,
-        paper_image_cache_dir=paper_image_cache_dir,
+        paper_visual_cache_dir=paper_visual_cache_dir,
     )
     for image in result.get("images", []) if isinstance(result.get("images"), list) else []:
         if isinstance(image, dict):
@@ -125,19 +128,22 @@ def _paper_page_cache_path(
     *,
     page_number: int,
     scale: float,
-    paper_page_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
 ) -> Path:
-    base_dir = paper_page_cache_dir or (PROJECT_ROOT / "resources" / "Paper-pages")
     scale_tag = str(scale).rstrip("0").rstrip(".").replace(".", "_")
     return (
-        base_dir
-        / _safe_cache_name(note_id)
+        _paper_visual_note_dir(note_id, paper_visual_cache_dir=paper_visual_cache_dir)
+        / "pages"
         / f"page-{page_number:04d}-scale-{scale_tag or '1'}.png"
     ).resolve()
 
 
-def _paper_image_cache_dir(note_id: str, *, paper_image_cache_dir: Path | None = None) -> Path:
-    base_dir = paper_image_cache_dir or (PROJECT_ROOT / "resources" / "Paper-images")
+def _paper_visual_images_dir(note_id: str, *, paper_visual_cache_dir: Path | None = None) -> Path:
+    return (_paper_visual_note_dir(note_id, paper_visual_cache_dir=paper_visual_cache_dir) / "images").resolve()
+
+
+def _paper_visual_note_dir(note_id: str, *, paper_visual_cache_dir: Path | None = None) -> Path:
+    base_dir = paper_visual_cache_dir or PAPER_VISUALS_DIR
     return (base_dir / _safe_cache_name(note_id)).resolve()
 
 
@@ -159,7 +165,7 @@ def _render_pdf_page(
     pdf_path: Path,
     page_number: int,
     scale: float,
-    paper_page_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     pymupdf = _import_pymupdf()
     if isinstance(pymupdf, dict):
@@ -169,7 +175,7 @@ def _render_pdf_page(
         note_id,
         page_number=page_number,
         scale=scale,
-        paper_page_cache_dir=paper_page_cache_dir,
+        paper_visual_cache_dir=paper_visual_cache_dir,
     )
     try:
         document = pymupdf.open(str(pdf_path))
@@ -220,13 +226,13 @@ def _extract_pdf_images(
     page_start: Any,
     page_end: Any,
     limit: int,
-    paper_image_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     pymupdf = _import_pymupdf()
     if isinstance(pymupdf, dict):
         return {**pymupdf, "note_id": note_id}
 
-    output_dir = _paper_image_cache_dir(note_id, paper_image_cache_dir=paper_image_cache_dir)
+    output_dir = _paper_visual_images_dir(note_id, paper_visual_cache_dir=paper_visual_cache_dir)
     images: list[dict[str, Any]] = []
     try:
         document = pymupdf.open(str(pdf_path))

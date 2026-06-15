@@ -11,17 +11,30 @@
     "default_max_tokens": 8000,
     "placeholder_keep_recent": 8,
     "tool_limits": {
-      "search_notes": 4000,
-      "get_note_context": 10000,
-      "read_paper": 12000,
-      "search_paper_rag": 10000,
+      "get_paper_context": 10000,
+      "query_paper_content": 12000,
+      "inspect_paper_visuals": 12000,
       "write_note": 6000,
       "manage_annotations": 6000,
       "write_note_media": 6000,
       "review_note": 8000,
+      "web_fetch": 12000,
+      "web_search": 8000,
+      "create_file_artifact": 6000,
+      "create_image_artifact": 6000,
       "skills_list": 8000,
       "skill_view": 12000
     }
+  },
+  "tool_call_limit": {
+    "enabled": true,
+    "limits": [
+      {
+        "tool_name": "query_paper_content",
+        "run_limit": 1,
+        "exit_behavior": "continue"
+      }
+    ]
   },
   "rag": {
     "root_dir": ".paper-notes/rag",
@@ -45,7 +58,7 @@
       "image_download_timeout": 60,
       "image_categories": ["embedded", "layout"],
       "ocr_languages": [],
-      "custom_prompt": "Parse this academic paper into clean Markdown. Preserve section headings, equations, citations, figure captions, table captions, tables, and references. Keep the reading order correct for multi-column paper layouts."
+      "custom_prompt": "Parse this academic paper into faithful, RAG-ready Markdown. Preserve semantic reading order for multi-column layouts; keep section/subsection headings, paragraphs, citations, footnotes, equations as LaTeX Markdown, algorithms/pseudocode, figure and table captions, table structure, appendices, and references. Keep captions tied to their figure/table numbers and nearby discussion when possible; do not summarize, translate, or invent missing text, omit repeated running headers/footers/page numbers unless they carry content, and mark unreadable fragments as [unreadable]."
     },
     "chunking": {
       "chunk_size": 800,
@@ -58,7 +71,8 @@
       "max_images": 100,
       "max_image_bytes": 8388608,
       "timeout": 120,
-      "prompt": "Describe this academic-paper image for retrieval. Include visible labels, axes, legends, table fields, equations, entities, and the main relationship or result. Be concise, factual, and use plain text only. If details are unreadable, say what is visible instead of guessing."
+      "concurrency": 4,
+      "prompt": "Create a retrieval-oriented description of this academic-paper visual. Use any supplied original PDF caption/text as grounding context, but verify it against the visible image. Identify the visual type (chart, table, algorithm, architecture diagram, flowchart, qualitative example, equation block, or page crop), and preserve readable titles, panel labels, axes, legends, color/shape encodings, table headers, equations, variables, entities, datasets, metrics, and key numeric values. Summarize the main relationship, trend, comparison, workflow, or result shown, including what the visual is evidence for in the paper. Be concise and factual. Do not invent unreadable labels, values, or conclusions; if details are unclear, state only the visible structure or say they are unreadable. Output plain text only, with no JSON."
     },
     "embedding": {
       "provider": "openai",
@@ -71,9 +85,10 @@
       }
     },
     "retrieval": {
-      "similarity_top_k": 5,
-      "bm25_similarity_top_k": 5,
-      "hybrid_weights": [0.7, 0.3]
+      "vector_top_k": 10,
+      "bm25_top_k": 10,
+      "result_top_k": 3,
+      "hybrid_weights": [0.2, 0.8]
     }
   }
 }

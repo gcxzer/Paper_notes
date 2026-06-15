@@ -189,8 +189,8 @@ def test_debug_transcript_is_append_only_across_rewrites(tmp_path):
     after_followup = [json.loads(line)["content"] for line in debug_path.read_text(encoding="utf-8").splitlines()]
 
     assert before_compaction == ["Question", "Answer"]
-    assert after_compaction == ["Question", "Answer"]
-    assert after_followup == ["Question", "Answer", "Follow-up"]
+    assert after_compaction == ["Question", "Answer", "Compact summary"]
+    assert after_followup == ["Question", "Answer", "Compact summary", "Follow-up"]
     assert [message["content"] for message in store.require_session(session_id).messages] == ["Compact summary", "Follow-up"]
 
 
@@ -227,6 +227,29 @@ def test_debug_transcript_appends_tail_when_old_tool_output_is_placeholdered(tmp
     assert [message["role"] for message in debug_messages] == ["user", "assistant", "tool", "assistant"]
     assert debug_messages[2]["content"] == "raw output"
     assert debug_messages[3]["content"] == "Final answer"
+
+
+def test_debug_transcript_does_not_append_metadata_only_rewrites(tmp_path):
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
+    session = store.create_session()
+    session_id = session.metadata.session_id
+    debug_path = store.debug_transcript_path(session_id)
+
+    store.replace_messages(session_id, [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "Answer"},
+    ])
+    before_update = debug_path.read_text(encoding="utf-8").splitlines()
+
+    store.replace_messages(session_id, [
+        {"role": "user", "content": "Question", "metadata": {"source": "reader"}},
+        {"role": "assistant", "content": "Answer", "runTrace": {"status": "completed"}},
+    ])
+    after_update = debug_path.read_text(encoding="utf-8").splitlines()
+
+    assert after_update == before_update
+    assert store.require_session(session_id).messages[0]["metadata"] == {"source": "reader"}
+    assert store.require_session(session_id).messages[1]["runTrace"] == {"status": "completed"}
 
 
 def test_delete_session_removes_index_and_transcript(tmp_path):

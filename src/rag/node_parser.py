@@ -43,13 +43,16 @@ def build_image_caption_nodes(
         caption = str(image.get("caption") or "").strip()
         if not caption:
             continue
+        caption_text = str(image.get("caption_text") or "").strip()
 
         page_number = image.get("page_number")
         image_index = image.get("image_index")
         caption_pages.append({
-            "text": (
-                f"Image caption from page {page_number}, image {image_index}:\n"
-                f"{caption}"
+            "text": _image_caption_node_text(
+                page_number=page_number,
+                image_index=image_index,
+                caption=caption,
+                caption_text=caption_text,
             ),
             "metadata": {
                 "source_type": "image_caption",
@@ -60,6 +63,7 @@ def build_image_caption_nodes(
                 "image_path": str(image.get("image_path") or ""),
                 "source_anchor": image["source_anchor"],
                 "caption": caption,
+                "caption_text": caption_text,
                 "caption_provider": image.get("caption_provider", ""),
                 "caption_model": image.get("caption_model", ""),
                 "caption_generated": bool(image.get("caption_generated")),
@@ -68,6 +72,21 @@ def build_image_caption_nodes(
         })
 
     return build_text_nodes(caption_pages, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+
+def _image_caption_node_text(*, page_number: object, image_index: object, caption: str, caption_text: str) -> str:
+    heading = (
+        f"Source: page {page_number}, image {image_index}."
+        if page_number is not None
+        else f"Source: image {image_index}; page number was not provided by the parser."
+    )
+    if caption_text and caption_text != caption:
+        return (
+            f"{heading}\n"
+            f"Original PDF caption:\n{caption_text}\n\n"
+            f"Generated visual caption:\n{caption}"
+        )
+    return f"{heading}\n{caption}"
 
 
 def build_text_nodes(pages: list[dict], *, chunk_size: int | None = None, chunk_overlap: int | None = None):

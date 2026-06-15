@@ -577,8 +577,7 @@ class MediaStore:
     def _is_allowed_media_path(self, path: Path) -> bool:
         allowed_roots = [
             self.root.resolve(),
-            (self.project_root / "resources" / "Paper-pages").resolve(),
-            (self.project_root / "resources" / "Paper-images").resolve(),
+            (self.project_root / "resources" / "Paper-visuals").resolve(),
         ]
         return any(is_relative_to(path, root) for root in allowed_roots)
 

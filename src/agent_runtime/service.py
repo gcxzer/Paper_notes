@@ -140,10 +140,8 @@ class AgentService:
         annotations_dir: Path | None = None,
         html_dir: Path | None = None,
         papers_dir: Path | None = None,
-        paper_page_cache_dir: Path | None = None,
-        paper_image_cache_dir: Path | None = None,
+        paper_visual_cache_dir: Path | None = None,
         media_store: Any | None = None,
-        paper_image_analyzer: Any | None = None,
     ) -> None:
         self.app_config = app_config or load_app_config()
         self.session_store = session_store or AgentSessionStore()
@@ -165,10 +163,8 @@ class AgentService:
             annotations_dir=annotations_dir,
             html_dir=html_dir,
             papers_dir=papers_dir,
-            paper_page_cache_dir=paper_page_cache_dir,
-            paper_image_cache_dir=paper_image_cache_dir,
+            paper_visual_cache_dir=paper_visual_cache_dir,
             media_store=media_store,
-            paper_image_analyzer=paper_image_analyzer,
             mcp_manager=self.mcp_manager,
         )
 
@@ -704,7 +700,7 @@ def _compact_messages_with_model(model: str | BaseChatModel, messages: list[Base
 
 def _compacted_summary_transcript_message(summary: str) -> dict[str, Any]:
     return {
-        "role": "user",
+        "role": "summary",
         "content": f"{SUMMARY_MESSAGE_PREFIX}\n\nCompacted conversation summary:\n\n{summary}".rstrip(),
         "metadata": {"source": "context_compaction"},
     }

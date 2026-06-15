@@ -3,20 +3,23 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 
 from agent_runtime import run_agent_loop
 from agent_runtime.agent_loop import with_context_management
+from agent_runtime.messages import messages_from_transcript
 from app_config import AppConfig
 from middleware import (
     SUMMARY_MESSAGE_PREFIX,
     ContextCollapseMiddleware,
     ContextCompactionMiddleware,
     SummarizationMiddleware,
+    ToolCallLimitMiddleware,
     ToolOutputPlaceholderMiddleware,
     ToolOutputTruncationMiddleware,
     compaction_trigger_tokens,
     create_context_collapse_middleware,
+    create_tool_call_limit_middleware,
 )
 
 
@@ -140,6 +143,66 @@ def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
     assert placeholder.keep_recent == 3
 
 
+def test_context_management_inserts_tool_call_limit_middleware() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
+    app_config = AppConfig(
+        data={
+            "models": {"default": "main", "main": {"provider": "openai", "name": "gpt-5.5"}},
+            "tool_call_limit": {
+                "enabled": True,
+                "limits": [
+                    {
+                        "tool_name": "query_paper_content",
+                        "run_limit": 4,
+                        "exit_behavior": "continue",
+                    }
+                ],
+            },
+        },
+        path=None,
+    )
+
+    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+
+    limiter = next(item for item in middleware if isinstance(item, ToolCallLimitMiddleware))
+    assert limiter.tool_name == "query_paper_content"
+    assert limiter.run_limit == 4
+    assert limiter.thread_limit is None
+    assert limiter.exit_behavior == "continue"
+
+
+def test_tool_call_limit_middleware_blocks_excess_tool_calls() -> None:
+    middleware = create_tool_call_limit_middleware(
+        tool_name="query_paper_content",
+        run_limit=1,
+        exit_behavior="continue",
+    )
+
+    update = middleware.after_model(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "query_paper_content", "args": {}, "id": "call-1", "type": "tool_call"},
+                        {"name": "query_paper_content", "args": {}, "id": "call-2", "type": "tool_call"},
+                    ],
+                )
+            ]
+        },
+        runtime=None,
+    )
+
+    assert update is not None
+    assert update["thread_tool_call_count"]["query_paper_content"] == 1
+    assert update["run_tool_call_count"]["query_paper_content"] == 2
+    blocked = update["messages"]
+    assert len(blocked) == 1
+    assert isinstance(blocked[0], ToolMessage)
+    assert blocked[0].tool_call_id == "call-2"
+    assert blocked[0].status == "error"
+
+
 def test_tool_output_truncation_middleware_writes_oversized_outputs(tmp_path) -> None:
     middleware = ToolOutputTruncationMiddleware(
         root_dir=tmp_path,
@@ -166,13 +229,6 @@ def test_tool_output_truncation_middleware_writes_oversized_outputs(tmp_path) ->
     assert "Beginning of output:" in result.content
     assert "01234567" in result.content
     assert content not in result.content
-
-
-def test_tool_output_trunction_typo_module_remains_compatible() -> None:
-    from middleware.tool_output_truncation import ToolOutputTruncationMiddleware as CorrectName
-    from middleware.tool_output_trunction import ToolOutputTruncationMiddleware as TypoName
-
-    assert TypoName is CorrectName
 
 
 def test_tool_output_placeholder_middleware_omits_old_outputs() -> None:
@@ -256,6 +312,43 @@ def test_context_collapse_middleware_can_keep_to_previous_user_question() -> Non
     assert isinstance(messages[0], RemoveMessage)
     assert messages[1].content.startswith(SUMMARY_MESSAGE_PREFIX)
     assert messages[2:] == [previous_question, previous_answer, current_question]
+
+
+def test_context_collapse_middleware_does_not_summarize_only_user_question() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="older compressed history")])
+    collapse = create_context_collapse_middleware(
+        model,
+        trigger=("messages", 5),
+        keep=("messages", 1),
+        keep_to_previous_user_question=True,
+    )
+
+    update = collapse.before_model(
+        {
+            "messages": [
+                HumanMessage(content="current user question"),
+                AIMessage(content="", tool_calls=[{"name": "query_paper_content", "args": {}, "id": "call-1"}]),
+                ToolMessage(content="large result", tool_call_id="call-1"),
+                AIMessage(content="", tool_calls=[{"name": "query_paper_content", "args": {}, "id": "call-2"}]),
+                ToolMessage(content="another large result", tool_call_id="call-2"),
+            ]
+        },
+        runtime=None,
+    )
+
+    assert update is None
+
+
+def test_summary_transcript_messages_are_model_context_not_user_input() -> None:
+    messages = messages_from_transcript([
+        {"role": "summary", "content": f"{SUMMARY_MESSAGE_PREFIX}\n\ncompressed"},
+        {"role": "user", "content": f"{SUMMARY_MESSAGE_PREFIX}\n\nlegacy compressed"},
+        {"role": "user", "content": "current question"},
+    ])
+
+    assert isinstance(messages[0], SystemMessage)
+    assert isinstance(messages[1], SystemMessage)
+    assert isinstance(messages[2], HumanMessage)
 
 
 def test_context_collapse_middleware_preserves_existing_summary_messages() -> None:

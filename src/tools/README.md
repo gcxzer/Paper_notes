@@ -12,14 +12,12 @@ only re-exports the public API.
 
 - `get_paper_context`: search/list local paper metadata or build compact context
   for one paper from metadata, note HTML, annotations, and local paper index status.
-- `inspect_paper_visuals`: render PDF pages, extract figures/images, or analyze a
-  registered image artifact when an analyzer is available.
+- `inspect_paper_visuals`: render PDF pages or extract figures/images.
 - `query_paper_content`: the default paper-reading tool for semantic retrieval
   over a note's ready local paper index.
 - `write_note`: update note HTML sections or note metadata.
 - `manage_annotations`: create, update, or delete Paper Notes annotations.
-- `write_note_media`: write note content from paper images or insert existing
-  image artifacts.
+- `write_note_media`: insert existing image artifacts into notes.
 - `review_note`: validate note HTML or preview a section diff without saving.
 
 ## Boundaries

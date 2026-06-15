@@ -15,11 +15,11 @@ class BM25Index:
 
     def __init__(
         self,
-        similarity_top_k: int | None = None,
+        top_k: int | None = None,
         persist_dir: str | Path | None = None,
     ) -> None:
         rag_config = load_app_config().rag
-        self.similarity_top_k = rag_config.retrieval.bm25_similarity_top_k_for(similarity_top_k)
+        self.top_k = rag_config.retrieval.bm25_top_k_for(top_k)
         self.persist_dir = Path(persist_dir) if persist_dir is not None else rag_config.bm25_storage_path()
 
     def build(self, nodes: list[BaseNode]) -> BM25Retriever:
@@ -60,5 +60,5 @@ class BM25Index:
 
     def _effective_top_k(self, corpus_size: int | None) -> int:
         if corpus_size is None:
-            return self.similarity_top_k
-        return min(self.similarity_top_k, corpus_size)
+            return self.top_k
+        return min(self.top_k, corpus_size)

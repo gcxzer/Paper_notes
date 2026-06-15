@@ -16,6 +16,7 @@ from langchain_core.messages import (
 )
 
 from app_infra.content import content_text
+from middleware import SUMMARY_MESSAGE_PREFIX
 
 
 ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
@@ -40,6 +41,8 @@ def message_from_transcript(message: dict[str, Any]) -> BaseMessage | None:
     role = str(message.get("role") or "").strip().lower()
     content = copy.deepcopy(message.get("content", ""))
     name = message.get("name")
+    if _is_summary_transcript_message(message):
+        return SystemMessage(content=content, name=name)
     if role == "user":
         return HumanMessage(content=content, name=name)
     if role == "assistant":
@@ -94,6 +97,8 @@ def message_to_transcript(message: BaseMessage) -> dict[str, Any] | None:
 
 
 def role_for_message(message: BaseMessage) -> str:
+    if _is_summary_message(message):
+        return "summary"
     if isinstance(message, HumanMessage):
         return "user"
     if isinstance(message, AIMessage):
@@ -103,6 +108,21 @@ def role_for_message(message: BaseMessage) -> str:
     if isinstance(message, SystemMessage):
         return "system"
     return str(getattr(message, "role", "") or message.type or "message")
+
+
+def _is_summary_message(message: BaseMessage) -> bool:
+    if not isinstance(message, HumanMessage | SystemMessage):
+        return False
+    content = getattr(message, "content", "")
+    return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
+
+
+def _is_summary_transcript_message(message: dict[str, Any]) -> bool:
+    role = str(message.get("role") or "").strip().lower()
+    content = message.get("content", "")
+    if role == "summary":
+        return True
+    return role == "user" and isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
 
 
 def message_metadata(message: BaseMessage) -> dict[str, Any]:

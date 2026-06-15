@@ -3296,7 +3296,7 @@ test("reader chat renders extended markdown features", async ({ page }) => {
   await page.evaluate(() => {
     readerState.chatMessages = [{
       role: "assistant",
-      text: "支持 ~~删除线~~ 和 $E=mc^2$。\n\n![示例图](resources/Paper-images/pdf-adam-s-law-textual-frequency-law-on-large-language-models-mp8j9yvt/page-0001-image-001-xref-130.png)\n\n- [x] 完成图片渲染\n- [ ] 补任务列表\n  - 子任务 A\n  1. 子步骤一",
+      text: "支持 ~~删除线~~ 和 $E=mc^2$。\n\n![示例图](resources/Paper-visuals/pdf-adam-s-law-textual-frequency-law-on-large-language-models-mp8j9yvt/images/page-0001-image-001-xref-130.png)\n\n- [x] 完成图片渲染\n- [ ] 补任务列表\n  - 子任务 A\n  1. 子步骤一",
     }];
     renderReaderChatMessages({ forceScrollToBottom: true });
   });

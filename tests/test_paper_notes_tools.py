@@ -4,6 +4,7 @@ import json
 
 from tools.paper_notes.tool import create_tools
 from tools.paper_notes.impl import facade
+from tools.paper_notes.impl import paper as paper_impl
 from tools.paper_notes.schemas import get_paper_context_parameters, inspect_paper_visuals_parameters
 
 
@@ -31,15 +32,23 @@ def test_get_paper_context_schema_fuses_search_and_context():
     assert schema["required"] == []
 
 
-def test_query_paper_content_schema_accepts_multiple_queries():
+def test_query_paper_content_schema_accepts_single_query():
     tool = next(tool for tool in create_tools() if tool.name == "query_paper_content")
     schema = tool.args_schema
 
     assert "Primary tool for reading and answering questions about a paper" in tool.description
     assert "library metadata" in tool.description
-    assert "queries" in schema["properties"]
-    assert schema["properties"]["queries"]["maxItems"] == 5
-    assert schema["required"] == ["note_id"]
+    assert "query" in schema["properties"]
+    assert schema["properties"]["query"]["type"] == "string"
+    assert "queries" not in schema["properties"]
+    assert "embedding_provider" not in schema["properties"]
+    assert "embedding_model" not in schema["properties"]
+    assert "similarity_top_k" not in schema["properties"]
+    assert "bm25_similarity_top_k" not in schema["properties"]
+    assert "vector_top_k" not in schema["properties"]
+    assert "bm25_top_k" not in schema["properties"]
+    assert "result_top_k" not in schema["properties"]
+    assert schema["required"] == ["note_id", "query"]
 
 
 def test_paper_notes_tools_hide_visual_inspection_when_unavailable():
@@ -111,13 +120,8 @@ def test_inspect_paper_visuals_schema_is_visual_only():
     assert schema["properties"]["action"]["enum"] == ["render_page", "extract_images"]
     assert "max_chars" not in schema["properties"]
     assert "artifact_id" not in schema["properties"]
-
-
-def test_inspect_paper_visuals_schema_includes_analysis_only_when_available():
-    schema = inspect_paper_visuals_parameters(image_analysis=True)
-
-    assert schema["properties"]["action"]["enum"] == ["render_page", "extract_images", "analyze_image"]
-    assert "artifact_id" in schema["properties"]
+    assert "path" not in schema["properties"]
+    assert "query" not in schema["properties"]
 
 
 def test_inspect_paper_visuals_rejects_removed_text_actions():
@@ -125,4 +129,13 @@ def test_inspect_paper_visuals_rejects_removed_text_actions():
 
     assert result["success"] is False
     assert result["code"] == "invalid_action"
-    assert "render_page, extract_images, or analyze_image" in result["error"]
+    assert "render_page or extract_images" in result["error"]
+
+
+def test_paper_visual_cache_paths_share_one_root():
+    page_path = paper_impl._paper_page_cache_path("note-1", page_number=2, scale=2)
+    image_dir = paper_impl._paper_visual_images_dir("note-1")
+
+    visual_root = paper_impl.PAPER_VISUALS_DIR / "note-1"
+    assert page_path.parent == visual_root / "pages"
+    assert image_dir == visual_root / "images"

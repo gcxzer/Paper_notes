@@ -165,8 +165,9 @@ class PaperRAGService:
         note_id: str = "",
         pdf_path: str | Path | None = None,
         index_key: str = "",
-        similarity_top_k: int | None = None,
-        bm25_similarity_top_k: int | None = None,
+        vector_top_k: int | None = None,
+        bm25_top_k: int | None = None,
+        result_top_k: int | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
         library_path: str | Path | None = None,
@@ -190,8 +191,9 @@ class PaperRAGService:
         from rag.retriever import close_retriever, get_retriever
 
         retriever = get_retriever(
-            similarity_top_k=rag_config.retrieval.similarity_top_k_for(similarity_top_k),
-            bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(bm25_similarity_top_k),
+            vector_top_k=rag_config.retrieval.vector_top_k_for(vector_top_k),
+            bm25_top_k=rag_config.retrieval.bm25_top_k_for(bm25_top_k),
+            result_top_k=rag_config.retrieval.result_top_k_for(result_top_k),
             bm25_persist_dir=spec.bm25_path,
             qdrant_storage_dir=spec.qdrant_path,
             collection_name=spec.text_collection,

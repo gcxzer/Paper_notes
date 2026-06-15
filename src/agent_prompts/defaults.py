@@ -51,9 +51,9 @@ PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE = (
     "- Use query_paper_content as the main paper-reading tool. For any question about what the paper says, "
     "argues, proves, measures, reports, compares, concludes, or shows in figures/tables, retrieve paper content "
     "with query_paper_content unless the user explicitly asks about note metadata, note HTML/sections, tags, "
-    "annotations, or library/index status. When calling it, write retrieval queries from the user's request plus "
-    "current paper/note context, section names, selected text, and prior tool results. For broad, comparative, "
-    "or multi-part requests, pass queries with 2-5 focused queries instead of one vague query. If "
+    "annotations, or library/index status. When calling it, write one retrieval query from the user's request "
+    "plus current paper/note context, section names, selected text, and prior tool results. For broad, "
+    "comparative, or multi-part requests, synthesize those needs into one concrete query. If "
     "query_paper_content reports index_not_ready, tell the user the paper needs an index before content reading. "
     "Use inspect_paper_visuals, when it is available, only for page rendering, figure extraction, or paper image "
     "analysis actions that are exposed in the current tool schema.\n"
@@ -98,15 +98,15 @@ TOOL_GUIDANCE_BY_NAME = {
         "limitations, conclusions, and section-level explanations. Use get_paper_context instead only when the "
         "user explicitly asks about library metadata, note HTML/sections, tags, annotations, or index status. "
         "Before calling query_paper_content, convert the user request plus current paper/note context into "
-        "specific retrieval query text. Prefer paper terminology, section names, method names, variables, "
+        "one specific retrieval query. Prefer paper terminology, section names, method names, variables, "
         "datasets, and likely English technical terms over generic wording. For multi-part, ambiguous, or "
-        "high-recall questions, pass queries with 2-5 focused queries, each aimed at one aspect. Do not assume "
+        "high-recall questions, synthesize one focused query that covers the needed aspects. Do not assume "
         "imports create indexes automatically. If it reports index_not_ready, tell the user to build the paper "
         "index."
     ),
     "inspect_paper_visuals": (
         "Use inspect_paper_visuals only for the actions exposed in its current schema, such as PDF page rendering, "
-        "figure extraction, or registered paper image analysis when that action is available. Do not use it for "
+        "or figure extraction. Do not use it for "
         "paper text/content retrieval; use query_paper_content for that."
     ),
     "manage_annotations": (
@@ -124,8 +124,7 @@ TOOL_GUIDANCE_BY_NAME = {
     ),
     "write_note_media": (
         "Use write_note_media only for the actions exposed in its current schema. Use insert_image when the user "
-        "explicitly wants an image inserted into the note; use write_from_image only when image analysis is available "
-        "and the user explicitly wants image-derived content written into the note. Do not use it for plain attached-image "
+        "explicitly wants an existing image artifact inserted into the note. Do not use it for plain attached-image "
         "translation, OCR/transcription, description, or Q&A; answer directly from the attached image instead. "
         "For user-provided local images, the file must "
         "already be anywhere under Paper_Notes/.paper-notes/media, including subfolders; if it is elsewhere, ask "

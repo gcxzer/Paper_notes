@@ -223,7 +223,7 @@ def _build_image_records(result, pdf_path: Path, output_dir: Path, *, download_t
                     image_path=image_path,
                     page_number=page.page_number,
                     image_index=image_index,
-                    caption=getattr(item, "caption", "") or "",
+                    caption_text=getattr(item, "caption", "") or "",
                     content_type=content_type or getattr(image_metadata, "content_type", "") or "",
                     bbox=_dump_bbox(getattr(item, "bbox", None)) or _dump_bbox(getattr(image_metadata, "bbox", None)),
                     category=getattr(image_metadata, "category", "") or "",
@@ -294,7 +294,12 @@ def _build_metadata_image_records(
             print(f"Skipping LlamaParse image metadata {filename or metadata_index}: no download URL.")
             continue
 
-        page_number = page_by_filename.get(filename, _page_number_from_filename(filename))
+        page_number = _resolve_llamaparse_image_page(
+            image_metadata,
+            filename=filename,
+            image_url=image_url,
+            page_by_filename=page_by_filename,
+        )
         image_index = _metadata_image_index(image_metadata, fallback=metadata_index)
         source_key = (page_number, filename or image_url)
         if source_key in seen_sources:
@@ -317,7 +322,7 @@ def _build_metadata_image_records(
                 image_path=image_path,
                 page_number=page_number,
                 image_index=image_index,
-                caption="",
+                caption_text="",
                 content_type=content_type or getattr(image_metadata, "content_type", "") or "",
                 bbox=_dump_bbox(getattr(image_metadata, "bbox", None)),
                 category=getattr(image_metadata, "category", "") or "",
@@ -334,7 +339,7 @@ def _image_record(
     image_path: Path,
     page_number: int | None,
     image_index: int,
-    caption: str,
+    caption_text: str,
     content_type: str,
     bbox: list[dict] | None,
     category: str = "",
@@ -350,7 +355,8 @@ def _image_record(
         "image_index": image_index,
         "source_anchor": source_anchor,
         "source_type": "llamaparse_image",
-        "caption": caption,
+        "caption": caption_text,
+        "caption_text": caption_text,
         "content_type": content_type,
         "bbox": bbox,
         "category": category,
@@ -511,8 +517,97 @@ def _metadata_image_index(image_metadata, *, fallback: int) -> int:
         return fallback
 
 
+def _resolve_llamaparse_image_page(
+    image_metadata,
+    *,
+    filename: str | None,
+    image_url: str | None,
+    page_by_filename: dict[str, int],
+) -> int | None:
+    metadata_page_number = _page_number_from_metadata(image_metadata)
+    if metadata_page_number is not None:
+        return metadata_page_number
+
+    for value in (filename, image_url):
+        for candidate in _candidate_filenames(value or ""):
+            if candidate in page_by_filename:
+                return page_by_filename[candidate]
+
+            page_number = _page_number_from_filename(candidate)
+            if page_number is not None:
+                return page_number
+
+    return None
+
+
+def _page_number_from_metadata(image_metadata) -> int | None:
+    page_number = _first_int_field(
+        image_metadata,
+        (
+            "page_number",
+            "pageNumber",
+            "page_num",
+            "pageNum",
+            "page",
+            "pdf_page",
+            "pdfPage",
+        ),
+    )
+    if page_number is not None and page_number > 0:
+        return page_number
+
+    page_index = _first_int_field(
+        image_metadata,
+        (
+            "page_index",
+            "pageIndex",
+            "page_idx",
+            "pageIdx",
+        ),
+    )
+    if page_index is not None and page_index >= 0:
+        return page_index + 1
+
+    for bbox in _bbox_items(getattr(image_metadata, "bbox", None)):
+        page_number = _page_number_from_metadata(bbox)
+        if page_number is not None:
+            return page_number
+
+    return None
+
+
+def _first_int_field(source, field_names: tuple[str, ...]) -> int | None:
+    for field_name in field_names:
+        value = _field_value(source, field_name)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _field_value(source, field_name: str):
+    if isinstance(source, dict):
+        return source.get(field_name)
+    return getattr(source, field_name, None)
+
+
+def _bbox_items(bbox) -> list:
+    if not bbox:
+        return []
+    if hasattr(bbox, "model_dump"):
+        return [bbox.model_dump()]
+    if isinstance(bbox, dict):
+        return [bbox]
+    if isinstance(bbox, (list, tuple)):
+        return list(bbox)
+    return [bbox]
+
+
 def _page_number_from_filename(filename: str | None) -> int | None:
-    match = re.search(r"(?:^|[^\w])page[_-]?(\d+)(?:[^\w]|$)", filename or "", flags=re.IGNORECASE)
+    match = re.search(r"(?<![A-Za-z0-9])page[_-]?(\d+)(?!\d)", filename or "", flags=re.IGNORECASE)
     if not match:
         return None
     return int(match.group(1))

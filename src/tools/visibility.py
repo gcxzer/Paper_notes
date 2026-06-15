@@ -22,10 +22,8 @@ class ToolContext:
     annotations_dir: Path | None = None
     html_dir: Path | None = None
     papers_dir: Path | None = None
-    paper_page_cache_dir: Path | None = None
-    paper_image_cache_dir: Path | None = None
+    paper_visual_cache_dir: Path | None = None
     media_store: Any | None = None
-    paper_image_analyzer: Any | None = None
     mcp_manager: Any | None = None
     session_id: str = ""
     provider_name: str = ""
@@ -72,17 +70,13 @@ def tool_name(tool: AgentTool) -> str:
 def _paper_notes_tools(context: ToolContext, capabilities: ModelCapabilities) -> list[BaseTool]:
     from tools.paper_notes import create_tools as create_paper_notes_tools
 
-    can_analyze_images = callable(context.paper_image_analyzer)
     return create_paper_notes_tools(
         library_path=context.library_path,
         annotations_dir=context.annotations_dir,
         html_dir=context.html_dir,
         papers_dir=context.papers_dir,
-        paper_page_cache_dir=context.paper_page_cache_dir,
-        paper_image_cache_dir=context.paper_image_cache_dir,
+        paper_visual_cache_dir=context.paper_visual_cache_dir,
         media_store=context.media_store,
-        paper_image_analyzer=context.paper_image_analyzer,
-        image_analysis_available=can_analyze_images,
         visual_inspection_available=capabilities.supports_vision,
     )
 

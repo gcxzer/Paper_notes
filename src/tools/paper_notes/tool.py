@@ -23,23 +23,14 @@ def create_tools(
     annotations_dir: Path | None = None,
     html_dir: Path | None = None,
     papers_dir: Path | None = None,
-    paper_page_cache_dir: Path | None = None,
-    paper_image_cache_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
     media_store: Any | None = None,
-    paper_image_analyzer: Any | None = None,
-    image_analysis_available: bool | None = None,
     visual_inspection_available: bool = True,
 ) -> list[StructuredTool]:
     can_inspect_visuals = bool(visual_inspection_available)
-    can_analyze_images = callable(paper_image_analyzer) if image_analysis_available is None else bool(image_analysis_available)
     visual_actions = "render_page for a page image or extract_images for figures"
-    if can_analyze_images:
-        visual_actions += ", or analyze_image for a registered paper image artifact"
-    media_actions = "insert_image for an existing image artifact"
-    if can_analyze_images:
-        media_actions = "write_from_image for paper image analysis or insert_image for an existing image artifact"
     query_visual_guidance = (
-        "Use inspect_paper_visuals only for page rendering, figure extraction, or exposed image-analysis actions. "
+        "Use inspect_paper_visuals only for page rendering or figure extraction. "
         if can_inspect_visuals
         else "This model cannot inspect paper images, so answer figure/table questions from retrieved text and captions. "
     )
@@ -67,8 +58,8 @@ def create_tools(
                 "figures/tables in context, related work, limitations, conclusions, or what any section says. "
                 "Use get_paper_context instead only when the user explicitly asks about library metadata, note "
                 f"HTML/sections, annotations, tags, or index status. {query_visual_guidance}Generate retrieval "
-                "query text from the user request plus current note/paper context; use queries for multiple "
-                "focused searches when one query would be too broad."
+                "query from the user request plus current note/paper context; provide one focused query "
+                "targeting the concrete paper content needed to answer."
             ),
             args_schema=query_paper_content_parameters(),
             func=lambda **kwargs: facade.query_paper_content(dict(kwargs), library_path=library_path),
@@ -104,18 +95,14 @@ def create_tools(
         StructuredTool(
             name="write_note_media",
             description=(
-                "Write visual media into a note. "
-                f"Use action={media_actions}."
+                "Write visual media into a note. Use action=insert_image for an existing image artifact."
             ),
-            args_schema=write_note_media_parameters(image_analysis=can_analyze_images),
+            args_schema=write_note_media_parameters(),
             func=lambda **kwargs: facade.write_note_media(
                 dict(kwargs),
                 library_path=library_path,
                 html_dir=html_dir,
-                papers_dir=papers_dir,
-                paper_page_cache_dir=paper_page_cache_dir,
                 media_store=media_store,
-                paper_image_analyzer=paper_image_analyzer,
             ),
         ),
         StructuredTool(
@@ -138,15 +125,13 @@ def create_tools(
                 description=(
                     f"Inspect visual paper source material for a note. Use action={visual_actions}."
                 ),
-                args_schema=inspect_paper_visuals_parameters(image_analysis=can_analyze_images),
+                args_schema=inspect_paper_visuals_parameters(),
                 func=lambda **kwargs: facade.inspect_paper_visuals(
                     dict(kwargs),
                     library_path=library_path,
                     papers_dir=papers_dir,
-                    paper_page_cache_dir=paper_page_cache_dir,
-                    paper_image_cache_dir=paper_image_cache_dir,
+                    paper_visual_cache_dir=paper_visual_cache_dir,
                     media_store=media_store,
-                    paper_image_analyzer=paper_image_analyzer,
                 ),
             ),
         )

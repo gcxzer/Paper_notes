@@ -36,14 +36,11 @@ def get_paper_context_parameters() -> dict[str, Any]:
     }
 
 
-def inspect_paper_visuals_parameters(*, image_analysis: bool = False) -> dict[str, Any]:
-    actions = ["render_page", "extract_images"]
-    if image_analysis:
-        actions.append("analyze_image")
+def inspect_paper_visuals_parameters() -> dict[str, Any]:
     properties: dict[str, Any] = {
         "action": {
             "type": "string",
-            "enum": actions,
+            "enum": ["render_page", "extract_images"],
         },
         "note_id": {"type": "string", "description": "The note id whose PDF visuals should be inspected."},
         "page": {"type": "integer", "minimum": 1, "description": "Page number for render_page."},
@@ -52,12 +49,6 @@ def inspect_paper_visuals_parameters(*, image_analysis: bool = False) -> dict[st
         "limit": {"type": "integer", "minimum": 1, "maximum": 50},
         "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
     }
-    if image_analysis:
-        properties.update({
-            "query": {"type": "string", "description": "Image-analysis question for analyze_image."},
-            "artifact_id": {"type": "string", "description": "Registered image artifact id for analyze_image."},
-            "path": {"type": "string", "description": "Optional registered artifact path for analyze_image."},
-        })
     return {
         "type": "object",
         "properties": properties,
@@ -74,29 +65,13 @@ def query_paper_content_parameters() -> dict[str, Any]:
             "query": {
                 "type": "string",
                 "description": (
-                    "One synthesized semantic retrieval query for the paper's actual PDF content. Build it from "
-                    "the user's paper question plus current paper/note context, not from vague wording alone."
+                    "One synthesized semantic retrieval query for the paper's actual PDF content. Build it "
+                    "from the user's paper question plus current paper/note context, using concrete paper "
+                    "terms instead of vague wording."
                 ),
             },
-            "queries": {
-                "type": "array",
-                "items": {"type": "string"},
-                "minItems": 1,
-                "maxItems": 5,
-                "description": (
-                    "Optional multiple focused retrieval queries for multi-part, broad, or ambiguous paper "
-                    "questions. Each query should target one concrete aspect of the paper."
-                ),
-            },
-            "similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
-            "bm25_similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
-            "embedding_provider": {
-                "type": "string",
-                "description": "Embedding backend, usually ollama for local qwen3-embedding.",
-            },
-            "embedding_model": {"type": "string", "description": "Optional provider-specific embedding model."},
         },
-        "required": ["note_id"],
+        "required": ["note_id", "query"],
         "additionalProperties": False,
     }
 
@@ -185,12 +160,9 @@ def manage_annotations_parameters() -> dict[str, Any]:
     }
 
 
-def write_note_media_parameters(*, image_analysis: bool = False) -> dict[str, Any]:
-    actions = ["insert_image"]
-    if image_analysis:
-        actions.insert(0, "write_from_image")
+def write_note_media_parameters() -> dict[str, Any]:
     properties: dict[str, Any] = {
-        "action": {"type": "string", "enum": actions},
+        "action": {"type": "string", "enum": ["insert_image"]},
         "note_id": {"type": "string", "description": "The note id to modify."},
         "heading": {"type": "string", "description": "Heading to create, update, or insert the image near."},
         "position": {
@@ -209,12 +181,6 @@ def write_note_media_parameters(*, image_analysis: bool = False) -> dict[str, An
         "caption": {"type": "string", "description": "Figure caption for insert_image."},
         "alt": {"type": "string", "description": "Image alt text for insert_image."},
     }
-    if image_analysis:
-        properties.update({
-            "page": {"type": "integer", "minimum": 1, "description": "PDF page for write_from_image."},
-            "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
-            "question": {"type": "string", "description": "Image-analysis or writing focus for write_from_image."},
-        })
     return {
         "type": "object",
         "properties": properties,

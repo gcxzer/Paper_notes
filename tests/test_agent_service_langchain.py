@@ -762,7 +762,7 @@ def test_agent_service_compact_session_preserves_recent_turn(tmp_path):
 
     assert result.compressed is True
     messages = result.session.messages
-    assert messages[0]["role"] == "user"
+    assert messages[0]["role"] == "summary"
     assert messages[0]["content"].startswith("[summary]")
     assert "dense summary" in messages[0]["content"]
     assert [message["content"] for message in messages[1:4]] == ["previous question", "previous answer", "current question"]

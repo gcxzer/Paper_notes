@@ -58,6 +58,8 @@ def chat_result_payload(
 
 def public_chat_message(message: dict[str, Any]) -> dict[str, Any] | None:
     role = optional_text(message.get("role"))
+    if is_summary_message(message):
+        return None
     if role == "tool":
         return None
     if role == "assistant" and message.get("tool_calls"):
@@ -150,12 +152,15 @@ def context_payload(status: dict[str, Any], messages: list[dict[str, Any]]) -> d
 
 
 def has_summary_message(messages: list[dict[str, Any]]) -> bool:
-    return any(
-        message.get("role") == "user"
-        and isinstance(message.get("content"), str)
-        and message["content"].strip().startswith(SUMMARY_MESSAGE_PREFIX)
-        for message in messages
-    )
+    return any(is_summary_message(message) for message in messages)
+
+
+def is_summary_message(message: dict[str, Any]) -> bool:
+    role = optional_text(message.get("role"))
+    if role == "summary":
+        return True
+    content = message.get("content")
+    return role == "user" and isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
 
 
 def compaction_marker_count(messages: list[dict[str, Any]]) -> int:

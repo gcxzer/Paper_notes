@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,6 +25,7 @@ def caption_image_records(
     max_images: int | None = None,
     max_image_bytes: int | None = None,
     timeout: float | None = None,
+    concurrency: int | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict]:
     """Caption extracted PDF images so they can be indexed as ordinary text."""
@@ -37,6 +39,7 @@ def caption_image_records(
     resolved_max_images = config.max_images if max_images is None else max(0, int(max_images))
     resolved_max_image_bytes = config.max_image_bytes if max_image_bytes is None else max(1, int(max_image_bytes))
     resolved_timeout = config.timeout if timeout is None else max(1.0, float(timeout))
+    resolved_concurrency = config.concurrency if concurrency is None else max(1, int(concurrency))
 
     if not resolved_provider:
         raise ValueError("Image captioning provider must be 'openai' or 'codex-oauth'.")
@@ -46,48 +49,84 @@ def caption_image_records(
         return []
 
     images_to_caption = image_records[:resolved_max_images]
+    worker_count = min(max(1, resolved_concurrency), max(1, len(images_to_caption)))
     _report_progress(
         progress_callback,
         stage="captioning",
-        message=f"Captioning {len(images_to_caption)} extracted images.",
+        message=f"Captioning {len(images_to_caption)} extracted images with concurrency {worker_count}.",
         percent=30,
         current=0,
         total=len(images_to_caption),
+        concurrency=worker_count,
     )
     client = _caption_client(resolved_provider, timeout=resolved_timeout)
-    captioned_records: list[dict] = []
     total = len(images_to_caption)
+    processed_count = 0
+    caption_tasks: list[tuple[int, dict]] = []
+
     for index, image_record in enumerate(images_to_caption, start=1):
         image_path = Path(image_record["image_path"])
         if not image_path.is_file():
             print(f"Skipping image captioning; file does not exist: {image_path}")
-            _report_caption_step(progress_callback, index=index, total=total, skipped=True)
+            processed_count += 1
+            _report_caption_step(progress_callback, index=index, total=total, current=processed_count, skipped=True)
             continue
         if image_path.stat().st_size > resolved_max_image_bytes:
             print(f"Skipping image captioning; image exceeds max bytes: {image_path}")
-            _report_caption_step(progress_callback, index=index, total=total, skipped=True)
+            processed_count += 1
+            _report_caption_step(progress_callback, index=index, total=total, current=processed_count, skipped=True)
             continue
+        caption_tasks.append((index, image_record))
 
-        _report_caption_step(progress_callback, index=index, total=total)
-        caption = _caption_one_image(
-            client,
-            model=resolved_model,
-            image_record=image_record,
-            prompt=resolved_prompt,
-            stream=resolved_provider == CODEX_PROVIDER,
-        )
-        if not caption:
-            _report_caption_step(progress_callback, index=index, total=total, skipped=True)
-            continue
+    captioned_by_index: dict[int, dict] = {}
+    if worker_count <= 1 or len(caption_tasks) <= 1:
+        for index, image_record in caption_tasks:
+            caption = _caption_one_image(
+                client,
+                model=resolved_model,
+                image_record=image_record,
+                prompt=resolved_prompt,
+                stream=resolved_provider == CODEX_PROVIDER,
+            )
+            processed_count = _record_caption_result(
+                progress_callback,
+                captioned_by_index,
+                image_record=image_record,
+                index=index,
+                total=total,
+                processed_count=processed_count,
+                caption=caption,
+                provider=resolved_provider,
+                model=resolved_model,
+            )
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="image-caption") as executor:
+            futures = {
+                executor.submit(
+                    _caption_one_image,
+                    client,
+                    model=resolved_model,
+                    image_record=image_record,
+                    prompt=resolved_prompt,
+                    stream=resolved_provider == CODEX_PROVIDER,
+                ): (index, image_record)
+                for index, image_record in caption_tasks
+            }
+            for future in as_completed(futures):
+                index, image_record = futures[future]
+                processed_count = _record_caption_result(
+                    progress_callback,
+                    captioned_by_index,
+                    image_record=image_record,
+                    index=index,
+                    total=total,
+                    processed_count=processed_count,
+                    caption=future.result(),
+                    provider=resolved_provider,
+                    model=resolved_model,
+                )
 
-        captioned_records.append({
-            **image_record,
-            "caption": caption,
-            "caption_provider": resolved_provider,
-            "caption_model": resolved_model,
-            "caption_generated": True,
-        })
-        _report_caption_step(progress_callback, index=index, total=total, completed=True)
+    captioned_records = [captioned_by_index[index] for index in sorted(captioned_by_index)]
 
     _report_progress(
         progress_callback,
@@ -98,6 +137,35 @@ def caption_image_records(
         total=total,
     )
     return captioned_records
+
+
+def _record_caption_result(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    captioned_by_index: dict[int, dict],
+    *,
+    image_record: dict,
+    index: int,
+    total: int,
+    processed_count: int,
+    caption: str,
+    provider: str,
+    model: str,
+) -> int:
+    processed_count += 1
+    if not caption:
+        _report_caption_step(progress_callback, index=index, total=total, current=processed_count, skipped=True)
+        return processed_count
+
+    captioned_by_index[index] = {
+        **image_record,
+        "caption_text": normalize_text(image_record.get("caption_text")),
+        "caption": caption,
+        "caption_provider": provider,
+        "caption_model": model,
+        "caption_generated": True,
+    }
+    _report_caption_step(progress_callback, index=index, total=total, current=processed_count, completed=True)
+    return processed_count
 
 
 def _caption_client(provider: str, *, timeout: float) -> Any:
@@ -134,16 +202,14 @@ def _caption_one_image(client: Any, *, model: str, image_record: dict, prompt: s
 
 def _caption_request_payload(*, model: str, image_record: dict, prompt: str) -> dict[str, Any]:
     image_path = Path(image_record["image_path"])
-    page_number = image_record.get("page_number")
-    image_index = image_record.get("image_index")
-    source_hint = (
-        f"Source: page {page_number}, image {image_index}."
-        if page_number is not None
-        else f"Source: image {image_index}; page number was not provided by the parser."
-    )
-    existing_caption = normalize_text(image_record.get("caption"))
-    if existing_caption:
-        source_hint = f"{source_hint}\nExisting PDF caption/OCR hint: {existing_caption}"
+    content = []
+    caption_text = normalize_text(image_record.get("caption_text"))
+    if caption_text:
+        content.append({
+            "type": "input_text",
+            "text": f"Original PDF figure caption/text near this image:\n{caption_text}",
+        })
+    content.append({"type": "input_image", "image_url": _image_data_url(image_path, image_record.get("content_type"))})
 
     return {
         "model": model,
@@ -152,10 +218,7 @@ def _caption_request_payload(*, model: str, image_record: dict, prompt: str) -> 
             {
                 "type": "message",
                 "role": "user",
-                "content": [
-                    {"type": "input_text", "text": source_hint},
-                    {"type": "input_image", "image_url": _image_data_url(image_path, image_record.get("content_type"))},
-                ],
+                "content": content,
             }
         ],
         "store": False,
@@ -262,6 +325,7 @@ def _report_caption_step(
     *,
     index: int,
     total: int,
+    current: int | None = None,
     completed: bool = False,
     skipped: bool = False,
 ) -> None:
@@ -269,8 +333,8 @@ def _report_caption_step(
         return
     base_percent = 30
     span = 14
-    current = index if completed or skipped else max(0, index - 1)
-    percent = base_percent + int(span * (current / max(1, total)))
+    current_count = current if current is not None else (index if completed or skipped else max(0, index - 1))
+    percent = base_percent + int(span * (current_count / max(1, total)))
     if skipped:
         message = f"Skipped image {index} of {total}."
     elif completed:
@@ -282,7 +346,7 @@ def _report_caption_step(
         stage="captioning",
         message=message,
         percent=percent,
-        current=current,
+        current=current_count,
         total=total,
     )
 

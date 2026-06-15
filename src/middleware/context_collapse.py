@@ -108,6 +108,7 @@ class ContextCollapseMiddleware(SummarizationMiddleware):
             cutoff_index = _previous_user_question_index(messages)
             if cutoff_index is not None:
                 return cutoff_index
+            return 0
         return super()._determine_cutoff_index(messages)
 
 

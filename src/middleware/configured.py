@@ -23,6 +23,10 @@ from middleware.tool_output_placeholder import (
     ToolOutputPlaceholderMiddleware,
     create_tool_output_placeholder_middleware,
 )
+from middleware.tool_call_limit import (
+    ToolCallLimitMiddleware,
+    create_tool_call_limit_middleware,
+)
 from middleware.tool_output_truncation import (
     ToolOutputTruncationMiddleware,
     create_tool_output_truncation_middleware,
@@ -41,6 +45,8 @@ def with_configured_middleware(
         return resolved
     if _tool_output_enabled(app_config):
         _insert_tool_output_middleware(resolved, app_config)
+    if _tool_call_limit_enabled(app_config):
+        _insert_tool_call_limit_middleware(resolved, app_config)
     if _config_bool(app_config, "context_management.enabled", "contextManagement.enabled", default=True) is False:
         return resolved
 
@@ -72,8 +78,20 @@ def _has_tool_output_placeholder_middleware(middleware: Sequence[AgentMiddleware
     return any(isinstance(item, ToolOutputPlaceholderMiddleware) for item in middleware)
 
 
+def _has_tool_call_limit_middleware(middleware: Sequence[AgentMiddleware], *, tool_name: str | None) -> bool:
+    return any(
+        isinstance(item, ToolCallLimitMiddleware) and getattr(item, "tool_name", None) == tool_name
+        for item in middleware
+    )
+
+
 def _tool_output_enabled(app_config: AppConfig) -> bool:
     return _config_bool(app_config, "tool_output.enabled", "toolOutput.enabled", default=True)
+
+
+def _tool_call_limit_enabled(app_config: AppConfig) -> bool:
+    config = app_config.tool_call_limit
+    return bool(config and config.enabled and config.limits)
 
 
 def _insert_tool_output_middleware(middleware: list[AgentMiddleware], app_config: AppConfig) -> None:
@@ -83,6 +101,23 @@ def _insert_tool_output_middleware(middleware: list[AgentMiddleware], app_config
         insert_at += 1
     if not _has_tool_output_placeholder_middleware(middleware):
         middleware.insert(insert_at, _tool_output_placeholder_middleware(app_config))
+
+
+def _insert_tool_call_limit_middleware(middleware: list[AgentMiddleware], app_config: AppConfig) -> None:
+    config = app_config.tool_call_limit
+    if config is None:
+        return
+    for rule in config.limits:
+        if _has_tool_call_limit_middleware(middleware, tool_name=rule.tool_name):
+            continue
+        middleware.append(
+            create_tool_call_limit_middleware(
+                tool_name=rule.tool_name,
+                thread_limit=rule.thread_limit,
+                run_limit=rule.run_limit,
+                exit_behavior=rule.exit_behavior,
+            )
+        )
 
 
 def _tool_output_truncation_middleware(app_config: AppConfig) -> ToolOutputTruncationMiddleware:
