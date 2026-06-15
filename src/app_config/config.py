@@ -24,6 +24,11 @@ DEFAULT_OPENAI_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-8B"
 DEFAULT_EMBEDDING_PROVIDER = "ollama"
 DEFAULT_OLLAMA_EMBEDDING_MODEL = "qwen3-embedding:8b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_DASHSCOPE_EMBEDDING_MODEL = "text-embedding-v4"
+DEFAULT_DASHSCOPE_EMBEDDING_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEFAULT_DASHSCOPE_EMBEDDING_API_KEY_ENV = "DASHSCOPE_API_KEY"
+DEFAULT_DASHSCOPE_EMBEDDING_DIMENSIONS = 1024
+DEFAULT_DASHSCOPE_EMBEDDING_BATCH_SIZE = 10
 DEFAULT_EMBED_BATCH_SIZE = 100
 DEFAULT_LOADER = "pymupdf"
 DEFAULT_IMAGE_CAPTIONING_ENABLED = False
@@ -60,8 +65,19 @@ DEFAULT_LLAMAPARSE_CUSTOM_PROMPT = (
 DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES = ("embedded", "layout")
 DEFAULT_VECTOR_TOP_K = 5
 DEFAULT_BM25_TOP_K = 5
-DEFAULT_RESULT_TOP_K = 5
+DEFAULT_RETRIEVER_RESULT_TOP_K = 10
 DEFAULT_HYBRID_WEIGHTS = (0.7, 0.3)
+DEFAULT_RERANKING_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+DEFAULT_RERANKING_API_KEY_ENV = "DASHSCOPE_API_KEY"
+DEFAULT_RERANKING_MODEL = "qwen3-vl-rerank"
+DEFAULT_RERANKING_TOP_N = 3
+DEFAULT_RERANKING_TIMEOUT = 60.0
+DEFAULT_RERANKING_MAX_DOCUMENT_CHARS = 6000
+DEFAULT_RERANKING_INSTRUCT = (
+    "Given an academic paper question, rank retrieved paper passages, figure/table captions, and visual "
+    "descriptions by how directly they answer the query. Preserve exact numbered references such as Figure 8, "
+    "Table 6, Equation 4, Algorithm 1, Appendix C, or Section 5.2 as hard relevance signals."
+)
 DEFAULT_INDEX_KEY = "default"
 DEFAULT_TOOL_OUTPUT_ROOT = PROJECT_ROOT / ".paper-notes" / "tool-outputs"
 DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR = "continue"
@@ -335,12 +351,47 @@ class RagOpenAIEmbeddingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RagDashScopeEmbeddingConfig:
+    model: str = DEFAULT_DASHSCOPE_EMBEDDING_MODEL
+    api_base: str = DEFAULT_DASHSCOPE_EMBEDDING_API_BASE
+    api_base_env: str = "DASHSCOPE_EMBEDDING_BASE_URL"
+    api_key_env: str = DEFAULT_DASHSCOPE_EMBEDDING_API_KEY_ENV
+    dimensions: int = DEFAULT_DASHSCOPE_EMBEDDING_DIMENSIONS
+    batch_size: int = DEFAULT_DASHSCOPE_EMBEDDING_BATCH_SIZE
+
+    @classmethod
+    def from_mapping(cls, value: object) -> RagDashScopeEmbeddingConfig:
+        data = _mapping(value)
+        return cls(
+            model=_text(data, "model", default=DEFAULT_DASHSCOPE_EMBEDDING_MODEL),
+            api_base=_text(data, "api_base", "apiBase", default=DEFAULT_DASHSCOPE_EMBEDDING_API_BASE),
+            api_base_env=_text(data, "api_base_env", "apiBaseEnv", default="DASHSCOPE_EMBEDDING_BASE_URL"),
+            api_key_env=_text(data, "api_key_env", "apiKeyEnv", default=DEFAULT_DASHSCOPE_EMBEDDING_API_KEY_ENV),
+            dimensions=_int(
+                data,
+                "dimensions",
+                default=DEFAULT_DASHSCOPE_EMBEDDING_DIMENSIONS,
+                minimum=1,
+            ),
+            batch_size=_int(
+                data,
+                "batch_size",
+                "batchSize",
+                default=DEFAULT_DASHSCOPE_EMBEDDING_BATCH_SIZE,
+                minimum=1,
+                maximum=10,
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RagEmbeddingConfig:
     provider: str = DEFAULT_EMBEDDING_PROVIDER
     model: str = ""
     batch_size: int = DEFAULT_EMBED_BATCH_SIZE
     ollama: RagOllamaEmbeddingConfig = field(default_factory=RagOllamaEmbeddingConfig)
     openai: RagOpenAIEmbeddingConfig = field(default_factory=RagOpenAIEmbeddingConfig)
+    dashscope: RagDashScopeEmbeddingConfig = field(default_factory=RagDashScopeEmbeddingConfig)
 
     @classmethod
     def from_mapping(cls, value: object) -> RagEmbeddingConfig:
@@ -351,6 +402,7 @@ class RagEmbeddingConfig:
             batch_size=_int(data, "batch_size", "batchSize", default=DEFAULT_EMBED_BATCH_SIZE, minimum=1),
             ollama=RagOllamaEmbeddingConfig.from_mapping(data.get("ollama")),
             openai=RagOpenAIEmbeddingConfig.from_mapping(data.get("openai")),
+            dashscope=RagDashScopeEmbeddingConfig.from_mapping(data.get("dashscope")),
         )
 
     def provider_name(self, value: str | None = None) -> str:
@@ -362,9 +414,19 @@ class RagEmbeddingConfig:
         provider_name = self.provider_name(provider)
         if provider_name == "openai":
             return self.openai.model or self.model or DEFAULT_OPENAI_EMBEDDING_MODEL
+        if provider_name == "dashscope":
+            return self.dashscope.model or self.model or DEFAULT_DASHSCOPE_EMBEDDING_MODEL
         if provider_name == "ollama":
             return self.ollama.model or self.model or DEFAULT_OLLAMA_EMBEDDING_MODEL
         return self.model or None
+
+    def batch_size_for(self, provider: str | None = None, override: int | None = None) -> int:
+        if override is not None:
+            return max(1, int(override))
+        provider_name = self.provider_name(provider)
+        if provider_name == "dashscope":
+            return self.dashscope.batch_size
+        return self.batch_size
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,7 +477,7 @@ class RagImageCaptioningConfig:
 class RagRetrievalConfig:
     vector_top_k: int = DEFAULT_VECTOR_TOP_K
     bm25_top_k: int = DEFAULT_BM25_TOP_K
-    result_top_k: int = DEFAULT_RESULT_TOP_K
+    retriever_result_top_k: int = DEFAULT_RETRIEVER_RESULT_TOP_K
     hybrid_weights: tuple[float, float] = DEFAULT_HYBRID_WEIGHTS
 
     @classmethod
@@ -438,13 +500,13 @@ class RagRetrievalConfig:
                 minimum=1,
                 maximum=20,
             ),
-            result_top_k=_int(
+            retriever_result_top_k=_int(
                 data,
-                "result_top_k",
-                "resultTopK",
-                default=DEFAULT_RESULT_TOP_K,
+                "retriever_result_top_k",
+                "retrieverResultTopK",
+                default=DEFAULT_RETRIEVER_RESULT_TOP_K,
                 minimum=1,
-                maximum=20,
+                maximum=100,
             ),
             hybrid_weights=_float_pair(data, "hybrid_weights", "hybridWeights", default=DEFAULT_HYBRID_WEIGHTS),
         )
@@ -455,8 +517,45 @@ class RagRetrievalConfig:
     def bm25_top_k_for(self, value: int | None = None) -> int:
         return _bounded_int(value, default=self.bm25_top_k, minimum=1, maximum=20)
 
-    def result_top_k_for(self, value: int | None = None) -> int:
-        return _bounded_int(value, default=self.result_top_k, minimum=1, maximum=20)
+    def retriever_result_top_k_for(self, value: int | None = None) -> int:
+        return _bounded_int(value, default=self.retriever_result_top_k, minimum=1, maximum=100)
+
+
+@dataclass(frozen=True, slots=True)
+class RagRerankingConfig:
+    enabled: bool = False
+    provider: str = "dashscope"
+    model: str = DEFAULT_RERANKING_MODEL
+    endpoint: str = DEFAULT_RERANKING_ENDPOINT
+    api_key_env: str = DEFAULT_RERANKING_API_KEY_ENV
+    top_n: int = DEFAULT_RERANKING_TOP_N
+    timeout: float = DEFAULT_RERANKING_TIMEOUT
+    max_document_chars: int = DEFAULT_RERANKING_MAX_DOCUMENT_CHARS
+    instruct: str = DEFAULT_RERANKING_INSTRUCT
+
+    @classmethod
+    def from_mapping(cls, value: object) -> RagRerankingConfig:
+        data = _mapping(value)
+        return cls(
+            enabled=_bool(data, "enabled", default=False),
+            provider=_text(data, "provider", default="dashscope").lower(),
+            model=_text(data, "model", default=DEFAULT_RERANKING_MODEL),
+            endpoint=_text(data, "endpoint", "api_base", "apiBase", default=DEFAULT_RERANKING_ENDPOINT),
+            api_key_env=_text(data, "api_key_env", "apiKeyEnv", default=DEFAULT_RERANKING_API_KEY_ENV),
+            top_n=_int(data, "top_n", "topN", default=DEFAULT_RERANKING_TOP_N, minimum=1, maximum=100),
+            timeout=_float(data, "timeout", default=DEFAULT_RERANKING_TIMEOUT, minimum=1.0),
+            max_document_chars=_int(
+                data,
+                "max_document_chars",
+                "maxDocumentChars",
+                default=DEFAULT_RERANKING_MAX_DOCUMENT_CHARS,
+                minimum=1,
+            ),
+            instruct=_text(data, "instruct", default=DEFAULT_RERANKING_INSTRUCT),
+        )
+
+    def provider_name(self) -> str:
+        return self.provider.strip().lower() or "dashscope"
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,6 +614,7 @@ class RagConfig:
     embedding: RagEmbeddingConfig = field(default_factory=RagEmbeddingConfig)
     image_captioning: RagImageCaptioningConfig = field(default_factory=RagImageCaptioningConfig)
     retrieval: RagRetrievalConfig = field(default_factory=RagRetrievalConfig)
+    reranking: RagRerankingConfig = field(default_factory=RagRerankingConfig)
     llamaparse: RagLlamaParseConfig = field(default_factory=RagLlamaParseConfig)
 
     @classmethod
@@ -533,6 +633,7 @@ class RagConfig:
                 data.get("image_captioning", data.get("imageCaptioning"))
             ),
             retrieval=RagRetrievalConfig.from_mapping(data.get("retrieval")),
+            reranking=RagRerankingConfig.from_mapping(data.get("reranking", data.get("rerank"))),
             llamaparse=RagLlamaParseConfig.from_mapping(data.get("llamaparse")),
         )
 

@@ -26,6 +26,16 @@ if load_dotenv is not None:
 
 DEFAULT_CUSTOM_PROMPT = DEFAULT_LLAMAPARSE_CUSTOM_PROMPT
 DEFAULT_IMAGE_CATEGORIES = DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES
+VISUAL_CAPTION_RE = re.compile(
+    r"^(?P<label>"
+    r"(?:(?:Supplementary|Supplemental)\s+)?"
+    r"(?:Extended\s+Data\s+)?"
+    r"(?:(?:Figure|Fig)\.?\s+|Table\s+)"
+    r"(?:S?\d+(?:[.-]\d+)*(?:[A-Za-z])?(?:\s*\([A-Za-z0-9]+\))?|[A-Z]\d+(?:[A-Za-z])?)"
+    r")"
+    r"\s*(?P<separator>[.:|]|[-–—])\s+(?P<body>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def parse_pdf_with_llamaparse(
@@ -180,6 +190,8 @@ def _build_image_records(result, pdf_path: Path, output_dir: Path, *, download_t
     output_dir.mkdir(parents=True, exist_ok=True)
     image_metadata_by_filename = _image_metadata_by_filename(result)
     page_by_filename = _page_number_by_image_filename(result)
+    caption_texts_by_page = _visual_caption_texts_by_page(result)
+    caption_index_by_page: dict[int, int] = {}
     image_records = []
     seen_sources = set()
     seen_filenames = set()
@@ -223,7 +235,12 @@ def _build_image_records(result, pdf_path: Path, output_dir: Path, *, download_t
                     image_path=image_path,
                     page_number=page.page_number,
                     image_index=image_index,
-                    caption_text=getattr(item, "caption", "") or "",
+                    caption_text=_caption_text_for_image(
+                        existing_caption=getattr(item, "caption", "") or "",
+                        page_number=page.page_number,
+                        caption_texts_by_page=caption_texts_by_page,
+                        caption_index_by_page=caption_index_by_page,
+                    ),
                     content_type=content_type or getattr(image_metadata, "content_type", "") or "",
                     bbox=_dump_bbox(getattr(item, "bbox", None)) or _dump_bbox(getattr(image_metadata, "bbox", None)),
                     category=getattr(image_metadata, "category", "") or "",
@@ -237,6 +254,8 @@ def _build_image_records(result, pdf_path: Path, output_dir: Path, *, download_t
         output_dir=output_dir,
         download_timeout=download_timeout,
         page_by_filename=page_by_filename,
+        caption_texts_by_page=caption_texts_by_page,
+        caption_index_by_page=caption_index_by_page,
         seen_sources=seen_sources,
         seen_filenames=seen_filenames,
     )
@@ -276,6 +295,8 @@ def _build_metadata_image_records(
     output_dir: Path,
     download_timeout: float,
     page_by_filename: dict[str, int],
+    caption_texts_by_page: dict[int, list[str]],
+    caption_index_by_page: dict[int, int],
     seen_sources: set,
     seen_filenames: set,
 ) -> list[dict]:
@@ -322,7 +343,12 @@ def _build_metadata_image_records(
                 image_path=image_path,
                 page_number=page_number,
                 image_index=image_index,
-                caption_text="",
+                caption_text=_caption_text_for_image(
+                    existing_caption="",
+                    page_number=page_number,
+                    caption_texts_by_page=caption_texts_by_page,
+                    caption_index_by_page=caption_index_by_page,
+                ),
                 content_type=content_type or getattr(image_metadata, "content_type", "") or "",
                 bbox=_dump_bbox(getattr(image_metadata, "bbox", None)),
                 category=getattr(image_metadata, "category", "") or "",
@@ -331,6 +357,98 @@ def _build_metadata_image_records(
         )
 
     return image_records
+
+
+def _visual_caption_texts_by_page(result) -> dict[int, list[str]]:
+    captions_by_page: dict[int, list[str]] = {}
+    markdown = getattr(result, "markdown", None)
+    for page in getattr(markdown, "pages", []) or []:
+        if not getattr(page, "success", False):
+            continue
+
+        captions = _extract_visual_caption_texts(getattr(page, "markdown", ""))
+        if captions:
+            captions_by_page[page.page_number] = captions
+
+    return captions_by_page
+
+
+def _extract_visual_caption_texts(markdown: str) -> list[str]:
+    captions = []
+    for block in re.split(r"\n\s*\n", _strip_fenced_code_blocks(markdown or "")):
+        caption = _visual_caption_from_markdown_block(block)
+        if caption:
+            captions.append(caption)
+    return captions
+
+
+def _visual_caption_from_markdown_block(block: str) -> str:
+    text = _clean_caption_block(block)
+    if not text:
+        return ""
+
+    match = VISUAL_CAPTION_RE.match(text)
+    if not match:
+        return ""
+
+    separator = match.group("separator")
+    label = _compact_text(match.group("label"))
+    body = _compact_text(match.group("body"))
+    if not body:
+        return ""
+    if separator in {"|", "-", "–", "—"}:
+        return f"{label} {separator} {body}"
+    return f"{label}{separator} {body}"
+
+
+def _clean_caption_block(block: str) -> str:
+    text = _strip_leading_markdown_media(block)
+    text = _compact_text(text)
+    if not text:
+        return ""
+
+    text = re.sub(r"^(?:>\s*)+", "", text)
+    text = re.sub(r"^#{1,6}\s+", "", text)
+    text = re.sub(r"^[-*+]\s+", "", text)
+    text = re.sub(r"^[*_`]+|[*_`]+$", "", text)
+    text = text.replace("**", "").replace("__", "").replace("`", "")
+    return _compact_text(text)
+
+
+def _strip_fenced_code_blocks(markdown: str) -> str:
+    text = re.sub(r"```.*?```", "", markdown, flags=re.DOTALL)
+    return re.sub(r"~~~.*?~~~", "", text, flags=re.DOTALL)
+
+
+def _strip_leading_markdown_media(block: str) -> str:
+    text = block or ""
+    media_pattern = re.compile(r"^\s*(?:!\[[^\]]*\]\([^)]+\)|<img\b[^>]*>)\s*", re.IGNORECASE)
+    while True:
+        stripped = media_pattern.sub("", text, count=1)
+        if stripped == text:
+            return stripped
+        text = stripped
+
+
+def _caption_text_for_image(
+    *,
+    existing_caption: str,
+    page_number: int | None,
+    caption_texts_by_page: dict[int, list[str]],
+    caption_index_by_page: dict[int, int],
+) -> str:
+    if page_number is not None:
+        caption_index = caption_index_by_page.get(page_number, 0)
+        caption_index_by_page[page_number] = caption_index + 1
+        page_captions = caption_texts_by_page.get(page_number, [])
+        if caption_index < len(page_captions):
+            return page_captions[caption_index]
+
+    return _compact_text(existing_caption)
+
+
+def _compact_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
 def _image_record(

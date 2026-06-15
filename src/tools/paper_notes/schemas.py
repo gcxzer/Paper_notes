@@ -65,9 +65,21 @@ def query_paper_content_parameters() -> dict[str, Any]:
             "query": {
                 "type": "string",
                 "description": (
-                    "One synthesized semantic retrieval query for the paper's actual PDF content. Build it "
-                    "from the user's paper question plus current paper/note context, using concrete paper "
-                    "terms instead of vague wording."
+                    "One short, precise retrieval query for the paper's actual PDF content. Prefer exact "
+                    "labels and keywords over expanded natural-language questions. For numbered references "
+                    "(figures, tables, equations, algorithms, appendices, or sections), preserve the reference "
+                    "label as a hard constraint and do not dilute it with broad explanatory wording. Add only "
+                    "1-5 disambiguating paper keywords when the user supplied them or they are known from "
+                    "current context. In paper context, generic wording such as picture/image/visual plus a "
+                    "number usually means the numbered paper figure; query it as Figure N, not extracted "
+                    "image index N, unless the user explicitly asks for an extracted image file/index. For "
+                    "conceptual questions, use compact paper terminology rather than a full sentence. "
+                    "Few-shot examples: user 'what does Figure 3 show?' -> query 'Figure 3'; user 'what is "
+                    "picture 8 in the paper?' -> query 'Figure 8'; user 'results in Table 2' -> query "
+                    "'Table 2'; user 'what does Equation (4) mean?' -> query 'Equation 4'; user 'difference "
+                    "between active reconstruction and passive retrieval' -> query 'active reconstruction "
+                    "passive retrieval memory graph'; user 'LoCoMo experiment results compared with baselines' "
+                    "-> query 'LoCoMo LongMemEval MRAgent baselines results'."
                 ),
             },
         },

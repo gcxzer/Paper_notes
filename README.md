@@ -54,7 +54,7 @@ Install and start the local background service:
 scripts/install-autostart.sh
 ```
 
-Open `http://127.0.0.1:4173`.
+Open `http://127.0.0.1:8765`.
 
 After pulling new code:
 
@@ -79,7 +79,7 @@ scripts/uninstall-autostart.sh --remove-venv
 
 ## Import PDFs
 
-1. Open `http://127.0.0.1:4173`.
+1. Open `http://127.0.0.1:8765`.
 2. Click the `+` button in the library toolbar.
 3. Choose one or more PDF files.
 
@@ -167,6 +167,26 @@ filters, and local artifact creation for MCP image, PDF, and safe text-like
 results. SSE transport, MCP OAuth, and running Paper Notes itself as an MCP
 server are out of scope for now.
 
+## Paper RAG
+
+Paper Notes can build local RAG indexes for imported papers. The current default
+pipeline uses:
+
+- LlamaParse for paper parsing, layout-aware Markdown, figure/table captions,
+  and extracted paper images.
+- DashScope `text-embedding-v4` for vector embeddings through
+  `DASHSCOPE_API_KEY`.
+- Local Qdrant for vector search and a persisted BM25 index for keyword search.
+- DashScope reranking after hybrid retrieval. The retriever first combines
+  vector and BM25 candidates, keeps `retriever_result_top_k` candidates, then
+  reranks them and returns `rag.reranking.top_n` results.
+
+Important RAG settings live in `config.json` under `rag.embedding`,
+`rag.retrieval`, `rag.reranking`, `rag.llamaparse`, and
+`rag.image_captioning`. Changing the embedding provider, embedding model, or
+embedding dimensions requires rebuilding the vector index for affected papers;
+do not reuse an old Qdrant index with a different embedding model.
+
 ## Local Data
 
 Paper Notes keeps user data local:
@@ -181,7 +201,8 @@ Core library data:
 Derived paper caches:
 
 - `resources/Paper-pages/`: rendered PDF page image cache
-- `resources/Paper-images/`: extracted PDF image cache
+- `.paper-notes/rag/indexes/`: local Qdrant and BM25 paper indexes
+- `.paper-notes/rag/images/`: extracted paper images used by RAG and captioning
 
 Agent and app runtime state:
 
@@ -268,7 +289,7 @@ uv run python -m py_compile $(find src -name '*.py' -not -path '*/__pycache__/*'
 find src/ui/frontend/scripts -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Default port: `4173`.
+Default port: `8765`.
 
 ## License
 

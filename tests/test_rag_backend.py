@@ -10,9 +10,11 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app_config import load_app_config
-from app_config.config import DEFAULT_TEXT_COLLECTION, safe_index_key
+from app_config.config import DEFAULT_TEXT_COLLECTION, RagRerankingConfig, safe_index_key
 from rag.embedding_model import get_embedding_model
 import rag.image_captioning as image_captioning
+import rag.reranker as reranker
+import rag.retriever as retriever_module
 from rag.image_captioning import _caption_one_image
 from rag import llamaparse_loader
 from rag.node_parser import build_image_caption_nodes
@@ -111,6 +113,38 @@ def test_openai_compatible_embedding_accepts_custom_model_name(monkeypatch, tmp_
 
     assert embed_model.model_name == "Qwen/Qwen3-Embedding-8B"
     assert embed_model.api_base == "https://modelscope.test/v1"
+
+
+def test_dashscope_embedding_uses_text_embedding_v4(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "rag": {
+                    "embedding": {
+                        "provider": "dashscope",
+                        "dashscope": {
+                            "model": "text-embedding-v4",
+                            "api_base": "https://dashscope.test/compatible-mode/v1",
+                            "api_key_env": "UNIT_TEST_DASHSCOPE_API_KEY",
+                            "dimensions": 1024,
+                            "batch_size": 10,
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    monkeypatch.setenv("UNIT_TEST_DASHSCOPE_API_KEY", "test-token")
+
+    embed_model = get_embedding_model()
+
+    assert embed_model.model_name == "text-embedding-v4"
+    assert embed_model.api_base == "https://dashscope.test/compatible-mode/v1"
+    assert embed_model.dimensions == 1024
+    assert embed_model.embed_batch_size == 10
 
 
 def test_rag_status_endpoint_accepts_camel_case_query_params():
@@ -213,6 +247,14 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                         "model": "configured-embedding",
                         "batch_size": 32,
                         "ollama": {"base_url": "http://ollama.test:11434"},
+                        "dashscope": {
+                            "model": "text-embedding-v4",
+                            "api_base": "https://dashscope.test/compatible-mode/v1",
+                            "api_base_env": "UNIT_TEST_DASHSCOPE_BASE_URL",
+                            "api_key_env": "UNIT_TEST_DASHSCOPE_API_KEY",
+                            "dimensions": 768,
+                            "batch_size": 7,
+                        },
                     },
                     "image_captioning": {
                         "enabled": True,
@@ -227,8 +269,19 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                     "retrieval": {
                         "vector_top_k": 9,
                         "bm25_top_k": 6,
-                        "result_top_k": 4,
+                        "retriever_result_top_k": 12,
                         "hybrid_weights": [0.8, 0.2],
+                    },
+                    "reranking": {
+                        "enabled": True,
+                        "provider": "dashscope",
+                        "model": "qwen3-vl-rerank",
+                        "endpoint": "https://dashscope.test/rerank",
+                        "api_key_env": "UNIT_TEST_DASHSCOPE_API_KEY",
+                        "top_n": 4,
+                        "timeout": 17,
+                        "max_document_chars": 1234,
+                        "instruct": "Rank academic paper passages.",
                     },
                     "llamaparse": {
                         "tier": "cost_effective",
@@ -266,7 +319,13 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
     assert rag_config.chunking.chunk_overlap == 64
     assert rag_config.embedding.provider_name() == "openai"
     assert rag_config.embedding.model_for("openai") == "configured-embedding"
+    assert rag_config.embedding.model_for("dashscope") == "text-embedding-v4"
     assert rag_config.embedding.batch_size == 32
+    assert rag_config.embedding.dashscope.api_base == "https://dashscope.test/compatible-mode/v1"
+    assert rag_config.embedding.dashscope.api_base_env == "UNIT_TEST_DASHSCOPE_BASE_URL"
+    assert rag_config.embedding.dashscope.api_key_env == "UNIT_TEST_DASHSCOPE_API_KEY"
+    assert rag_config.embedding.dashscope.dimensions == 768
+    assert rag_config.embedding.dashscope.batch_size == 7
     assert rag_config.image_captioning.enabled is True
     assert rag_config.image_captioning.provider == "openai"
     assert rag_config.image_captioning.model == "gpt-5.4-mini"
@@ -277,8 +336,17 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
     assert rag_config.image_captioning.prompt == "Caption for retrieval."
     assert rag_config.retrieval.vector_top_k == 9
     assert rag_config.retrieval.bm25_top_k == 6
-    assert rag_config.retrieval.result_top_k == 4
+    assert rag_config.retrieval.retriever_result_top_k == 12
     assert rag_config.retrieval.hybrid_weights == (0.8, 0.2)
+    assert rag_config.reranking.enabled is True
+    assert rag_config.reranking.provider_name() == "dashscope"
+    assert rag_config.reranking.model == "qwen3-vl-rerank"
+    assert rag_config.reranking.endpoint == "https://dashscope.test/rerank"
+    assert rag_config.reranking.api_key_env == "UNIT_TEST_DASHSCOPE_API_KEY"
+    assert rag_config.reranking.top_n == 4
+    assert rag_config.reranking.timeout == 17
+    assert rag_config.reranking.max_document_chars == 1234
+    assert rag_config.reranking.instruct == "Rank academic paper passages."
     assert rag_config.llamaparse.tier == "cost_effective"
     assert rag_config.llamaparse.timeout == 123
 
@@ -298,6 +366,226 @@ def test_rag_rejects_pdf_paths_outside_project():
         assert error.code == "invalid_pdf_path"
     else:
         raise AssertionError("expected invalid_pdf_path")
+
+
+def test_dashscope_reranker_posts_query_and_text_documents(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "output": {
+                    "results": [
+                        {"index": 1, "relevance_score": 0.91},
+                        {"index": 0, "relevance_score": 0.32},
+                    ]
+                }
+            }
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return None
+
+        def post(self, endpoint, *, headers, json):
+            calls.append({
+                "endpoint": endpoint,
+                "headers": headers,
+                "json": json,
+                "timeout": self.timeout,
+            })
+            return FakeResponse()
+
+    monkeypatch.setenv("UNIT_TEST_DASHSCOPE_API_KEY", "test-key")
+    monkeypatch.setattr(reranker.httpx, "Client", FakeClient)
+    first = SimpleNamespace(
+        node=SimpleNamespace(
+            metadata={"caption_text": "Figure 7. Earlier result."},
+            get_content=lambda: "Generated description of Figure 7.",
+        ),
+        score=0.1,
+    )
+    second = SimpleNamespace(
+        node=SimpleNamespace(
+            metadata={"caption_text": "Figure 8. Memory reconstruction algorithm."},
+            get_content=lambda: "Generated description of the algorithm pseudocode.",
+        ),
+        score=0.2,
+    )
+
+    ranked = reranker.rerank_results(
+        "Figure 8",
+        [first, second],
+        RagRerankingConfig(
+            enabled=True,
+            endpoint="https://dashscope.test/rerank",
+            api_key_env="UNIT_TEST_DASHSCOPE_API_KEY",
+            top_n=2,
+            timeout=12,
+            instruct="Rank paper retrieval candidates.",
+        ),
+        top_n=2,
+    )
+
+    assert ranked == [second, first]
+    assert second.score == 0.91
+    assert first.score == 0.32
+    assert calls[0]["endpoint"] == "https://dashscope.test/rerank"
+    assert calls[0]["timeout"] == 12
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-key"
+    payload = calls[0]["json"]
+    assert payload["model"] == "qwen3-vl-rerank"
+    assert payload["input"]["query"] == {"text": "Figure 8"}
+    assert payload["input"]["documents"] == [
+        {"text": "Original PDF caption:\nFigure 7. Earlier result.\n\nGenerated description of Figure 7."},
+        {
+            "text": (
+                "Original PDF caption:\nFigure 8. Memory reconstruction algorithm.\n\n"
+                "Generated description of the algorithm pseudocode."
+            )
+        },
+    ]
+    assert payload["parameters"] == {
+        "top_n": 2,
+        "return_documents": False,
+        "instruct": "Rank paper retrieval candidates.",
+    }
+
+
+def test_rag_service_sends_retriever_candidates_to_reranker(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "rag": {
+                "retrieval": {
+                    "vector_top_k": 20,
+                    "bm25_top_k": 20,
+                    "retriever_result_top_k": 10,
+                },
+                "reranking": {
+                    "enabled": True,
+                    "top_n": 3,
+                },
+            }
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    monkeypatch.setattr(
+        PaperRAGService,
+        "status",
+        lambda self, **_kwargs: {"success": True, "ready": True},
+    )
+    calls = {}
+    candidate_results = [
+        SimpleNamespace(
+            node=SimpleNamespace(metadata={}, get_content=lambda index=index: f"candidate {index}"),
+            score=0.0,
+        )
+        for index in range(10)
+    ]
+
+    class FakeRetriever:
+        def retrieve(self, query):
+            calls["retrieve_query"] = query
+            return candidate_results
+
+    def fake_get_retriever(**kwargs):
+        calls["get_retriever"] = kwargs
+        return FakeRetriever()
+
+    def fake_rerank_results(query, results, config, *, top_n):
+        calls["rerank"] = {
+            "query": query,
+            "candidate_count": len(results),
+            "top_n": top_n,
+            "enabled": config.enabled,
+        }
+        return results[:top_n]
+
+    monkeypatch.setattr(retriever_module, "get_retriever", fake_get_retriever)
+    monkeypatch.setattr(retriever_module, "close_retriever", lambda _retriever: None)
+    monkeypatch.setattr(reranker, "rerank_results", fake_rerank_results)
+
+    payload = PaperRAGService().query(query="Figure 8", index_key="paper-1")
+
+    assert calls["get_retriever"]["vector_top_k"] == 20
+    assert calls["get_retriever"]["bm25_top_k"] == 20
+    assert calls["get_retriever"]["retriever_result_top_k"] == 10
+    assert calls["retrieve_query"] == "Figure 8"
+    assert calls["rerank"] == {
+        "query": "Figure 8",
+        "candidate_count": 10,
+        "top_n": 3,
+        "enabled": True,
+    }
+    assert payload["resultCount"] == 3
+    assert payload["reranking"]["retrieverResultTopK"] == 10
+    assert payload["reranking"]["candidateCount"] == 10
+    assert payload["reranking"]["topN"] == 3
+
+
+def test_rag_service_marks_fallback_when_reranker_fails(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "rag": {
+                "retrieval": {
+                    "vector_top_k": 5,
+                    "bm25_top_k": 5,
+                    "retriever_result_top_k": 5,
+                },
+                "reranking": {
+                    "enabled": True,
+                    "top_n": 2,
+                },
+            }
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    monkeypatch.setattr(
+        PaperRAGService,
+        "status",
+        lambda self, **_kwargs: {"success": True, "ready": True},
+    )
+    candidate_results = [
+        SimpleNamespace(
+            node=SimpleNamespace(metadata={}, get_content=lambda index=index: f"candidate {index}"),
+            score=0.0,
+        )
+        for index in range(5)
+    ]
+
+    class FakeRetriever:
+        def retrieve(self, _query):
+            return candidate_results
+
+    monkeypatch.setattr(retriever_module, "get_retriever", lambda **_kwargs: FakeRetriever())
+    monkeypatch.setattr(retriever_module, "close_retriever", lambda _retriever: None)
+
+    def fail_rerank(*_args, **_kwargs):
+        raise RuntimeError("reranker unavailable")
+
+    monkeypatch.setattr(reranker, "rerank_results", fail_rerank)
+
+    payload = PaperRAGService().query(query="Figure 8", index_key="paper-1")
+
+    assert payload["resultCount"] == 2
+    assert [result["text"] for result in payload["results"]] == ["candidate 0", "candidate 1"]
+    assert payload["reranking"]["applied"] is False
+    assert payload["reranking"]["candidateCount"] == 5
+    assert payload["reranking"]["topN"] == 2
+    assert payload["reranking"]["fallbackTopN"] == 2
+    assert payload["reranking"]["error"] == "RuntimeError: reranker unavailable"
 
 
 def test_image_captions_are_indexed_as_text_nodes():
@@ -322,15 +610,20 @@ def test_image_captions_are_indexed_as_text_nodes():
     )
 
     assert len(nodes) == 1
-    assert "Source: page 3, image 2." in nodes[0].get_content()
     assert "retrieval accuracy" in nodes[0].get_content()
     assert "Original PDF caption:" in nodes[0].get_content()
     assert "Figure 1. Retrieval accuracy across model ablations." in nodes[0].get_content()
     assert "Generated visual caption:" in nodes[0].get_content()
+    assert "Source:" not in nodes[0].get_content()
+    assert "image 2" not in nodes[0].get_content()
     assert nodes[0].metadata["source_type"] == "image_caption"
+    assert nodes[0].metadata["page_number"] == 3
+    assert nodes[0].metadata["image_index"] == 2
     assert nodes[0].metadata["caption_text"] == "Figure 1. Retrieval accuracy across model ablations."
     assert nodes[0].metadata["caption_provider"] == "codex-oauth"
     assert nodes[0].metadata["source_anchor"] == "paper-1:page:3:image:2"
+    assert "caption" in nodes[0].excluded_embed_metadata_keys
+    assert "caption_text" in nodes[0].excluded_llm_metadata_keys
 
 
 def test_image_caption_nodes_label_missing_page_as_unknown():
@@ -351,9 +644,45 @@ def test_image_caption_nodes_label_missing_page_as_unknown():
     )
 
     assert len(nodes) == 1
-    assert "Source: image 2; page number was not provided by the parser." in nodes[0].get_content()
+    assert "Source:" not in nodes[0].get_content()
+    assert "image 2" not in nodes[0].get_content()
     assert "page None" not in nodes[0].get_content()
     assert nodes[0].metadata["page_number"] is None
+    assert nodes[0].metadata["image_index"] == 2
+
+
+def test_long_image_caption_metadata_is_excluded_from_chunk_size_accounting():
+    caption_text = "Figure 1. " + ("original caption detail " * 500)
+    caption = "Generated visual caption. " + ("visible label and axis value " * 500)
+
+    nodes = build_image_caption_nodes(
+        [
+            {
+                "image_path": "/tmp/" + ("nested/" * 80) + "figure.png",
+                "paper_id": "paper-1",
+                "file_name": "paper.pdf",
+                "page_number": 3,
+                "image_index": 2,
+                "source_anchor": "paper-1:page:3:image:2",
+                "caption_text": caption_text,
+                "caption": caption,
+                "caption_provider": "codex-oauth",
+                "caption_model": "gpt-5.4-mini",
+                "caption_generated": True,
+                "bbox": [{"x": 1, "y": 2, "w": 3, "h": 4}],
+            }
+        ],
+        chunk_size=800,
+        chunk_overlap=120,
+    )
+
+    assert nodes
+    assert nodes[0].metadata["caption_text"] == caption_text.strip()
+    assert nodes[0].metadata["caption"] == caption.strip()
+    assert "caption_text" in nodes[0].excluded_embed_metadata_keys
+    assert "caption" in nodes[0].excluded_llm_metadata_keys
+    assert "image_path" in nodes[0].excluded_embed_metadata_keys
+    assert "bbox" in nodes[0].excluded_llm_metadata_keys
 
 
 def test_image_caption_request_sends_prompt_as_instructions(tmp_path):
@@ -545,7 +874,11 @@ def test_llamaparse_loader_downloads_images_from_metadata_without_items(monkeypa
                 SimpleNamespace(
                     success=True,
                     page_number=4,
-                    markdown="Text before ![Figure 2](image_0.png) text after.",
+                    markdown=(
+                        "Text before ![Figure 2](image_0.png) text after.\n\n"
+                        "Figure 3. Functional correspondence between human memory reconstruction "
+                        "and the MRAgent architecture."
+                    ),
                 )
             ]
         ),
@@ -583,6 +916,97 @@ def test_llamaparse_loader_downloads_images_from_metadata_without_items(monkeypa
     assert records[0]["filename"] == "image_0.png"
     assert records[0]["category"] == "layout"
     assert records[0]["bbox"] == [{"x": 1, "y": 2, "w": 30, "h": 40}]
+    assert (
+        records[0]["caption_text"]
+        == "Figure 3. Functional correspondence between human memory reconstruction and the MRAgent architecture."
+    )
+
+
+def test_llamaparse_loader_assigns_markdown_figure_captions_by_page_order(monkeypatch, tmp_path):
+    def fake_download(*, url, output_dir, page_number, image_index, timeout, source_filename=None):
+        image_path = Path(output_dir) / f"downloaded-{image_index}.png"
+        image_path.write_bytes(b"png")
+        return image_path, "image/png"
+
+    monkeypatch.setattr(llamaparse_loader, "_download_llamaparse_image", fake_download)
+    result = SimpleNamespace(
+        items=None,
+        markdown=SimpleNamespace(
+            pages=[
+                SimpleNamespace(
+                    success=True,
+                    page_number=3,
+                    markdown=(
+                        "Intro text mentioning Figure 9 but not a caption.\n\n"
+                        "Figure 3. Functional correspondence between human memory reconstruction "
+                        "and the MRAgent architecture.\n\n"
+                        "Figure 4. Memory graph construction pipeline."
+                    ),
+                )
+            ]
+        ),
+        images_content_metadata=SimpleNamespace(
+            images=[
+                SimpleNamespace(
+                    filename="page_3_image_1.png",
+                    index=5,
+                    presigned_url="https://llamaparse.test/page_3_image_1.png",
+                    content_type="image/png",
+                    category="layout",
+                    bbox=None,
+                ),
+                SimpleNamespace(
+                    filename="page_3_image_2.png",
+                    index=6,
+                    presigned_url="https://llamaparse.test/page_3_image_2.png",
+                    content_type="image/png",
+                    category="layout",
+                    bbox=None,
+                ),
+            ]
+        ),
+    )
+
+    records = llamaparse_loader._build_image_records(
+        result,
+        pdf_path=Path("paper.pdf"),
+        output_dir=tmp_path,
+        download_timeout=5,
+    )
+
+    assert [record["caption_text"] for record in records] == [
+        "Figure 3. Functional correspondence between human memory reconstruction and the MRAgent architecture.",
+        "Figure 4. Memory graph construction pipeline.",
+    ]
+
+
+def test_llamaparse_loader_extracts_common_visual_caption_formats():
+    markdown = """
+As illustrated in Figure 9, this sentence is not a caption.
+
+![plot](page_1_image_1.png)
+**FIGURE 1 |** Retrieval accuracy across model families.
+
+### Fig. 2: Architecture overview.
+
+> Supplementary Figure S3. Additional ablation results.
+
+Extended Data Fig. 4 – Long-context evaluation setup.
+
+Table 5. Benchmark results by model family.
+
+```mermaid
+Figure 99. This code block should not become a caption.
+```
+"""
+
+    assert llamaparse_loader._extract_visual_caption_texts(markdown) == [
+        "FIGURE 1 | Retrieval accuracy across model families.",
+        "Fig. 2: Architecture overview.",
+        "Supplementary Figure S3. Additional ablation results.",
+        "Extended Data Fig. 4 – Long-context evaluation setup.",
+        "Table 5. Benchmark results by model family.",
+    ]
 
 
 def test_llamaparse_loader_resolves_image_page_from_metadata_fields():
@@ -738,7 +1162,6 @@ def test_query_paper_content_facade_routes_to_service(monkeypatch, tmp_path):
             "query": "main contribution",
             "vector_top_k": 8,
             "bm25_top_k": 8,
-            "result_top_k": 8,
         },
         library_path=library_path,
     )
@@ -753,7 +1176,6 @@ def test_query_paper_content_facade_routes_to_service(monkeypatch, tmp_path):
             "note_id": "note-1",
             "vector_top_k": rag_config.retrieval.vector_top_k,
             "bm25_top_k": rag_config.retrieval.bm25_top_k,
-            "result_top_k": rag_config.retrieval.result_top_k,
             "embedding_provider": embedding_provider,
             "embedding_model": rag_config.embedding.model_for(embedding_provider),
             "library_path": library_path,
@@ -789,7 +1211,7 @@ def test_query_paper_content_facade_rejects_queries_array(tmp_path):
     assert "query" in payload["error"]
 
 
-def test_hybrid_retriever_uses_result_top_k_for_final_count():
+def test_hybrid_retriever_uses_retriever_result_top_k_for_candidate_count():
     class FakeRetriever:
         def __init__(self, results):
             self.results = results
@@ -807,7 +1229,7 @@ def test_hybrid_retriever_uses_result_top_k_for_final_count():
         vector_retriever=FakeRetriever(results[:2]),
         bm25_retriever=FakeRetriever(results[2:]),
         qdrant_index=SimpleNamespace(),
-        result_top_k=3,
+        retriever_result_top_k=3,
         weights=(0.5, 0.5),
     )
 
@@ -851,7 +1273,6 @@ def test_query_paper_content_facade_uses_configured_rag_defaults(monkeypatch, tm
                     "retrieval": {
                         "vector_top_k": 9,
                         "bm25_top_k": 6,
-                        "result_top_k": 4,
                     },
                 }
             }
@@ -899,7 +1320,6 @@ def test_query_paper_content_facade_uses_configured_rag_defaults(monkeypatch, tm
     assert payload["success"] is True
     assert calls[0]["vector_top_k"] == 9
     assert calls[0]["bm25_top_k"] == 6
-    assert calls[0]["result_top_k"] == 4
     assert calls[0]["embedding_provider"] == "openai"
     assert calls[0]["embedding_model"] == load_app_config().rag.embedding.model_for("openai")
 
@@ -916,7 +1336,6 @@ def test_query_paper_content_facade_ignores_model_controlled_rag_args(monkeypatc
                 "retrieval": {
                     "vector_top_k": 9,
                     "bm25_top_k": 6,
-                    "result_top_k": 4,
                 },
             }
         }),
@@ -959,7 +1378,6 @@ def test_query_paper_content_facade_ignores_model_controlled_rag_args(monkeypatc
             "embedding_model": "model-from-tool-args",
             "vector_top_k": 1,
             "bm25_top_k": 2,
-            "result_top_k": 3,
         },
         library_path=library_path,
     )
@@ -969,7 +1387,6 @@ def test_query_paper_content_facade_ignores_model_controlled_rag_args(monkeypatc
     assert calls[0]["embedding_model"] == "configured-embedding-model"
     assert calls[0]["vector_top_k"] == 9
     assert calls[0]["bm25_top_k"] == 6
-    assert calls[0]["result_top_k"] == 4
 
 
 def test_query_paper_content_reports_index_not_ready_without_visual_tool_fallback(monkeypatch, tmp_path):

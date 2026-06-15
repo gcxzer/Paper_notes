@@ -129,7 +129,6 @@ def query_paper_content(
             note_id=note_id,
             vector_top_k=rag_config.retrieval.vector_top_k_for(),
             bm25_top_k=rag_config.retrieval.bm25_top_k_for(),
-            result_top_k=rag_config.retrieval.result_top_k_for(),
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
             library_path=library_path,

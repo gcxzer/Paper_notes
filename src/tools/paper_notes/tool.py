@@ -57,9 +57,11 @@ def create_tools(
                 "default for questions about the paper's claims, methods, equations, experiments, results, "
                 "figures/tables in context, related work, limitations, conclusions, or what any section says. "
                 "Use get_paper_context instead only when the user explicitly asks about library metadata, note "
-                f"HTML/sections, annotations, tags, or index status. {query_visual_guidance}Generate retrieval "
-                "query from the user request plus current note/paper context; provide one focused query "
-                "targeting the concrete paper content needed to answer."
+                f"HTML/sections, annotations, tags, or index status. {query_visual_guidance}Send one short "
+                "retrieval query using exact paper labels and keywords. Preserve numbered references such as "
+                "Figure 3, Table 2, Equation 4, Algorithm 1, Appendix C, or Section 5.2 instead of expanding "
+                "them into broad explanatory questions. In paper context, generic picture/image/visual N "
+                "phrasing should usually be queried as Figure N, not extracted image index N."
             ),
             args_schema=query_paper_content_parameters(),
             func=lambda **kwargs: facade.query_paper_content(dict(kwargs), library_path=library_path),

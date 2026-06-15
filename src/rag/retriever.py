@@ -17,13 +17,13 @@ class HybridRetriever:
         vector_retriever: Any,
         bm25_retriever: Any,
         qdrant_index: QdrantIndex,
-        result_top_k: int,
+        retriever_result_top_k: int,
         weights: tuple[float, float] | None = None,
     ) -> None:
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
         self._qdrant_index = qdrant_index
-        self.result_top_k = result_top_k
+        self.retriever_result_top_k = retriever_result_top_k
         self.weights = weights or load_app_config().rag.retrieval.hybrid_weights
 
     def retrieve(self, query: str):
@@ -41,7 +41,7 @@ class HybridRetriever:
 
         ranked = sorted(combined.values(), key=lambda entry: float(entry["score"]), reverse=True)
         results = []
-        for entry in ranked[: self.result_top_k]:
+        for entry in ranked[: self.retriever_result_top_k]:
             result = entry["result"]
             try:
                 result.score = entry["score"]
@@ -54,7 +54,7 @@ class HybridRetriever:
 def get_retriever(
     vector_top_k: int | None = None,
     bm25_top_k: int | None = None,
-    result_top_k: int | None = None,
+    retriever_result_top_k: int | None = None,
     bm25_persist_dir: str | Path | None = None,
     qdrant_storage_dir: str | Path | None = None,
     collection_name: str = DEFAULT_TEXT_COLLECTION,
@@ -64,7 +64,7 @@ def get_retriever(
     rag_config = load_app_config().rag
     vector_top_k = rag_config.retrieval.vector_top_k_for(vector_top_k)
     bm25_top_k = rag_config.retrieval.bm25_top_k_for(bm25_top_k)
-    result_top_k = rag_config.retrieval.result_top_k_for(result_top_k)
+    retriever_result_top_k = rag_config.retrieval.retriever_result_top_k_for(retriever_result_top_k)
     text_embed_model = get_embedding_model(provider=embedding_provider, model=embedding_model)
 
     qdrant_index = QdrantIndex(
@@ -85,7 +85,7 @@ def get_retriever(
         vector_retriever=vector_retriever,
         bm25_retriever=bm25_retriever,
         qdrant_index=qdrant_index,
-        result_top_k=result_top_k,
+        retriever_result_top_k=retriever_result_top_k,
         weights=rag_config.retrieval.hybrid_weights,
     )
 

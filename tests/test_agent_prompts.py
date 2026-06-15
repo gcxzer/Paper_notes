@@ -38,6 +38,10 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance():
         assert tool_name in prompt
     assert "# Tool use and grounding" in prompt
     assert "default and primary tool for questions about a paper's actual PDF content" in prompt
+    assert "user 'what does Figure 3 show?' -> query 'Figure 3'" in prompt
+    assert "user 'what is picture 8 in the paper?' -> query 'Figure 8'" in prompt
+    assert "not extracted image index N" in prompt
+    assert "Do not expand numbered figure/table/equation questions into broad" in prompt
     assert "# Paper library search queries" in prompt
     assert "# External web lookup" in prompt
     assert "# Paper note-writing workflow" in prompt

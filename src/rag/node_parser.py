@@ -8,6 +8,14 @@ from app_config import load_app_config
 if TYPE_CHECKING:
     from llama_index.core.schema import BaseNode
 
+CHUNK_METADATA_EXCLUDED_KEYS = (
+    "source_pdf",
+    "image_path",
+    "bbox",
+    "caption",
+    "caption_text",
+)
+
 
 class NodeParser:
     """Build all paper nodes from extracted text pages and image records."""
@@ -75,18 +83,12 @@ def build_image_caption_nodes(
 
 
 def _image_caption_node_text(*, page_number: object, image_index: object, caption: str, caption_text: str) -> str:
-    heading = (
-        f"Source: page {page_number}, image {image_index}."
-        if page_number is not None
-        else f"Source: image {image_index}; page number was not provided by the parser."
-    )
     if caption_text and caption_text != caption:
         return (
-            f"{heading}\n"
             f"Original PDF caption:\n{caption_text}\n\n"
             f"Generated visual caption:\n{caption}"
         )
-    return f"{heading}\n{caption}"
+    return caption
 
 
 def build_text_nodes(pages: list[dict], *, chunk_size: int | None = None, chunk_overlap: int | None = None):
@@ -98,6 +100,8 @@ def build_text_nodes(pages: list[dict], *, chunk_size: int | None = None, chunk_
             id_=_stable_uuid(_page_anchor(page)),
             text=page["text"],
             metadata=page["metadata"],
+            excluded_embed_metadata_keys=list(CHUNK_METADATA_EXCLUDED_KEYS),
+            excluded_llm_metadata_keys=list(CHUNK_METADATA_EXCLUDED_KEYS),
         )
         for page in pages
         if page["text"].strip()

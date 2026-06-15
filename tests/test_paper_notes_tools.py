@@ -38,8 +38,16 @@ def test_query_paper_content_schema_accepts_single_query():
 
     assert "Primary tool for reading and answering questions about a paper" in tool.description
     assert "library metadata" in tool.description
+    assert "Send one short retrieval query" in tool.description
+    assert "Figure 3" in tool.description
+    assert "picture/image/visual N" in tool.description
     assert "query" in schema["properties"]
     assert schema["properties"]["query"]["type"] == "string"
+    query_description = schema["properties"]["query"]["description"]
+    assert "Prefer exact labels and keywords" in query_description
+    assert "user 'what does Figure 3 show?' -> query 'Figure 3'" in query_description
+    assert "user 'what is picture 8 in the paper?' -> query 'Figure 8'" in query_description
+    assert "active reconstruction passive retrieval memory graph" in query_description
     assert "queries" not in schema["properties"]
     assert "embedding_provider" not in schema["properties"]
     assert "embedding_model" not in schema["properties"]

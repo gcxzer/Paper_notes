@@ -3,7 +3,7 @@ set -euo pipefail
 
 LABEL="${LABEL:-com.paper-notes.local}"
 SERVICE_NAME="${SERVICE_NAME:-paper-notes.service}"
-PORT="${PORT:-4173}"
+PORT="${PORT:-8765}"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UV_BIN="${UV_BIN:-$(command -v uv || true)}"
 NPM_BIN="${NPM_BIN:-$(command -v npm || true)}"
@@ -52,7 +52,7 @@ Usage: scripts/install-autostart.sh
 Environment overrides:
   LABEL               macOS launchd label (default: com.paper-notes.local)
   SERVICE_NAME        Linux systemd user service name (default: paper-notes.service)
-  PORT                Local server port (default: 4173)
+  PORT                Local server port (default: 8765)
   UV_BIN              Path to uv
   NPM_BIN             Path to npm
   VENV_DIR            Python virtual environment path (default: .venv)

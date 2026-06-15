@@ -19,7 +19,7 @@ def get_embedding_model(
     embedding = load_app_config().rag.embedding
     provider = embedding.provider_name(provider)
     model = embedding.model_for(provider, model)
-    batch_size = max(1, int(embed_batch_size)) if embed_batch_size is not None else embedding.batch_size
+    batch_size = embedding.batch_size_for(provider, embed_batch_size)
 
     if provider == "openai":
         from llama_index.embeddings.openai import OpenAIEmbedding
@@ -28,6 +28,17 @@ def get_embedding_model(
             model_name=os.getenv("MODELSCOPE_EMBEDDING_MODEL") or model,
             api_base=os.getenv(embedding.openai.api_base_env) or embedding.openai.api_base or None,
             api_key=os.getenv(embedding.openai.api_key_env),
+            embed_batch_size=batch_size,
+        )
+
+    if provider == "dashscope":
+        from llama_index.embeddings.openai import OpenAIEmbedding
+
+        return OpenAIEmbedding(
+            model_name=model,
+            api_base=os.getenv(embedding.dashscope.api_base_env) or embedding.dashscope.api_base,
+            api_key=os.getenv(embedding.dashscope.api_key_env),
+            dimensions=embedding.dashscope.dimensions,
             embed_batch_size=batch_size,
         )
 

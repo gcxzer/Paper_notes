@@ -31,7 +31,7 @@
     "limits": [
       {
         "tool_name": "query_paper_content",
-        "run_limit": 1,
+        "run_limit": 3,
         "exit_behavior": "continue"
       }
     ]
@@ -75,20 +75,38 @@
       "prompt": "Create a retrieval-oriented description of this academic-paper visual. Use any supplied original PDF caption/text as grounding context, but verify it against the visible image. Identify the visual type (chart, table, algorithm, architecture diagram, flowchart, qualitative example, equation block, or page crop), and preserve readable titles, panel labels, axes, legends, color/shape encodings, table headers, equations, variables, entities, datasets, metrics, and key numeric values. Summarize the main relationship, trend, comparison, workflow, or result shown, including what the visual is evidence for in the paper. Be concise and factual. Do not invent unreadable labels, values, or conclusions; if details are unclear, state only the visible structure or say they are unreadable. Output plain text only, with no JSON."
     },
     "embedding": {
-      "provider": "openai",
-      "model": "qwen3-embedding:8b",
-      "batch_size": 100,
+      "provider": "dashscope",
+      "batch_size": 10,
       "openai": {
         "model": "Qwen/Qwen3-Embedding-8B",
         "api_base_env": "MODELSCOPE_BASEURL",
         "api_key_env": "MODELSCOPE_TOKEN"
+      },
+      "dashscope": {
+        "model": "text-embedding-v4",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_base_env": "DASHSCOPE_EMBEDDING_BASE_URL",
+        "api_key_env": "DASHSCOPE_API_KEY",
+        "dimensions": 1024,
+        "batch_size": 10
       }
     },
     "retrieval": {
-      "vector_top_k": 10,
-      "bm25_top_k": 10,
-      "result_top_k": 3,
-      "hybrid_weights": [0.2, 0.8]
+      "vector_top_k": 20,
+      "bm25_top_k": 20,
+      "retriever_result_top_k": 10,
+      "hybrid_weights": [0.7, 0.3]
+    },
+    "reranking": {
+      "enabled": true,
+      "provider": "dashscope",
+      "model": "qwen3-rerank",
+      "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "top_n": 5,
+      "timeout": 60,
+      "max_document_chars": 6000,
+      "instruct": "Given an academic paper question, rank retrieved paper passages, figure/table captions, and visual descriptions by how directly they answer the query. Preserve exact numbered references such as Figure 8, Table 6, Equation 4, Algorithm 1, Appendix C, or Section 5.2 as hard relevance signals."
     }
   }
 }

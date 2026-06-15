@@ -167,7 +167,6 @@ class PaperRAGService:
         index_key: str = "",
         vector_top_k: int | None = None,
         bm25_top_k: int | None = None,
-        result_top_k: int | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
         library_path: str | Path | None = None,
@@ -190,10 +189,13 @@ class PaperRAGService:
 
         from rag.retriever import close_retriever, get_retriever
 
+        reranking_config = rag_config.reranking
+        retriever_result_top_k = rag_config.retrieval.retriever_result_top_k_for()
+
         retriever = get_retriever(
             vector_top_k=rag_config.retrieval.vector_top_k_for(vector_top_k),
             bm25_top_k=rag_config.retrieval.bm25_top_k_for(bm25_top_k),
-            result_top_k=rag_config.retrieval.result_top_k_for(result_top_k),
+            retriever_result_top_k=retriever_result_top_k,
             bm25_persist_dir=spec.bm25_path,
             qdrant_storage_dir=spec.qdrant_path,
             collection_name=spec.text_collection,
@@ -205,6 +207,31 @@ class PaperRAGService:
         finally:
             close_retriever(retriever)
 
+        reranking_status: dict[str, Any] = {"enabled": bool(reranking_config.enabled), "applied": False}
+        if reranking_config.enabled:
+            from rag.reranker import rerank_results
+
+            rerank_top_n = reranking_config.top_n
+            reranking_status.update({
+                "provider": reranking_config.provider,
+                "model": reranking_config.model,
+                "retrieverResultTopK": retriever_result_top_k,
+                "candidateCount": len(results),
+                "topN": rerank_top_n,
+            })
+            try:
+                results = rerank_results(
+                    normalized_query,
+                    results,
+                    reranking_config,
+                    top_n=rerank_top_n,
+                )
+                reranking_status["applied"] = True
+            except Exception as error:
+                reranking_status["error"] = f"{type(error).__name__}: {error}"
+                reranking_status["fallbackTopN"] = rerank_top_n
+                results = _fallback_rerank_results(results, top_n=rerank_top_n)
+
         payload: dict[str, Any] = {
             "success": True,
             "query": normalized_query,
@@ -213,6 +240,7 @@ class PaperRAGService:
             "pdfPath": resolved.get("pdf_path", ""),
             "results": [_result_payload(result, index=index) for index, result in enumerate(results, start=1)],
             "resultCount": len(results),
+            "reranking": reranking_status,
         }
         return payload
 
@@ -304,6 +332,10 @@ def _result_payload(result: Any, *, index: int) -> dict[str, Any]:
         "metadata": metadata,
         "source": _source_label(metadata),
     }
+
+
+def _fallback_rerank_results(results: list[Any], *, top_n: int) -> list[Any]:
+    return results[: max(1, top_n)]
 
 
 def _source_label(metadata: dict[str, Any]) -> str:
