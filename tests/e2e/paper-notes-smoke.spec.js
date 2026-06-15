@@ -587,8 +587,8 @@ async function installAgentMocks(page, options = {}) {
     ? options.runTraceEvents
     : [
       { type: "model_request", message: "Calling model provider.", data: { turn: 1 } },
-      { type: "tool_call", message: "Executing tool: get_note_context", data: { toolName: "get_note_context" } },
-      { type: "tool_result", message: "Tool completed: get_note_context", data: { toolName: "get_note_context" } },
+      { type: "tool_call", message: "Executing tool: get_paper_context", data: { toolName: "get_paper_context" } },
+      { type: "tool_result", message: "Tool completed: get_paper_context", data: { toolName: "get_paper_context" } },
       { type: "model_response", message: "Model provider returned a response.", data: { turn: 1 } },
     ];
 
@@ -627,6 +627,7 @@ async function installAgentMocks(page, options = {}) {
             supportsTools: true,
             supportsVision: true,
             supportsImageGeneration: true,
+            supportsImageArtifactGeneration: true,
             supportsWebSearch: true,
           },
           models: [{
@@ -637,6 +638,7 @@ async function installAgentMocks(page, options = {}) {
               supportsTools: true,
               supportsVision: true,
               supportsImageGeneration: true,
+              supportsImageArtifactGeneration: true,
               supportsWebSearch: true,
             },
           }],
@@ -4417,7 +4419,7 @@ test("reader ask tools send generation modes and render generated file cards", a
   expect(requests.at(-1).imageGeneration).toBeUndefined();
 });
 
-test("reader lets Codex Spark send image generation requests for model fallback", async ({ page }) => {
+test("reader disables image generation for Codex Spark", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
   await page.route("**/api/model/providers", async (route) => {
@@ -4439,6 +4441,7 @@ test("reader lets Codex Spark send image generation requests for model fallback"
             supportsTools: true,
             supportsVision: true,
             supportsImageGeneration: true,
+            supportsImageArtifactGeneration: true,
             supportsWebSearch: true,
           },
           models: [{
@@ -4449,6 +4452,7 @@ test("reader lets Codex Spark send image generation requests for model fallback"
               supportsTools: true,
               supportsVision: false,
               supportsImageGeneration: false,
+              supportsImageArtifactGeneration: false,
               supportsWebSearch: true,
               supportsReasoningOff: false,
               imageInputMode: "unsupported",
@@ -4467,11 +4471,70 @@ test("reader lets Codex Spark send image generation requests for model fallback"
   await page.evaluate(() => window.setReaderToolMenuOpen(true));
   await expect(page.locator("#readerToolPopover")).toBeVisible();
   const generateImage = page.locator("[data-tool-action='generate-image']");
-  await expect(generateImage).toBeEnabled();
+  await expect(generateImage).toBeDisabled();
   await expect(generateImage).toHaveAttribute("title", /does not support image generation/);
   const addScreenshot = page.locator("[data-tool-action='add-screenshot']");
   await expect(addScreenshot).toBeDisabled();
   await expect(addScreenshot).toHaveAttribute("title", /does not support image input/);
-  await generateImage.click();
-  await expect(page.locator("#readerAttachmentTray")).toContainText("Image generation");
+  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
+});
+
+test("reader disables image generation for DeepSeek", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "deepseek",
+        defaultModel: "deepseek-v4-flash",
+        modelConnectionConfigured: true,
+        providers: [{
+          name: "deepseek",
+          displayName: "DeepSeek",
+          configured: true,
+          ready: true,
+          model: "deepseek-v4-flash",
+          selectedModel: "deepseek-v4-flash",
+          defaultModel: "deepseek-v4-flash",
+          capabilities: {
+            supportsTools: true,
+            supportsVision: false,
+            supportsImageGeneration: false,
+            supportsImageArtifactGeneration: false,
+            supportsWebSearch: false,
+            imageInputMode: "unsupported",
+          },
+          models: [{
+            value: "deepseek-v4-flash",
+            label: "DeepSeek V4 Flash",
+            shortLabel: "V4 Flash",
+            capabilities: {
+              supportsTools: true,
+              supportsVision: false,
+              supportsImageGeneration: false,
+              supportsImageArtifactGeneration: false,
+              supportsWebSearch: false,
+              imageInputMode: "unsupported",
+            },
+          }],
+        }],
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await page.waitForFunction(() => typeof window.setAskPaneVisible === "function");
+  await page.evaluate(() => window.setAskPaneVisible(true));
+  await expect(page.locator("#readerLayout")).not.toHaveClass(/is-ask-pane-hidden/);
+  await page.waitForFunction(() => typeof window.setReaderToolMenuOpen === "function");
+  await page.evaluate(() => window.setReaderToolMenuOpen(true));
+  await expect(page.locator("#readerToolPopover")).toBeVisible();
+  const generateImage = page.locator("[data-tool-action='generate-image']");
+  await expect(generateImage).toBeDisabled();
+  await expect(generateImage).toHaveAttribute("title", /does not support image generation/);
+  const addScreenshot = page.locator("[data-tool-action='add-screenshot']");
+  await expect(addScreenshot).toBeDisabled();
+  await expect(addScreenshot).toHaveAttribute("title", /DeepSeek does not support image input/);
+  await expect(page.locator("#readerAttachmentTray")).toBeHidden();
 });

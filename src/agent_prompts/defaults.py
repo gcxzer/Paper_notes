@@ -46,14 +46,23 @@ PAPER_NOTES_SEARCH_QUERY_GUIDANCE = (
 
 PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE = (
     "# Paper note-writing workflow\n"
-    "- Before changing note content, inspect the current note with get_note_context; include existing HTML "
+    "- Before changing note content, inspect the current note with get_paper_context; include existing HTML "
     "when editing or replacing sections.\n"
-    "- Use search_paper_rag only when the paper already has a ready RAG index; synthesize from its retrieved passages. "
-    "If the paper is not indexed, or if search_paper_rag reports index_not_ready, use read_paper instead. Use "
-    "read_paper for exact text search, page text, page images, figures, or visual analysis.\n"
+    "- Use query_paper_content as the main paper-reading tool. For any question about what the paper says, "
+    "argues, proves, measures, reports, compares, concludes, or shows in figures/tables, retrieve paper content "
+    "with query_paper_content unless the user explicitly asks about note metadata, note HTML/sections, tags, "
+    "annotations, or library/index status. When calling it, write retrieval queries from the user's request plus "
+    "current paper/note context, section names, selected text, and prior tool results. For broad, comparative, "
+    "or multi-part requests, pass queries with 2-5 focused queries instead of one vague query. If "
+    "query_paper_content reports index_not_ready, tell the user the paper needs an index before content reading. "
+    "Use inspect_paper_visuals, when it is available, only for page rendering, figure extraction, or paper image "
+    "analysis actions that are exposed in the current tool schema.\n"
     "- When note content or metadata must change, use write_note when available.\n"
     "- When annotations must change, use manage_annotations when available.\n"
-    "- When image-derived note content or image insertion is needed, use write_note_media when available. "
+    "- When image-derived content must be written into the note, or image insertion into the note is explicitly "
+    "requested, use write_note_media when the needed action is exposed in the current tool schema. Do not use "
+    "write_note_media for ordinary attached-image "
+    "translation, OCR/transcription, description, or Q&A; answer those directly from the attached image content. "
     "For user-provided local image files, tell the user to put/copy the image anywhere under "
     "Paper_Notes/.paper-notes/media, including subfolders, first; do not ask them for an upload artifact id.\n"
     "- For substantial HTML changes, use review_note to preview or validate the note when available.\n"
@@ -78,25 +87,31 @@ PAPER_NOTES_GENERATED_ARTIFACT_GUIDANCE = (
 
 
 TOOL_GUIDANCE_BY_NAME = {
-    "search_notes": (
-        "Use search_notes to find candidate papers by title, summary, venue, date, or tags. For non-English "
-        "user queries, send concise English-first paper keywords plus important original terms."
+    "get_paper_context": (
+        "Use get_paper_context to search/list local papers by metadata, or pass note_id to inspect note metadata, "
+        "sections, annotations, optional HTML, and paper index status. For non-English search queries, send "
+        "concise English-first paper keywords plus important original terms."
     ),
-    "get_note_context": (
-        "Use get_note_context to inspect note metadata, sections, annotations, optional HTML, and focused PDF snippets."
+    "query_paper_content": (
+        "Use query_paper_content as the default and primary tool for questions about a paper's actual PDF "
+        "content: claims, methods, equations, algorithms, experiments, results, figures/tables in context, "
+        "limitations, conclusions, and section-level explanations. Use get_paper_context instead only when the "
+        "user explicitly asks about library metadata, note HTML/sections, tags, annotations, or index status. "
+        "Before calling query_paper_content, convert the user request plus current paper/note context into "
+        "specific retrieval query text. Prefer paper terminology, section names, method names, variables, "
+        "datasets, and likely English technical terms over generic wording. For multi-part, ambiguous, or "
+        "high-recall questions, pass queries with 2-5 focused queries, each aimed at one aspect. Do not assume "
+        "imports create indexes automatically. If it reports index_not_ready, tell the user to build the paper "
+        "index."
     ),
-    "read_paper": (
-        "Use read_paper for exact PDF text search, page text, page rendering, figure extraction, or registered "
-        "paper image analysis. Use this as the fallback for papers that have not been indexed for RAG."
+    "inspect_paper_visuals": (
+        "Use inspect_paper_visuals only for the actions exposed in its current schema, such as PDF page rendering, "
+        "figure extraction, or registered paper image analysis when that action is available. Do not use it for "
+        "paper text/content retrieval; use query_paper_content for that."
     ),
-    "read_workspace": (
-        "Use read_workspace for explicit local paths under the current Paper_Notes workspace, including "
-        ".paper-notes generated artifacts, session JSONL files, resources, notes.json, and source files. "
-        "Prefer specialized note/PDF tools for paper semantics, but use read_workspace when the user gives a file path."
-    ),
-    "search_paper_rag": (
-        "Use search_paper_rag only for semantic retrieval over a note's already indexed PDF. Do not assume imports "
-        "create indexes automatically. If it reports index_not_ready, continue with read_paper."
+    "manage_annotations": (
+        "Use manage_annotations only for annotation create/update/delete. For create, provide quote/query "
+        "or explicit normalized rects/coordinates."
     ),
     "write_note": (
         "Use write_note only for note HTML sections and metadata. For normal additions or follow-up content, "
@@ -107,12 +122,12 @@ TOOL_GUIDANCE_BY_NAME = {
         "update_metadata for metadata. "
         "Preserve existing heading levels; do not change h2/h3/h4 hierarchy unless the user explicitly asks."
     ),
-    "manage_annotations": (
-        "Use manage_annotations only for annotation create/update/delete. For create, provide quote/query "
-        "or explicit normalized rects/coordinates."
-    ),
     "write_note_media": (
-        "Use write_note_media for write_from_image or insert_image. For user-provided local images, the file must "
+        "Use write_note_media only for the actions exposed in its current schema. Use insert_image when the user "
+        "explicitly wants an image inserted into the note; use write_from_image only when image analysis is available "
+        "and the user explicitly wants image-derived content written into the note. Do not use it for plain attached-image "
+        "translation, OCR/transcription, description, or Q&A; answer directly from the attached image instead. "
+        "For user-provided local images, the file must "
         "already be anywhere under Paper_Notes/.paper-notes/media, including subfolders; if it is elsewhere, ask "
         "the user to copy/move it there and provide that media path. When inserting an existing media image, pass "
         "artifact_id or the .paper-notes/media path plus heading, caption, and alt. Do not ask for an upload "

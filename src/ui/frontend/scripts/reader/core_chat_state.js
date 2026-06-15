@@ -105,18 +105,21 @@ function currentChatNoteId() {
 
 function storedChatSessionId() {
   const store = readChatSessionStore();
-  return normalizeText(store.__global || store.globalSessionId || store[currentChatNoteId()]);
+  return normalizeText(store[currentChatNoteId()]);
+}
+
+function legacyStoredChatSessionId() {
+  const store = readChatSessionStore();
+  return normalizeText(store.__global || store.globalSessionId);
 }
 
 function setStoredChatSessionId(sessionId) {
   const store = readChatSessionStore();
-  if (sessionId) {
-    store.__global = sessionId;
-    store.globalSessionId = sessionId;
-  } else {
-    delete store.__global;
-    delete store.globalSessionId;
-  }
+  const noteId = currentChatNoteId();
+  delete store.__global;
+  delete store.globalSessionId;
+  if (noteId && sessionId) store[noteId] = sessionId;
+  if (noteId && !sessionId) delete store[noteId];
   writeChatSessionStore(store);
 }
 

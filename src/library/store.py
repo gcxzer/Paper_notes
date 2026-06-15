@@ -150,21 +150,33 @@ def sanitize_library(raw_library: Any) -> dict[str, Any]:
     return {"categories": categories, "notes": notes}
 
 
-def read_library(path: Path = NOTES_PATH) -> dict[str, Any]:
+def read_library(path: Path | None = None) -> dict[str, Any]:
+    target = path or NOTES_PATH
     try:
-        return sanitize_library(json.loads(path.read_text(encoding="utf-8")))
+        return sanitize_library(json.loads(target.read_text(encoding="utf-8")))
     except Exception:
         return copy.deepcopy(BASE_LIBRARY)
 
 
-def write_library(library: dict[str, Any], path: Path = NOTES_PATH) -> dict[str, Any]:
+def write_library(library: dict[str, Any], path: Path | None = None) -> dict[str, Any]:
+    target = path or NOTES_PATH
     sanitized = sanitize_library(library)
-    atomic_write_json(path, sanitized)
+    atomic_write_json(target, sanitized)
     return sanitized
 
 
 def find_note(library: dict[str, Any], note_id: str) -> dict[str, Any] | None:
     return next((entry for entry in library.get("notes", []) if entry.get("id") == note_id), None)
+
+
+def delete_note(note_id: str) -> dict[str, Any] | None:
+    library = read_library(NOTES_PATH)
+    note = find_note(library, note_id)
+    if note is None:
+        return None
+    library["notes"] = [entry for entry in library.get("notes", []) if entry.get("id") != note_id]
+    write_library(library, NOTES_PATH)
+    return note
 
 
 def import_pdf(body: dict[str, Any]) -> dict[str, Any]:

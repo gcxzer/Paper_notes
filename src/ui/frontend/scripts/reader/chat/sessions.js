@@ -57,6 +57,27 @@ function chatSessionPaperLabel(session) {
     || noteTitleForSessionNoteId(session?.noteId);
 }
 
+function chatSessionMatchesNoteId(session, noteId) {
+  const target = normalizeText(noteId).toLowerCase();
+  if (!target) return false;
+  return [
+    session?.currentNoteId,
+    session?.originNoteId,
+    session?.noteId
+  ].some((value) => normalizeText(value).toLowerCase() === target);
+}
+
+function chatSessionUpdatedTime(session) {
+  const date = new Date(session?.updatedAt || session?.createdAt || "");
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function latestChatSessionForCurrentNote(sessions) {
+  return (Array.isArray(sessions) ? sessions : [])
+    .filter((session) => session?.state === "active" && chatSessionMatchesNoteId(session, currentChatNoteId()))
+    .sort((left, right) => chatSessionUpdatedTime(right) - chatSessionUpdatedTime(left))[0] || null;
+}
+
 function chatSessionMetaText(session, view) {
   return view === "trashed"
     ? `Moved ${formatChatSessionTime(session.trashedAt || session.updatedAt)}`
@@ -644,6 +665,21 @@ async function initializeReaderChatSessions() {
   const savedSessionId = storedChatSessionId();
   if (savedSessionId && sessions.some((session) => session.id === savedSessionId)) {
     await loadReaderChatSession(savedSessionId, { closeMenu: false, refreshList: false });
+    return;
+  }
+  const legacySessionId = legacyStoredChatSessionId();
+  const legacySession = legacySessionId
+    ? sessions.find((session) => session.id === legacySessionId && chatSessionMatchesNoteId(session, currentChatNoteId()))
+    : null;
+  if (legacySession) {
+    setStoredChatSessionId(legacySession.id);
+    await loadReaderChatSession(legacySession.id, { closeMenu: false, refreshList: false });
+    return;
+  }
+  const latestSession = latestChatSessionForCurrentNote(sessions);
+  if (latestSession) {
+    setStoredChatSessionId(latestSession.id);
+    await loadReaderChatSession(latestSession.id, { closeMenu: false, refreshList: false });
     return;
   }
   clearCurrentReaderChatSession();

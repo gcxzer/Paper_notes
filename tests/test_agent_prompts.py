@@ -1,18 +1,18 @@
 from __future__ import annotations
 
+import tools.visibility as tools_visibility
 from agent_prompts import AgentPromptContext, build_agent_instructions, build_context_section, extract_tool_names
+from app_config.ai_settings import ResolvedValue
 from media import MediaStore
-from tools import create_tools
+from tools import ToolContext, create_tools
 
 
 CURRENT_PAPER_NOTES_TOOLS = {
-    "get_note_context",
+    "get_paper_context",
+    "inspect_paper_visuals",
     "manage_annotations",
-    "read_paper",
-    "read_workspace",
+    "query_paper_content",
     "review_note",
-    "search_paper_rag",
-    "search_notes",
     "skill_view",
     "skills_list",
     "web_fetch",
@@ -23,29 +23,38 @@ CURRENT_PAPER_NOTES_TOOLS = {
 
 
 def test_prompt_includes_only_current_paper_notes_tool_guidance():
-    tools = create_tools()
+    tools = create_tools(ToolContext(provider_name="openai", model="gpt-5.5"))
     names = extract_tool_names(tools)
 
     prompt = build_agent_instructions(tools=tools, model="gpt-5.4")
 
     assert names == CURRENT_PAPER_NOTES_TOOLS
+    assert "search_paper_rag" not in names
+    assert "search_notes" not in names
+    assert "get_note_context" not in names
     assert "You are Paper Notes Agent" in prompt
     assert "Available local tools:" in prompt
     for tool_name in CURRENT_PAPER_NOTES_TOOLS:
         assert tool_name in prompt
     assert "# Tool use and grounding" in prompt
+    assert "default and primary tool for questions about a paper's actual PDF content" in prompt
     assert "# Paper library search queries" in prompt
     assert "# External web lookup" in prompt
     assert "# Paper note-writing workflow" in prompt
     assert "Paper_Notes/.paper-notes/media" in prompt
 
 
-def test_prompt_includes_generated_artifact_tools_when_media_store_is_available(tmp_path):
-    tools = create_tools(
+def test_prompt_includes_generated_artifact_tools_when_media_store_and_credentials_are_available(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        tools_visibility,
+        "resolve_openai_api_key",
+        lambda: ResolvedValue("sk-test", "test"),
+    )
+    tools = create_tools(ToolContext(
         media_store=MediaStore(tmp_path / "media"),
         provider_name="openai",
         model="gpt-5.5",
-    )
+    ))
     names = extract_tool_names(tools)
 
     prompt = build_agent_instructions(tools=tools, model="gpt-5.5")
@@ -123,13 +132,13 @@ def test_prompt_accepts_context_dict():
 def test_extract_tool_names_supports_openai_shapes_and_langchain_tools():
     names = extract_tool_names(
         [
-            {"type": "function", "function": {"name": "search_notes"}},
-            {"type": "function", "name": "read_paper"},
+            {"type": "function", "function": {"name": "get_paper_context"}},
+            {"type": "function", "name": "inspect_paper_visuals"},
             {"type": "web_search"},
             {"type": "web_search_20260209", "name": "web_search"},
             {"not": "a tool"},
-            create_tools()[1],
+            create_tools(ToolContext(provider_name="openai", model="gpt-5.5"))[1],
         ]
     )
 
-    assert names == {"search_notes", "read_paper", "web_search", "get_note_context"}
+    assert names == {"get_paper_context", "inspect_paper_visuals", "web_search"}

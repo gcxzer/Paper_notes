@@ -129,7 +129,7 @@ function renderToolRootMenu() {
       </div>
     </div>
     <div class="ask-tool-menu-section">
-      <button class="ask-tool-menu-option" type="button" data-tool-action="generate-image" title="${escapeHtml(imageGenerationTitle)}">
+      <button class="ask-tool-menu-option" type="button" data-tool-action="generate-image"${imageGenerationSupported ? "" : " disabled"} title="${escapeHtml(imageGenerationTitle)}">
         ${renderAskToolMenuIcon("image")}
         <span>
           <strong>Generate image</strong>
@@ -373,6 +373,12 @@ function handleReaderToolPopoverClick(event) {
   }
   if (action === "generate-image") {
     event.preventDefault();
+    if (!activeProviderSupportsImageArtifacts()) {
+      readerState.toolStatus = activeProviderImageGenerationUnsupportedMessage();
+      readerState.toolStatusLevel = "root";
+      renderReaderToolControls();
+      return;
+    }
     setReaderGenerationMode("image");
     closeReaderToolMenu();
     elements.readerChatInput?.focus();

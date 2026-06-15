@@ -68,7 +68,7 @@ def _build_tool_guidance(tool_names: set[str]) -> str:
         guidance = TOOL_GUIDANCE_BY_NAME.get(tool_name, f"Use {tool_name} only when it directly helps answer the user.")
         lines.append(f"- {tool_name}: {guidance}")
 
-    if "search_notes" in tool_names:
+    if "get_paper_context" in tool_names:
         lines.extend(["", PAPER_NOTES_SEARCH_QUERY_GUIDANCE])
 
     if {"write_note", "manage_annotations", "write_note_media"} & tool_names:

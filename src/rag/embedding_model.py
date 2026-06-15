@@ -25,7 +25,7 @@ def get_embedding_model(
         from llama_index.embeddings.openai import OpenAIEmbedding
 
         return OpenAIEmbedding(
-            model=os.getenv("MODELSCOPE_EMBEDDING_MODEL") or model,
+            model_name=os.getenv("MODELSCOPE_EMBEDDING_MODEL") or model,
             api_base=os.getenv(embedding.openai.api_base_env) or embedding.openai.api_base or None,
             api_key=os.getenv(embedding.openai.api_key_env),
             embed_batch_size=batch_size,
@@ -40,9 +40,3 @@ def get_embedding_model(
         )
 
     raise ValueError(f"Unsupported embedding provider: {provider}")
-
-
-def get_image_embedding_model(model: str | None = None):
-    from llama_index.embeddings.clip import ClipEmbedding
-
-    return ClipEmbedding(model_name=str(model or load_app_config().rag.image_embedding.model).strip())

@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from app_config import load_app_config
-from app_config.config import DEFAULT_IMAGE_COLLECTION, DEFAULT_TEXT_COLLECTION
+from app_config.config import DEFAULT_TEXT_COLLECTION
 from rag.bm25_indexing import BM25Index
-from rag.embedding_model import get_embedding_model, get_image_embedding_model
+from rag.embedding_model import get_embedding_model
 from rag.qdrant_indexing import QdrantIndex
 
 
@@ -53,33 +53,26 @@ class HybridRetriever:
 
 def get_retriever(
     similarity_top_k: int | None = None,
-    image_similarity_top_k: int | None = None,
     bm25_similarity_top_k: int | None = None,
     bm25_persist_dir: str | Path | None = None,
     qdrant_storage_dir: str | Path | None = None,
     collection_name: str = DEFAULT_TEXT_COLLECTION,
-    image_collection_name: str = DEFAULT_IMAGE_COLLECTION,
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
 ):
     rag_config = load_app_config().rag
     similarity_top_k = rag_config.retrieval.similarity_top_k_for(similarity_top_k)
-    image_similarity_top_k = rag_config.retrieval.image_similarity_top_k_for(image_similarity_top_k)
     bm25_similarity_top_k = rag_config.retrieval.bm25_similarity_top_k_for(bm25_similarity_top_k)
     text_embed_model = get_embedding_model(provider=embedding_provider, model=embedding_model)
-    image_embed_model = get_image_embedding_model()
 
     qdrant_index = QdrantIndex(
         text_embed_model=text_embed_model,
-        image_embed_model=image_embed_model,
         collection_name=collection_name,
-        image_collection_name=image_collection_name,
         storage_path=qdrant_storage_dir or rag_config.qdrant_storage_path(),
     )
     index = qdrant_index.load()
     vector_retriever = index.as_retriever(
         similarity_top_k=similarity_top_k,
-        image_similarity_top_k=image_similarity_top_k,
     )
     bm25_retriever = BM25Index(
         similarity_top_k=bm25_similarity_top_k,

@@ -2,21 +2,20 @@
 
 LangChain-native tools for the new Paper Notes agent runtime.
 
-The public entry point is `tools.create_tools(...)`. It returns
-`langchain_core.tools.StructuredTool` instances and is used by
-`agent_runtime.AgentService`.
+The public entry point is `tools.create_tools(ToolContext(...))`. It returns
+the model-visible tools for one request, including `langchain_core.tools.StructuredTool`
+instances and provider-native server tools such as OpenAI web search.
+The request-level visibility resolver lives in `tools.visibility`; `tools.__init__`
+only re-exports the public API.
 
 ## Current Tools
 
-- `search_notes`: search or list local paper metadata.
-- `get_note_context`: build compact note context from metadata, note HTML,
-  annotations, and optional PDF snippets.
-- `read_paper`: search PDF text, read pages, render pages, extract images, or
-  analyze a registered image artifact when an analyzer is available.
-- `read_workspace`: read, list, stat, or search files under the current
-  Paper_Notes workspace.
-- `search_paper_rag`: semantically retrieve passages from a note's ready local
-  RAG index.
+- `get_paper_context`: search/list local paper metadata or build compact context
+  for one paper from metadata, note HTML, annotations, and local paper index status.
+- `inspect_paper_visuals`: render PDF pages, extract figures/images, or analyze a
+  registered image artifact when an analyzer is available.
+- `query_paper_content`: the default paper-reading tool for semantic retrieval
+  over a note's ready local paper index.
 - `write_note`: update note HTML sections or note metadata.
 - `manage_annotations`: create, update, or delete Paper Notes annotations.
 - `write_note_media`: write note content from paper images or insert existing
@@ -26,10 +25,12 @@ The public entry point is `tools.create_tools(...)`. It returns
 ## Boundaries
 
 - Tool schemas live in `tools.paper_notes.schemas`.
+- Model/tool capability gating lives in `tools.visibility`.
 - Model-visible tool construction lives in `tools.paper_notes.tool`.
 - Tool orchestration and action dispatch live in `tools.paper_notes.impl.facade`.
 - Domain logic belongs in `library`, `media`, `rag`, and `app_infra`.
-- The RAG system is exposed only as retrieval through `search_paper_rag`; it
+- The RAG system is exposed only as paper-content retrieval through `query_paper_content`; it
   should not generate final answers by itself.
-- PDF import does not build indexes. Use `read_paper` for unindexed papers and
-  `search_paper_rag` only after Settings/RAG has created the index.
+- PDF import does not build indexes. Use `query_paper_content` for paper content
+  only after Settings/RAG has created the index; use `inspect_paper_visuals` only for
+  visual page/figure work.

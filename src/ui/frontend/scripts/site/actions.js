@@ -75,11 +75,38 @@ function deleteCategory(categoryId) {
   });
 }
 
-function deleteNote(noteId) {
+async function deleteNote(noteId) {
+  const previousLibrary = cloneLibrary(state.library);
+  const previousSelectedNoteId = state.selectedNoteId;
   updateLibrary((library) => {
     library.notes = library.notes.filter((note) => note.id !== noteId);
     if (state.selectedNoteId === noteId) state.selectedNoteId = null;
   });
+
+  try {
+    const payload = await fetchJson(`/api/library/notes/${encodeURIComponent(noteId)}`, {
+      method: "DELETE"
+    });
+    if (payload.library) {
+      state.library = sanitizeLibrary(payload.library);
+      if (state.selectedNoteId && !getNoteById(state.selectedNoteId)) state.selectedNoteId = null;
+      state.dataSource = "default";
+      saveLibraryToStorage();
+      saveExpandedState();
+      renderApp();
+    }
+  } catch (error) {
+    console.warn("Could not delete note from the backend.", error);
+    state.library = previousLibrary;
+    state.selectedNoteId = previousSelectedNoteId;
+    saveLibraryToStorage();
+    renderApp();
+    showMessageDialog({
+      eyebrow: "Delete Failed",
+      title: "Could not delete this paper",
+      body: error?.message || "The paper was restored because the backend delete request failed."
+    });
+  }
 }
 
 function confirmDeleteNote(noteId) {

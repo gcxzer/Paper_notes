@@ -78,7 +78,10 @@ const state = {
   importUrlLoading: false,
   ragStatuses: {},
   ragLoading: false,
-  ragBusyNoteId: ""
+  ragBusyNoteId: "",
+  ragProgresses: {},
+  ragJobs: {},
+  ragJobStreams: {}
 };
 
 const summarySaveTimers = new Map();

@@ -180,7 +180,6 @@ Core library data:
 
 Derived paper caches:
 
-- `resources/Paper-text/`: extracted PDF text cache
 - `resources/Paper-pages/`: rendered PDF page image cache
 - `resources/Paper-images/`: extracted PDF image cache
 

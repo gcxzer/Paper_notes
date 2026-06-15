@@ -18,7 +18,6 @@ DEFAULT_RAG_ROOT = PROJECT_ROOT / ".paper-notes" / "rag"
 DEFAULT_RAG_INDEX_ROOT = DEFAULT_RAG_ROOT / "indexes"
 DEFAULT_RAG_IMAGE_ROOT = DEFAULT_RAG_ROOT / "images"
 DEFAULT_TEXT_COLLECTION = "paper_notes"
-DEFAULT_IMAGE_COLLECTION = "paper_notes_images"
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 120
 DEFAULT_OPENAI_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-8B"
@@ -26,8 +25,18 @@ DEFAULT_EMBEDDING_PROVIDER = "ollama"
 DEFAULT_OLLAMA_EMBEDDING_MODEL = "qwen3-embedding:8b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_EMBED_BATCH_SIZE = 100
-DEFAULT_IMAGE_EMBEDDING_MODEL = "ViT-B/32"
 DEFAULT_LOADER = "pymupdf"
+DEFAULT_IMAGE_CAPTIONING_ENABLED = False
+DEFAULT_IMAGE_CAPTIONING_PROVIDER = "codex-oauth"
+DEFAULT_IMAGE_CAPTIONING_MODEL = "gpt-5.4-mini"
+DEFAULT_IMAGE_CAPTIONING_MAX_IMAGES = 20
+DEFAULT_IMAGE_CAPTIONING_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+DEFAULT_IMAGE_CAPTIONING_TIMEOUT = 120.0
+DEFAULT_IMAGE_CAPTIONING_PROMPT = (
+    "Describe this academic-paper image for retrieval. Include visible labels, axes, legends, table fields, "
+    "equations, entities, and the main relationship or result. Be concise, factual, and use plain text only. "
+    "If details are unreadable, say what is visible instead of guessing."
+)
 DEFAULT_LLAMAPARSE_TIER = "agentic"
 DEFAULT_LLAMAPARSE_VERSION = "latest"
 DEFAULT_LLAMAPARSE_TIMEOUT = 7200.0
@@ -41,7 +50,6 @@ DEFAULT_LLAMAPARSE_CUSTOM_PROMPT = (
 )
 DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES = ("embedded", "layout")
 DEFAULT_SIMILARITY_TOP_K = 5
-DEFAULT_IMAGE_SIMILARITY_TOP_K = 3
 DEFAULT_BM25_SIMILARITY_TOP_K = 5
 DEFAULT_HYBRID_WEIGHTS = (0.7, 0.3)
 DEFAULT_INDEX_KEY = "default"
@@ -205,14 +213,12 @@ class LibraryConfig:
 @dataclass(frozen=True, slots=True)
 class RagCollectionsConfig:
     text: str = DEFAULT_TEXT_COLLECTION
-    image: str = DEFAULT_IMAGE_COLLECTION
 
     @classmethod
     def from_mapping(cls, value: object) -> RagCollectionsConfig:
         data = _mapping(value)
         return cls(
             text=_text(data, "text", "textCollection", default=DEFAULT_TEXT_COLLECTION),
-            image=_text(data, "image", "imageCollection", default=DEFAULT_IMAGE_COLLECTION),
         )
 
 
@@ -314,19 +320,44 @@ class RagEmbeddingConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class RagImageEmbeddingConfig:
-    model: str = DEFAULT_IMAGE_EMBEDDING_MODEL
+class RagImageCaptioningConfig:
+    enabled: bool = DEFAULT_IMAGE_CAPTIONING_ENABLED
+    provider: str = DEFAULT_IMAGE_CAPTIONING_PROVIDER
+    model: str = DEFAULT_IMAGE_CAPTIONING_MODEL
+    max_images: int = DEFAULT_IMAGE_CAPTIONING_MAX_IMAGES
+    max_image_bytes: int = DEFAULT_IMAGE_CAPTIONING_MAX_IMAGE_BYTES
+    timeout: float = DEFAULT_IMAGE_CAPTIONING_TIMEOUT
+    prompt: str = DEFAULT_IMAGE_CAPTIONING_PROMPT
 
     @classmethod
-    def from_mapping(cls, value: object) -> RagImageEmbeddingConfig:
+    def from_mapping(cls, value: object) -> RagImageCaptioningConfig:
         data = _mapping(value)
-        return cls(model=_text(data, "model", default=DEFAULT_IMAGE_EMBEDDING_MODEL))
+        return cls(
+            enabled=_bool(data, "enabled", default=DEFAULT_IMAGE_CAPTIONING_ENABLED),
+            provider=_text(data, "provider", default=DEFAULT_IMAGE_CAPTIONING_PROVIDER),
+            model=_text(data, "model", default=DEFAULT_IMAGE_CAPTIONING_MODEL),
+            max_images=_int(
+                data,
+                "max_images",
+                "maxImages",
+                default=DEFAULT_IMAGE_CAPTIONING_MAX_IMAGES,
+                minimum=0,
+            ),
+            max_image_bytes=_int(
+                data,
+                "max_image_bytes",
+                "maxImageBytes",
+                default=DEFAULT_IMAGE_CAPTIONING_MAX_IMAGE_BYTES,
+                minimum=1,
+            ),
+            timeout=_float(data, "timeout", default=DEFAULT_IMAGE_CAPTIONING_TIMEOUT, minimum=1.0),
+            prompt=_text(data, "prompt", default=DEFAULT_IMAGE_CAPTIONING_PROMPT),
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class RagRetrievalConfig:
     similarity_top_k: int = DEFAULT_SIMILARITY_TOP_K
-    image_similarity_top_k: int = DEFAULT_IMAGE_SIMILARITY_TOP_K
     bm25_similarity_top_k: int = DEFAULT_BM25_SIMILARITY_TOP_K
     hybrid_weights: tuple[float, float] = DEFAULT_HYBRID_WEIGHTS
 
@@ -339,14 +370,6 @@ class RagRetrievalConfig:
                 "similarity_top_k",
                 "similarityTopK",
                 default=DEFAULT_SIMILARITY_TOP_K,
-                minimum=1,
-                maximum=20,
-            ),
-            image_similarity_top_k=_int(
-                data,
-                "image_similarity_top_k",
-                "imageSimilarityTopK",
-                default=DEFAULT_IMAGE_SIMILARITY_TOP_K,
                 minimum=1,
                 maximum=20,
             ),
@@ -363,9 +386,6 @@ class RagRetrievalConfig:
 
     def similarity_top_k_for(self, value: int | None = None) -> int:
         return _bounded_int(value, default=self.similarity_top_k, minimum=1, maximum=20)
-
-    def image_similarity_top_k_for(self, value: int | None = None) -> int:
-        return _bounded_int(value, default=self.image_similarity_top_k, minimum=1, maximum=20)
 
     def bm25_similarity_top_k_for(self, value: int | None = None) -> int:
         return _bounded_int(value, default=self.bm25_similarity_top_k, minimum=1, maximum=20)
@@ -425,7 +445,7 @@ class RagConfig:
     build: RagBuildConfig = field(default_factory=RagBuildConfig)
     chunking: RagChunkingConfig = field(default_factory=RagChunkingConfig)
     embedding: RagEmbeddingConfig = field(default_factory=RagEmbeddingConfig)
-    image_embedding: RagImageEmbeddingConfig = field(default_factory=RagImageEmbeddingConfig)
+    image_captioning: RagImageCaptioningConfig = field(default_factory=RagImageCaptioningConfig)
     retrieval: RagRetrievalConfig = field(default_factory=RagRetrievalConfig)
     llamaparse: RagLlamaParseConfig = field(default_factory=RagLlamaParseConfig)
 
@@ -441,8 +461,8 @@ class RagConfig:
             build=RagBuildConfig.from_mapping(data.get("build")),
             chunking=RagChunkingConfig.from_mapping(data.get("chunking")),
             embedding=RagEmbeddingConfig.from_mapping(data.get("embedding")),
-            image_embedding=RagImageEmbeddingConfig.from_mapping(
-                data.get("image_embedding", data.get("imageEmbedding"))
+            image_captioning=RagImageCaptioningConfig.from_mapping(
+                data.get("image_captioning", data.get("imageCaptioning"))
             ),
             retrieval=RagRetrievalConfig.from_mapping(data.get("retrieval")),
             llamaparse=RagLlamaParseConfig.from_mapping(data.get("llamaparse")),
@@ -462,9 +482,6 @@ class RagConfig:
 
     def text_collection_name(self, index_key: object = DEFAULT_INDEX_KEY) -> str:
         return self._collection_name(self.collections.text, index_key)
-
-    def image_collection_name(self, index_key: object = DEFAULT_INDEX_KEY) -> str:
-        return self._collection_name(self.collections.image, index_key)
 
     def _collection_name(self, base: str, index_key: object) -> str:
         key = self.safe_index_key(index_key).replace("-", "_").replace(".", "_")

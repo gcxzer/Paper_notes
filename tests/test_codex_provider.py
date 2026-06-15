@@ -149,6 +149,27 @@ def test_codex_chat_model_uses_responses_api_and_strengthened_host_tool_prompt()
     assert "list_mcp_resources" in payload["instructions"]
 
 
+def test_codex_chat_model_preserves_image_parts_for_responses_api():
+    client = _FakeClient(_message_response("Image answer."))
+    model = CodexChatModel(model="gpt-5.4", client=client)
+
+    message = model.invoke([
+        HumanMessage(content=[
+            {"type": "text", "text": "翻译一下这张图"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        ])
+    ])
+
+    payload = client.responses.payloads[0]
+
+    assert message.content == "Image answer."
+    assert payload["input"][0]["role"] == "user"
+    assert payload["input"][0]["content"] == [
+        {"type": "input_text", "text": "翻译一下这张图"},
+        {"type": "input_image", "image_url": "data:image/png;base64,abc123"},
+    ]
+
+
 def test_codex_chat_model_maps_image_generation_to_artifact():
     media_store = _FakeMediaStore()
     client = _FakeClient(_image_generation_response())

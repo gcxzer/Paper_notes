@@ -123,7 +123,7 @@ def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
                 "root_dir": str(tmp_path / "tool-outputs"),
                 "default_max_tokens": 1234,
                 "placeholder_keep_recent": 3,
-                "tool_limits": {"read_paper": 4321},
+                "tool_limits": {"inspect_paper_visuals": 4321},
             },
         },
         path=None,
@@ -136,7 +136,7 @@ def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
     assert middleware.index(truncation) < middleware.index(placeholder)
     assert truncation.root_dir == (tmp_path / "tool-outputs").resolve()
     assert truncation.default_max_tokens == 1234
-    assert truncation.tool_limits == {"read_paper": 4321}
+    assert truncation.tool_limits == {"inspect_paper_visuals": 4321}
     assert placeholder.keep_recent == 3
 
 
@@ -179,10 +179,10 @@ def test_tool_output_placeholder_middleware_omits_old_outputs() -> None:
     middleware = ToolOutputPlaceholderMiddleware(keep_recent=2)
     old = ToolMessage(
         content="Full output path: /tmp/full-output.txt\n" + ("old output " * 100),
-        name="read_paper",
+        name="inspect_paper_visuals",
         tool_call_id="old-call",
     )
-    middle = ToolMessage(content="middle output", name="search_notes", tool_call_id="middle-call")
+    middle = ToolMessage(content="middle output", name="get_paper_context", tool_call_id="middle-call")
     recent = ToolMessage(content="recent output", name="write_note", tool_call_id="recent-call")
 
     update = middleware.before_model(

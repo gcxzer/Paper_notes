@@ -90,13 +90,14 @@ def _messages_to_responses_input(messages: list[BaseMessage]) -> tuple[str, list
     input_items: list[dict[str, Any]] = []
     for message in messages:
         role = str(getattr(message, "type", "") or "").strip()
-        content = _content_text(getattr(message, "content", ""))
+        raw_content = getattr(message, "content", "")
+        content = _content_text(raw_content)
         if role in {"system", "developer"}:
             if content:
                 instructions.append(content)
             continue
         if role == "human":
-            input_items.append({"role": "user", "content": content})
+            input_items.append({"role": "user", "content": _responses_message_content(raw_content)})
             continue
         if role == "ai":
             if content:
@@ -113,6 +114,48 @@ def _messages_to_responses_input(messages: list[BaseMessage]) -> tuple[str, list
     if not input_items:
         input_items.append({"role": "user", "content": ""})
     return "\n\n".join(part for part in instructions if part).strip(), input_items
+
+
+def _responses_message_content(content: Any) -> str | list[dict[str, Any]]:
+    if not isinstance(content, list):
+        return _content_text(content)
+    parts: list[dict[str, Any]] = []
+    for item in content:
+        converted = _responses_content_part(item)
+        if converted:
+            parts.append(converted)
+    return parts or _content_text(content)
+
+
+def _responses_content_part(item: Any) -> dict[str, Any] | None:
+    if isinstance(item, str):
+        return {"type": "input_text", "text": item}
+    if not isinstance(item, dict):
+        text = str(item) if item is not None else ""
+        return {"type": "input_text", "text": text} if text else None
+
+    part_type = str(item.get("type") or "").strip()
+    if part_type in {"text", "input_text"}:
+        text = item.get("text", item.get("content", ""))
+        return {"type": "input_text", "text": str(text)} if text is not None else None
+    if part_type in {"image_url", "input_image"}:
+        image_url = _image_url_from_part(item)
+        if image_url:
+            return {"type": "input_image", "image_url": image_url}
+
+    text = item.get("text", item.get("content", ""))
+    if isinstance(text, str) and text:
+        return {"type": "input_text", "text": text}
+    return None
+
+
+def _image_url_from_part(item: dict[str, Any]) -> str:
+    value = item.get("image_url") or item.get("imageUrl") or item.get("url")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("url") or value.get("image_url") or value.get("imageUrl") or "")
+    return ""
 
 
 def _host_tool_instructions(tools: list[dict[str, Any]], *, tool_choice: str | None) -> str:

@@ -258,6 +258,16 @@ elements.refreshRagSettings?.addEventListener("click", () => {
   void loadRagSettings();
 });
 elements.ragSettingsList?.addEventListener("click", (event) => {
+  const pauseButton = event.target.closest("[data-rag-pause]");
+  if (pauseButton) {
+    void pauseRagIndex(pauseButton.dataset.ragPause);
+    return;
+  }
+  const resumeButton = event.target.closest("[data-rag-resume]");
+  if (resumeButton) {
+    void resumeRagIndex(resumeButton.dataset.ragResume);
+    return;
+  }
   const indexButton = event.target.closest("[data-rag-index]");
   if (indexButton) {
     void buildRagIndex(indexButton.dataset.ragIndex, { rebuild: false });

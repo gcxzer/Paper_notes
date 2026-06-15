@@ -7,13 +7,11 @@ from langchain_core.tools import StructuredTool
 
 import tools.paper_notes.impl.facade as facade
 from tools.paper_notes.schemas import (
-    get_note_context_parameters,
+    get_paper_context_parameters,
+    inspect_paper_visuals_parameters,
     manage_annotations_parameters,
-    read_paper_parameters,
-    read_workspace_parameters,
+    query_paper_content_parameters,
     review_note_parameters,
-    search_paper_rag_parameters,
-    search_notes_parameters,
     write_note_media_parameters,
     write_note_parameters,
 )
@@ -25,91 +23,55 @@ def create_tools(
     annotations_dir: Path | None = None,
     html_dir: Path | None = None,
     papers_dir: Path | None = None,
-    paper_text_cache_dir: Path | None = None,
     paper_page_cache_dir: Path | None = None,
     paper_image_cache_dir: Path | None = None,
     media_store: Any | None = None,
     paper_image_analyzer: Any | None = None,
+    image_analysis_available: bool | None = None,
+    visual_inspection_available: bool = True,
 ) -> list[StructuredTool]:
-    return [
+    can_inspect_visuals = bool(visual_inspection_available)
+    can_analyze_images = callable(paper_image_analyzer) if image_analysis_available is None else bool(image_analysis_available)
+    visual_actions = "render_page for a page image or extract_images for figures"
+    if can_analyze_images:
+        visual_actions += ", or analyze_image for a registered paper image artifact"
+    media_actions = "insert_image for an existing image artifact"
+    if can_analyze_images:
+        media_actions = "write_from_image for paper image analysis or insert_image for an existing image artifact"
+    query_visual_guidance = (
+        "Use inspect_paper_visuals only for page rendering, figure extraction, or exposed image-analysis actions. "
+        if can_inspect_visuals
+        else "This model cannot inspect paper images, so answer figure/table questions from retrieved text and captions. "
+    )
+    tools = [
         StructuredTool(
-            name="search_notes",
+            name="get_paper_context",
             description=(
-                "Search or list local Paper Notes metadata by title, summary, venue, date, and tags. Use concise "
-                "English-first paper keywords; for non-English user requests, include likely English terms "
-                "and important original-language terms. Omit query, pass an empty query, or pass '*' only when "
-                "the user asks to list/count the library."
+                "Find papers by local metadata or inspect one paper's note context. Pass note_id for detailed "
+                "metadata, sections, annotations, optional note HTML, and local paper index status. Without "
+                "note_id, pass query/limit to search or list the local library."
             ),
-            args_schema=search_notes_parameters(),
-            func=lambda **kwargs: facade.search_notes(dict(kwargs), library_path=library_path),
-        ),
-        StructuredTool(
-            name="get_note_context",
-            description=(
-                "Build a compact writing context for one note: metadata, current sections, annotations, "
-                "optional note HTML, and optional PDF text snippets."
-            ),
-            args_schema=get_note_context_parameters(),
-            func=lambda **kwargs: facade.get_note_context(
+            args_schema=get_paper_context_parameters(),
+            func=lambda **kwargs: facade.get_paper_context(
                 dict(kwargs),
                 library_path=library_path,
                 annotations_dir=annotations_dir,
                 html_dir=html_dir,
-                papers_dir=papers_dir,
-                paper_text_cache_dir=paper_text_cache_dir,
             ),
         ),
         StructuredTool(
-            name="read_paper",
+            name="query_paper_content",
             description=(
-                "Read paper source material for a note. Use action=search_text for focused snippets, read_pages for "
-                "page text, render_page for a page image, extract_images for figures, or analyze_image for a "
-                "registered artifact."
+                "Primary tool for reading and answering questions about a paper's actual PDF content. Use it by "
+                "default for questions about the paper's claims, methods, equations, experiments, results, "
+                "figures/tables in context, related work, limitations, conclusions, or what any section says. "
+                "Use get_paper_context instead only when the user explicitly asks about library metadata, note "
+                f"HTML/sections, annotations, tags, or index status. {query_visual_guidance}Generate retrieval "
+                "query text from the user request plus current note/paper context; use queries for multiple "
+                "focused searches when one query would be too broad."
             ),
-            args_schema=read_paper_parameters(),
-            func=lambda **kwargs: facade.read_paper(
-                dict(kwargs),
-                library_path=library_path,
-                papers_dir=papers_dir,
-                paper_text_cache_dir=paper_text_cache_dir,
-                paper_page_cache_dir=paper_page_cache_dir,
-                paper_image_cache_dir=paper_image_cache_dir,
-                media_store=media_store,
-                paper_image_analyzer=paper_image_analyzer,
-            ),
-        ),
-        StructuredTool(
-            name="read_workspace",
-            description=(
-                "Read, list, stat, or search files under the current Paper_Notes workspace. Use this for explicit "
-                "local paths such as .paper-notes generated artifacts, session JSONL files, resources, notes.json, "
-                "or source files. It cannot read outside the workspace."
-            ),
-            args_schema=read_workspace_parameters(),
-            func=lambda **kwargs: facade.read_workspace(dict(kwargs)),
-        ),
-        StructuredTool(
-            name="search_paper_rag",
-            description=(
-                "Semantically search a note's PDF only when its local RAG index is ready. Prefer read_paper when "
-                "the PDF has not been indexed yet or when exact text/page access is needed."
-            ),
-            args_schema=search_paper_rag_parameters(),
-            func=lambda **kwargs: facade.search_paper_rag(dict(kwargs), library_path=library_path),
-        ),
-        StructuredTool(
-            name="write_note",
-            description=(
-                "Modify note HTML sections or note metadata. Use action=append_to_section for normal additions, "
-                "write_section for replacing or creating a section, delete_section, or update_metadata."
-            ),
-            args_schema=write_note_parameters(),
-            func=lambda **kwargs: facade.write_note(
-                dict(kwargs),
-                library_path=library_path,
-                html_dir=html_dir,
-                media_store=media_store,
-            ),
+            args_schema=query_paper_content_parameters(),
+            func=lambda **kwargs: facade.query_paper_content(dict(kwargs), library_path=library_path),
         ),
         StructuredTool(
             name="manage_annotations",
@@ -126,12 +88,26 @@ def create_tools(
             ),
         ),
         StructuredTool(
+            name="write_note",
+            description=(
+                "Modify note HTML sections or note metadata. Use action=append_to_section for normal additions, "
+                "write_section for replacing or creating a section, delete_section, or update_metadata."
+            ),
+            args_schema=write_note_parameters(),
+            func=lambda **kwargs: facade.write_note(
+                dict(kwargs),
+                library_path=library_path,
+                html_dir=html_dir,
+                media_store=media_store,
+            ),
+        ),
+        StructuredTool(
             name="write_note_media",
             description=(
-                "Write note content from a paper image or insert an existing image artifact into a note. "
-                "Use action=write_from_image or insert_image."
+                "Write visual media into a note. "
+                f"Use action={media_actions}."
             ),
-            args_schema=write_note_media_parameters(),
+            args_schema=write_note_media_parameters(image_analysis=can_analyze_images),
             func=lambda **kwargs: facade.write_note_media(
                 dict(kwargs),
                 library_path=library_path,
@@ -154,6 +130,27 @@ def create_tools(
             ),
         ),
     ]
+    if can_inspect_visuals:
+        tools.insert(
+            1,
+            StructuredTool(
+                name="inspect_paper_visuals",
+                description=(
+                    f"Inspect visual paper source material for a note. Use action={visual_actions}."
+                ),
+                args_schema=inspect_paper_visuals_parameters(image_analysis=can_analyze_images),
+                func=lambda **kwargs: facade.inspect_paper_visuals(
+                    dict(kwargs),
+                    library_path=library_path,
+                    papers_dir=papers_dir,
+                    paper_page_cache_dir=paper_page_cache_dir,
+                    paper_image_cache_dir=paper_image_cache_dir,
+                    media_store=media_store,
+                    paper_image_analyzer=paper_image_analyzer,
+                ),
+            ),
+        )
+    return tools
 
 
 __all__ = ["create_tools"]

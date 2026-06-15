@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import unquote
 
 from app_config import load_app_config
@@ -29,7 +29,6 @@ class RAGServiceError(RuntimeError):
 class _RagIndexSpec:
     key: str
     text_collection: str
-    image_collection: str
     qdrant_path: Path
     bm25_path: Path
 
@@ -40,7 +39,7 @@ class PaperRAGService:
     def status(
         self,
         *,
-        index_key: str = DEFAULT_INDEX_KEY,
+        index_key: str = "",
         note_id: str = "",
         pdf_path: str | Path | None = None,
         library_path: str | Path | None = None,
@@ -55,7 +54,6 @@ class PaperRAGService:
         spec = _index_spec(rag_config, index_key or resolved.get("index_key") or DEFAULT_INDEX_KEY)
         qdrant_exists = QdrantIndex.exists(
             collection_name=spec.text_collection,
-            image_collection_name=spec.image_collection,
             storage_path=spec.qdrant_path,
         )
         bm25_exists = BM25Index.exists_at(spec.bm25_path)
@@ -70,7 +68,6 @@ class PaperRAGService:
                     "exists": qdrant_exists,
                     "path": str(spec.qdrant_path),
                     "textCollection": spec.text_collection,
-                    "imageCollection": spec.image_collection,
                 },
                 "bm25": {
                     "exists": bm25_exists,
@@ -93,11 +90,21 @@ class PaperRAGService:
         build_bm25: bool | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
+        caption_images: bool | None = None,
+        caption_provider: str | None = None,
+        caption_model: str | None = None,
+        caption_prompt: str | None = None,
+        caption_max_images: int | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
         library_path: str | Path | None = None,
     ) -> dict[str, Any]:
         rag_config = load_app_config().rag
+        _report_progress(progress_callback, stage="loading", message="Preparing RAG index build.", percent=3)
         loader = _normalize_loader(loader or rag_config.build.loader)
         include_images = rag_config.build.include_images if include_images is None else include_images
+        caption_images = rag_config.image_captioning.enabled if caption_images is None else caption_images
+        if caption_images:
+            include_images = True
         build_qdrant = rag_config.build.qdrant if build_qdrant is None else build_qdrant
         build_bm25 = rag_config.build.bm25 if build_bm25 is None else build_bm25
         resolved = self.resolve_target(
@@ -106,6 +113,7 @@ class PaperRAGService:
             library_path=library_path,
             require_pdf=True,
         )
+        _report_progress(progress_callback, stage="loading", message="Resolved paper PDF.", percent=6)
         spec = _index_spec(rag_config, index_key or resolved["index_key"])
         before = self.status(index_key=spec.key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
         should_build_qdrant = bool(build_qdrant and (rebuild or not before["indexes"]["qdrant"]["exists"]))
@@ -125,11 +133,18 @@ class PaperRAGService:
                     qdrant_storage_dir=spec.qdrant_path,
                     bm25_persist_dir=spec.bm25_path,
                     text_collection=spec.text_collection,
-                    image_collection=spec.image_collection,
                     embedding_provider=embedding_provider,
                     embedding_model=embedding_model,
+                    caption_images=bool(caption_images),
+                    caption_provider=caption_provider,
+                    caption_model=caption_model,
+                    caption_prompt=caption_prompt,
+                    caption_max_images=caption_max_images,
+                    progress_callback=progress_callback,
                 )
             )
+        else:
+            _report_progress(progress_callback, stage="complete", message="RAG indexes are already ready.", percent=100)
 
         after = self.status(index_key=spec.key, note_id=note_id, pdf_path=resolved["pdf_path"], library_path=library_path)
         return {
@@ -140,6 +155,7 @@ class PaperRAGService:
             },
             "loader": loader,
             "includeImages": include_images,
+            "captionImages": caption_images,
         }
 
     def query(
@@ -150,7 +166,6 @@ class PaperRAGService:
         pdf_path: str | Path | None = None,
         index_key: str = "",
         similarity_top_k: int | None = None,
-        image_similarity_top_k: int | None = None,
         bm25_similarity_top_k: int | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
@@ -176,12 +191,10 @@ class PaperRAGService:
 
         retriever = get_retriever(
             similarity_top_k=rag_config.retrieval.similarity_top_k_for(similarity_top_k),
-            image_similarity_top_k=rag_config.retrieval.image_similarity_top_k_for(image_similarity_top_k),
             bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(bm25_similarity_top_k),
             bm25_persist_dir=spec.bm25_path,
             qdrant_storage_dir=spec.qdrant_path,
             collection_name=spec.text_collection,
-            image_collection_name=spec.image_collection,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
         )
@@ -271,7 +284,6 @@ def _index_spec(rag_config: Any, index_key: object = DEFAULT_INDEX_KEY) -> _RagI
     return _RagIndexSpec(
         key=key,
         text_collection=rag_config.text_collection_name(key),
-        image_collection=rag_config.image_collection_name(key),
         qdrant_path=rag_config.qdrant_storage_path(key),
         bm25_path=rag_config.bm25_storage_path(key),
     )
@@ -308,3 +320,20 @@ def _normalize_loader(value: object) -> str:
     if loader not in {"pymupdf", "llamaparse"}:
         raise RAGServiceError("loader must be 'pymupdf' or 'llamaparse'.", code="invalid_loader")
     return loader
+
+
+def _report_progress(
+    callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    stage: str,
+    message: str,
+    percent: int | float | None = None,
+    **extra: Any,
+) -> None:
+    if not callable(callback):
+        return
+    payload: dict[str, Any] = {"stage": stage, "message": message}
+    if percent is not None:
+        payload["percent"] = max(0, min(100, int(percent)))
+    payload.update({key: value for key, value in extra.items() if value is not None})
+    callback(payload)

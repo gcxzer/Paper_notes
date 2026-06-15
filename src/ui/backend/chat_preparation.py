@@ -85,6 +85,7 @@ def prepare_chat_run(
         body,
         tools=agent_service._tools_for_request(request, model_config=prompt_model_config, session=prompt_session),
         model=request.model,
+        attachments=attachments,
     )
     return PreparedChatRun(
         service=agent_service,
@@ -209,13 +210,43 @@ def truncate_latest_user_turn(service: AgentService, session_id: str) -> None:
         service.session_store.replace_messages(session_id, messages[:latest_user])
 
 
-def system_prompt(body: dict[str, Any], *, tools: list[Any] | None = None, model: str = "") -> str:
+def system_prompt(
+    body: dict[str, Any],
+    *,
+    tools: list[Any] | None = None,
+    model: str = "",
+    attachments: list[dict[str, Any]] | None = None,
+) -> str:
     resolved_tools = tools or []
+    extra_instructions = "\n\n".join(
+        instruction
+        for instruction in [
+            generation_mode_instructions(body, tools=resolved_tools),
+            attachment_image_instructions(attachments or []),
+        ]
+        if instruction
+    )
     return build_agent_instructions(
         tools=resolved_tools,
         context=agent_prompt_context(body),
-        extra_instructions=generation_mode_instructions(body, tools=resolved_tools),
+        extra_instructions=extra_instructions,
         model=model,
+    )
+
+
+def attachment_image_instructions(attachments: list[dict[str, Any]]) -> str:
+    if not any(is_image_artifact(artifact) for artifact in attachments):
+        return ""
+    return (
+        "# Attached image handling\n"
+        "- The user attached one or more images as visible chat content. For requests to translate, OCR/transcribe, "
+        "describe, summarize, explain, or answer questions about those attached images, answer directly from the "
+        "attached image content.\n"
+        "- Do not call write_note_media, write_note, manage_annotations, or inspect_paper_visuals for ordinary "
+        "attached-image Q&A. Use Paper Notes tools only if the user explicitly asks to write/update the note, "
+        "insert media into the note, change annotations, render/extract a PDF page, or inspect a paper image that "
+        "is not already attached.\n"
+        "- If you cannot read the attached image content, say so directly instead of trying a note-writing tool."
     )
 
 

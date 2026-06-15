@@ -194,6 +194,41 @@ def test_debug_transcript_is_append_only_across_rewrites(tmp_path):
     assert [message["content"] for message in store.require_session(session_id).messages] == ["Compact summary", "Follow-up"]
 
 
+def test_debug_transcript_appends_tail_when_old_tool_output_is_placeholdered(tmp_path):
+    store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
+    session = store.create_session()
+    session_id = session.metadata.session_id
+    debug_path = store.debug_transcript_path(session_id)
+    tool_call = {
+        "id": "call_lookup",
+        "type": "function",
+        "function": {"name": "query_paper_content", "arguments": "{}"},
+    }
+
+    store.replace_messages(session_id, [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "", "tool_calls": [tool_call]},
+        {"role": "tool", "tool_call_id": "call_lookup", "name": "query_paper_content", "content": "raw output"},
+    ])
+    store.replace_messages(session_id, [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "", "tool_calls": [tool_call]},
+        {
+            "role": "tool",
+            "tool_call_id": "call_lookup",
+            "name": "query_paper_content",
+            "content": "[tool output omitted]\nTool call id: call_lookup",
+        },
+        {"role": "assistant", "content": "Final answer"},
+    ])
+
+    debug_messages = [json.loads(line) for line in debug_path.read_text(encoding="utf-8").splitlines()]
+
+    assert [message["role"] for message in debug_messages] == ["user", "assistant", "tool", "assistant"]
+    assert debug_messages[2]["content"] == "raw output"
+    assert debug_messages[3]["content"] == "Final answer"
+
+
 def test_delete_session_removes_index_and_transcript(tmp_path):
     store = AgentSessionStore(tmp_path / ".paper-notes" / "sessions", clock=Clock(datetime(2026, 5, 10, 9, 30, 0)))
     session = store.create_session(title="Delete me")

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
+
+import tools.visibility as tools_visibility
+from app_config.ai_settings import ResolvedValue
 from media import MediaStore
-from tools import create_tools
+from tools import ToolContext, create_tools, tool_name
 from tools.generated_files.tool import create_file_artifact
+
+
+def _tool_names(context: ToolContext) -> set[str]:
+    return {tool_name(tool) for tool in create_tools(context)}
 
 
 def test_generated_file_tool_creates_downloadable_artifact(tmp_path):
@@ -50,16 +58,25 @@ def test_generated_file_tool_honors_forced_file_generation_format(tmp_path):
     assert artifact["fileName"] == "summary.csv"
 
 
-def test_generated_image_tool_is_available_only_for_openai_and_codex(tmp_path):
+def test_generated_image_tool_is_available_only_for_configured_capable_models(monkeypatch, tmp_path):
     store = MediaStore(tmp_path / "media")
+    auth_path = tmp_path / "codex-auth.json"
+    auth_path.write_text(json.dumps({"tokens": {"access_token": "codex-token"}}), encoding="utf-8")
+    monkeypatch.setenv("PAPER_NOTES_CODEX_AUTH_PATH", str(auth_path))
+    monkeypatch.setattr(
+        tools_visibility,
+        "resolve_openai_api_key",
+        lambda: ResolvedValue("sk-test", "test"),
+    )
 
-    openai_names = [tool.name for tool in create_tools(media_store=store, provider_name="openai", model="gpt-5.5")]
-    codex_names = [tool.name for tool in create_tools(media_store=store, provider_name="codex-oauth", model="gpt-5.5")]
-    spark_names = [
-        tool.name
-        for tool in create_tools(media_store=store, provider_name="codex-oauth", model="gpt-5.3-codex-spark")
-    ]
-    deepseek_names = [tool.name for tool in create_tools(media_store=store, provider_name="deepseek", model="deepseek-v4")]
+    openai_names = _tool_names(ToolContext(media_store=store, provider_name="openai", model="gpt-5.5"))
+    codex_names = _tool_names(ToolContext(media_store=store, provider_name="codex-oauth", model="gpt-5.5"))
+    spark_names = _tool_names(ToolContext(
+        media_store=store,
+        provider_name="codex-oauth",
+        model="gpt-5.3-codex-spark",
+    ))
+    deepseek_names = _tool_names(ToolContext(media_store=store, provider_name="deepseek", model="deepseek-v4"))
 
     assert "create_file_artifact" in openai_names
     assert "create_image_artifact" in openai_names
@@ -67,3 +84,16 @@ def test_generated_image_tool_is_available_only_for_openai_and_codex(tmp_path):
     assert "create_image_artifact" not in spark_names
     assert "create_file_artifact" in deepseek_names
     assert "create_image_artifact" not in deepseek_names
+
+
+def test_generated_image_tool_is_hidden_without_required_credentials(monkeypatch, tmp_path):
+    store = MediaStore(tmp_path / "media")
+    monkeypatch.setattr(tools_visibility, "resolve_openai_api_key", lambda: ResolvedValue())
+    monkeypatch.setenv("PAPER_NOTES_CODEX_AUTH_PATH", str(tmp_path / "missing-codex-auth.json"))
+
+    openai_names = _tool_names(ToolContext(media_store=store, provider_name="openai", model="gpt-5.5"))
+    codex_names = _tool_names(ToolContext(media_store=store, provider_name="codex-oauth", model="gpt-5.5"))
+
+    assert "create_file_artifact" in openai_names
+    assert "create_image_artifact" not in openai_names
+    assert "create_image_artifact" not in codex_names

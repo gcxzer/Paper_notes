@@ -242,12 +242,15 @@ async function fetchJson(path, { method = "GET", body = null } = {}) {
   return payload || {};
 }
 
-async function fetchEventStream(path, { body, onEvent }) {
+async function fetchEventStream(path, { method = "POST", body = null, onEvent, signal = null } = {}) {
+  const requestMethod = normalizeText(method || "POST").toUpperCase() || "POST";
+  const hasBody = body !== null && body !== undefined && requestMethod !== "GET";
   const response = await fetch(getApiUrl(path), {
-    method: "POST",
+    method: requestMethod,
     cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {})
+    headers: hasBody ? { "Content-Type": "application/json" } : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
+    signal: signal || undefined
   });
   const contentType = response.headers.get("Content-Type") || "";
   if (!response.ok) {

@@ -13,7 +13,6 @@ from langchain_core.messages import (
     HumanMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately
-from langchain_core.tools import BaseTool
 
 from agent_runtime.agent_loop import run_agent_loop
 from agent_runtime.context_status import (
@@ -47,13 +46,11 @@ from agent_runtime.recovery import (
 )
 from agent_runtime.request_config import (
     AgentTool,
-    filter_disabled_tools as _filter_disabled_tools,
     model_config_for_request as _request_model_config,
     model_supports_tools as _model_supports_tools,
     provider_model_names as _provider_model_names,
     provider_reasoning_enabled as _provider_reasoning_enabled,
     tool_context_for_request as _tool_context_for_request,
-    with_provider_native_web_search as _with_provider_native_web_search,
 )
 from agent_runtime.run_trace import (
     context_compaction_trace_event as _context_compaction_trace_event,
@@ -82,7 +79,7 @@ from app_config import AppConfig, load_app_config
 from middleware import SUMMARY_MESSAGE_PREFIX, compaction_trigger_tokens
 from middleware.compaction import COMPACT_SUMMARY_PROMPT
 from model_providers import create_chat_model, resolve_context_length_for_model
-from tools import ToolContext, create_tools
+from tools import ToolContext, create_tools, filter_disabled_tools as _filter_disabled_tools
 from tools.generated_artifacts.payloads import (
     with_generated_artifacts_on_latest_assistant,
 )
@@ -137,13 +134,12 @@ class AgentService:
         session_store: AgentSessionStore | None = None,
         chat_model: str | BaseChatModel | None = None,
         model_factory: Any | None = None,
-        tools: list[BaseTool] | None = None,
+        extra_tools: list[AgentTool] | None = None,
         use_default_tools: bool = True,
         library_path: Path | None = None,
         annotations_dir: Path | None = None,
         html_dir: Path | None = None,
         papers_dir: Path | None = None,
-        paper_text_cache_dir: Path | None = None,
         paper_page_cache_dir: Path | None = None,
         paper_image_cache_dir: Path | None = None,
         media_store: Any | None = None,
@@ -153,10 +149,10 @@ class AgentService:
         self.session_store = session_store or AgentSessionStore()
         self.chat_model = chat_model
         self.model_factory = model_factory or create_chat_model
-        self.tools = list(tools) if tools is not None else None
+        self.extra_tools = list(extra_tools) if extra_tools is not None else None
         self.use_default_tools = use_default_tools
         self.mcp_manager = None
-        if self.use_default_tools and tools is None:
+        if self.use_default_tools:
             try:
                 from tools.mcp import MCPManager
 
@@ -169,7 +165,6 @@ class AgentService:
             annotations_dir=annotations_dir,
             html_dir=html_dir,
             papers_dir=papers_dir,
-            paper_text_cache_dir=paper_text_cache_dir,
             paper_page_cache_dir=paper_page_cache_dir,
             paper_image_cache_dir=paper_image_cache_dir,
             media_store=media_store,
@@ -182,9 +177,12 @@ class AgentService:
         model_config = self._model_config_for_request(request, session=session)
         provider, model_name = _provider_model_names(model_config, fallback_provider=request.provider, fallback_model=request.model)
         model = self._chat_model(model_config)
-        tools = self._tools_for_request(request, model_config=model_config, session=session)
-        if tools and not _model_supports_tools(model):
-            tools = []
+        tools = self._tools_for_request(
+            request,
+            model_config=model_config,
+            session=session,
+            model_supports_tools=_model_supports_tools(model),
+        )
         input_messages = [
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
@@ -253,9 +251,12 @@ class AgentService:
         model_config = self._model_config_for_request(request, session=session)
         provider, model_name = _provider_model_names(model_config, fallback_provider=request.provider, fallback_model=request.model)
         model = self._chat_model(model_config)
-        tools = self._tools_for_request(request, model_config=model_config, session=session)
-        if tools and not _model_supports_tools(model):
-            tools = []
+        tools = self._tools_for_request(
+            request,
+            model_config=model_config,
+            session=session,
+            model_supports_tools=_model_supports_tools(model),
+        )
         input_messages = [
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
@@ -647,33 +648,25 @@ class AgentService:
         *,
         model_config: AppConfig | None = None,
         session: AgentSession | None = None,
+        model_supports_tools: bool = True,
     ) -> list[AgentTool]:
         if not request.enable_tools:
             return []
-        if self.tools is not None:
-            tools = _filter_disabled_tools(list(self.tools), request.disabled_tools)
-        elif not self.use_default_tools:
-            tools = []
-        else:
-            tools = _filter_disabled_tools(
-                create_tools(context=self._tool_context_for_request(request, model_config=model_config, session=session)),
-                request.disabled_tools,
-            )
-        return _with_provider_native_web_search(tools, request, model_config=model_config)
-
-    def _tool_context_for_request(
-        self,
-        request: AgentServiceRequest,
-        *,
-        model_config: AppConfig | None,
-        session: AgentSession | None,
-    ) -> ToolContext:
-        return _tool_context_for_request(
+        context = _tool_context_for_request(
             self._tool_context,
             request,
             model_config=model_config,
             session=session,
+            model_supports_tools=model_supports_tools,
         )
+        if not context.model_supports_tools:
+            return []
+        tools: list[AgentTool] = []
+        if self.use_default_tools:
+            tools.extend(create_tools(context))
+        if self.extra_tools is not None:
+            tools.extend(self.extra_tools)
+        return _filter_disabled_tools(tools, tuple(request.disabled_tools or ()))
 
     def close(self) -> None:
         manager = self.mcp_manager

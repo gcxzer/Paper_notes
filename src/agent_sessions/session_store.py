@@ -377,7 +377,23 @@ def _appended_transcript_tail(previous: list[dict[str, Any]], current: list[dict
 
 
 def _messages_match_for_append(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    return _without_created_at(left) == _without_created_at(right)
+    if _without_created_at(left) == _without_created_at(right):
+        return True
+    if left.get("role") != right.get("role"):
+        return False
+    return _same_tool_result_message(left, right)
+
+
+def _same_tool_result_message(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if left.get("role") != "tool" or right.get("role") != "tool":
+        return False
+    left_tool_call_id = str(left.get("tool_call_id") or "")
+    right_tool_call_id = str(right.get("tool_call_id") or "")
+    if not left_tool_call_id or left_tool_call_id != right_tool_call_id:
+        return False
+    left_name = left.get("name")
+    right_name = right.get("name")
+    return not left_name or not right_name or left_name == right_name
 
 
 def _without_created_at(message: dict[str, Any]) -> dict[str, Any]:

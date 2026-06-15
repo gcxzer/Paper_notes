@@ -25,8 +25,7 @@ from tools.paper_notes.impl.notes import (
     validate_note_html,
     write_note_section,
 )
-from tools.paper_notes.impl.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
-from tools.paper_notes.impl.workspace import read_workspace as read_workspace_file
+from tools.paper_notes.impl.paper import extract_paper_images, render_paper_page
 
 
 def _write_note_resources(args: dict[str, Any]) -> list[str]:
@@ -36,25 +35,26 @@ def _write_note_resources(args: dict[str, Any]) -> list[str]:
     return [f"note-html:{note_id}"]
 
 
-def get_note_context(
+def get_paper_context(
     args: dict[str, Any],
     *,
     library_path: Path | None = None,
     annotations_dir: Path | None = None,
     html_dir: Path | None = None,
-    papers_dir: Path | None = None,
-    paper_text_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
+    if not normalize_text(args.get("note_id")):
+        payload = search_library(args, library_path=library_path)
+        return {"success": True, "operation": "search", **payload}
+
     payload = build_note_context(
         args,
         library_path=library_path,
         annotations_dir=annotations_dir,
         html_dir=html_dir,
-        papers_dir=papers_dir,
-        paper_text_cache_dir=paper_text_cache_dir,
     )
     if not payload.get("success"):
         return payload
+    payload["operation"] = "context"
     if truthy(args.get("include_html")):
         html_payload = read_note_html(
             {**args, "mode": normalize_text(args.get("html_mode") or "body") or "body"},
@@ -65,16 +65,11 @@ def get_note_context(
     return payload
 
 
-def search_notes(args: dict[str, Any], *, library_path: Path | None = None) -> dict[str, Any]:
-    return search_library(args, library_path=library_path)
-
-
-def read_paper(
+def inspect_paper_visuals(
     args: dict[str, Any],
     *,
     library_path: Path | None = None,
     papers_dir: Path | None = None,
-    paper_text_cache_dir: Path | None = None,
     paper_page_cache_dir: Path | None = None,
     paper_image_cache_dir: Path | None = None,
     media_store: Any | None = None,
@@ -86,21 +81,9 @@ def read_paper(
             action = "analyze_image"
         elif args.get("page") is not None:
             action = "render_page"
-        elif normalize_text(args.get("query")):
-            action = "search_text"
         else:
-            action = "read_pages"
-    args, correction = _read_paper_args_with_note_id_correction(args, action=action, library_path=library_path)
-    if action == "search_text":
-        return _with_note_id_correction(
-            search_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir),
-            correction,
-        )
-    if action == "read_pages":
-        return _with_note_id_correction(
-            read_paper_text(args, library_path=library_path, papers_dir=papers_dir, paper_text_cache_dir=paper_text_cache_dir),
-            correction,
-        )
+            action = "extract_images"
+    args, correction = _inspect_paper_visuals_args_with_note_id_correction(args, action=action, library_path=library_path)
     if action == "render_page":
         return _with_note_id_correction(
             render_paper_page(args, library_path=library_path, papers_dir=papers_dir, paper_page_cache_dir=paper_page_cache_dir, media_store=media_store),
@@ -119,14 +102,10 @@ def read_paper(
             "path": args.get("path"),
             "question": args.get("query") or args.get("question") or "Analyze this paper image.",
         })
-    return tool_error("invalid_action", "action must be search_text, read_pages, render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
+    return tool_error("invalid_action", "action must be render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
 
 
-def read_workspace(args: dict[str, Any]) -> dict[str, Any]:
-    return read_workspace_file(args)
-
-
-def search_paper_rag(
+def query_paper_content(
     args: dict[str, Any],
     *,
     library_path: Path | None = None,
@@ -137,45 +116,35 @@ def search_paper_rag(
 
     note = note_result.get("note") if isinstance(note_result.get("note"), dict) else {}
     note_id = normalize_text(note.get("id") or args.get("note_id"))
-    query = normalize_text(args.get("query"))
-    if not query:
-        return tool_error("query_required", "query is required.", note_id=note_id)
+    queries = _paper_content_queries(args)
+    if not queries:
+        return tool_error("query_required", "query or queries is required.", note_id=note_id)
 
     try:
         rag_config = load_app_config().rag
-        payload = get_rag_service().query(
-            query=query,
-            note_id=note_id,
-            similarity_top_k=rag_config.retrieval.similarity_top_k_for(
-                _optional_positive_int(args.get("similarity_top_k"))
-            ),
-            image_similarity_top_k=rag_config.retrieval.image_similarity_top_k_for(
-                _optional_positive_int(args.get("image_similarity_top_k"))
-            ),
-            bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(
-                _optional_positive_int(args.get("bm25_similarity_top_k"))
-            ),
-            embedding_provider=rag_config.embedding.provider_name(_optional_text(args.get("embedding_provider"))),
-            embedding_model=_optional_text(args.get("embedding_model")),
-            library_path=library_path,
-        )
-    except RAGServiceError as error:
-        if error.code == "index_not_ready":
-            return tool_error(
-                error.code,
-                str(error),
+        service = get_rag_service()
+        query_payloads = [
+            service.query(
+                query=query,
                 note_id=note_id,
-                fallbackTool="read_paper",
-                fallbackArguments={
-                    "action": "search_text",
-                    "note_id": note_id,
-                    "query": query,
-                },
+                similarity_top_k=rag_config.retrieval.similarity_top_k_for(
+                    _optional_positive_int(args.get("similarity_top_k"))
+                ),
+                bm25_similarity_top_k=rag_config.retrieval.bm25_similarity_top_k_for(
+                    _optional_positive_int(args.get("bm25_similarity_top_k"))
+                ),
+                embedding_provider=rag_config.embedding.provider_name(_optional_text(args.get("embedding_provider"))),
+                embedding_model=_optional_text(args.get("embedding_model")),
+                library_path=library_path,
             )
+            for query in queries
+        ]
+    except RAGServiceError as error:
         return tool_error(error.code, str(error), note_id=note_id)
     except Exception as error:
         return tool_error("rag_query_failed", f"RAG query failed: {type(error).__name__}: {error}", note_id=note_id)
 
+    payload = query_payloads[0] if len(query_payloads) == 1 else _merge_paper_content_query_payloads(query_payloads)
     if note_result.get("note_id_corrected"):
         payload = {
             **payload,
@@ -185,13 +154,73 @@ def search_paper_rag(
     return payload
 
 
-def _read_paper_args_with_note_id_correction(
+def _paper_content_queries(args: dict[str, Any]) -> list[str]:
+    values: list[Any] = []
+    query = normalize_text(args.get("query"))
+    if query:
+        values.append(query)
+    raw_queries = args.get("queries")
+    if isinstance(raw_queries, list):
+        values.extend(raw_queries)
+    elif isinstance(raw_queries, str):
+        values.append(raw_queries)
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = normalize_text(value)
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        queries.append(normalized)
+        seen.add(key)
+        if len(queries) >= 5:
+            break
+    return queries
+
+
+def _merge_paper_content_query_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    first = payloads[0] if payloads else {}
+    results: list[dict[str, Any]] = []
+    for query_index, payload in enumerate(payloads, start=1):
+        query = normalize_text(payload.get("query"))
+        for result in payload.get("results", []):
+            if not isinstance(result, dict):
+                continue
+            results.append({
+                **result,
+                "index": len(results) + 1,
+                "sourceQuery": query,
+                "sourceQueryIndex": query_index,
+            })
+    return {
+        "success": True,
+        "query": "; ".join(normalize_text(payload.get("query")) for payload in payloads if normalize_text(payload.get("query"))),
+        "queries": [normalize_text(payload.get("query")) for payload in payloads if normalize_text(payload.get("query"))],
+        "queryCount": len(payloads),
+        "indexKey": first.get("indexKey", ""),
+        "noteId": first.get("noteId", ""),
+        "pdfPath": first.get("pdfPath", ""),
+        "resultSets": [
+            {
+                "query": payload.get("query", ""),
+                "resultCount": payload.get("resultCount", 0),
+                "results": payload.get("results", []),
+            }
+            for payload in payloads
+        ],
+        "results": results,
+        "resultCount": len(results),
+    }
+
+
+def _inspect_paper_visuals_args_with_note_id_correction(
     args: dict[str, Any],
     *,
     action: str,
     library_path: Path | None,
 ) -> tuple[dict[str, Any], dict[str, str] | None]:
-    if action not in {"search_text", "read_pages", "render_page", "extract_images"}:
+    if action not in {"render_page", "extract_images"}:
         return args, None
     note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
     if "error" in note_result:

@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app_config import load_app_config
-from app_config.config import DEFAULT_IMAGE_COLLECTION, DEFAULT_TEXT_COLLECTION, safe_index_key
+from app_config.config import DEFAULT_TEXT_COLLECTION, safe_index_key
+from rag.embedding_model import get_embedding_model
+from rag.image_captioning import _caption_one_image
+from rag import llamaparse_loader
+from rag.node_parser import build_image_caption_nodes
 from rag.service import PaperRAGService, RAGServiceError
-from tools import create_tools
+from tools import ToolContext, create_tools, tool_name
 from tools.paper_notes.impl import facade
+import ui.backend.rag_api as rag_api
 import library.store as library_store
 from library.store import write_library
 from ui.backend.server import create_app
@@ -17,6 +26,15 @@ from ui.backend.server import create_app
 
 def client() -> TestClient:
     return TestClient(create_app())
+
+
+def wait_for(predicate, timeout: float = 2.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return bool(predicate())
 
 
 def test_rag_status_reports_missing_indexes_without_heavy_dependencies():
@@ -30,7 +48,27 @@ def test_rag_status_reports_missing_indexes_without_heavy_dependencies():
     assert payload["indexes"]["qdrant"]["exists"] is False
     assert payload["indexes"]["bm25"]["exists"] is False
     assert payload["indexes"]["qdrant"]["textCollection"] != DEFAULT_TEXT_COLLECTION
-    assert payload["indexes"]["qdrant"]["imageCollection"] != DEFAULT_IMAGE_COLLECTION
+
+
+def test_rag_status_resolves_note_id_index_key(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({
+            "notes": [
+                {
+                    "id": "pdf-2302-04761v1-mqf55hed",
+                    "title": "Toolformer",
+                    "href": "resources/Papers/2302.04761v1.pdf",
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    payload = PaperRAGService().status(note_id="pdf-2302-04761v1-mqf55hed", library_path=library_path)
+
+    assert payload["indexKey"] == "pdf-2302-04761v1-mqf55hed"
+    assert payload["indexes"]["qdrant"]["textCollection"] == "paper_notes_pdf_2302_04761v1_mqf55hed"
 
 
 def test_rag_service_query_requires_query_text():
@@ -44,6 +82,35 @@ def test_rag_service_query_requires_query_text():
         raise AssertionError("expected query_required")
 
 
+def test_openai_compatible_embedding_accepts_custom_model_name(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "rag": {
+                    "embedding": {
+                        "provider": "openai",
+                        "openai": {
+                            "model": "Qwen/Qwen3-Embedding-8B",
+                            "api_base": "https://modelscope.test/v1",
+                            "api_key_env": "UNIT_TEST_MODELSCOPE_TOKEN",
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    monkeypatch.setenv("MODELSCOPE_BASEURL", "https://modelscope.test/v1")
+    monkeypatch.setenv("UNIT_TEST_MODELSCOPE_TOKEN", "test-token")
+
+    embed_model = get_embedding_model()
+
+    assert embed_model.model_name == "Qwen/Qwen3-Embedding-8B"
+    assert embed_model.api_base == "https://modelscope.test/v1"
+
+
 def test_rag_status_endpoint_accepts_camel_case_query_params():
     response = client().get("/api/rag/status", params={"indexKey": "Unit Test Index"})
 
@@ -52,6 +119,78 @@ def test_rag_status_endpoint_accepts_camel_case_query_params():
     assert payload["indexKey"] == "unit-test-index"
     assert payload["ready"] is False
     assert payload["indexes"]["qdrant"]["textCollection"] == "paper_notes_unit_test_index"
+
+
+def test_rag_index_stream_emits_progress_and_final(monkeypatch):
+    class FakeRAGService:
+        def build_index(self, **kwargs):
+            kwargs["progress_callback"]({
+                "stage": "captioning",
+                "message": "Captioning image 1 of 2.",
+                "percent": 35,
+                "current": 1,
+                "total": 2,
+            })
+            return {
+                "success": True,
+                "ready": True,
+                "noteId": kwargs["note_id"],
+                "indexes": {"qdrant": {"exists": True}, "bm25": {"exists": True}},
+            }
+
+    monkeypatch.setattr(rag_api, "get_rag_service", lambda: FakeRAGService())
+
+    with client().stream(
+        "POST",
+        "/api/rag/index/stream",
+        json={"noteId": "note-1", "requestId": "request-1"},
+    ) as response:
+        text = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: start" in text
+    assert "event: progress" in text
+    assert "Captioning image 1 of 2." in text
+    assert "event: final" in text
+    assert '"noteId":"note-1"' in text
+
+
+def test_rag_index_job_pause_blocks_until_resume(monkeypatch):
+    first_progress = threading.Event()
+    continue_build = threading.Event()
+
+    class FakeRAGService:
+        def build_index(self, **kwargs):
+            kwargs["progress_callback"]({"stage": "first", "message": "First checkpoint.", "percent": 20})
+            first_progress.set()
+            assert continue_build.wait(timeout=2)
+            kwargs["progress_callback"]({"stage": "second", "message": "Second checkpoint.", "percent": 70})
+            return {
+                "success": True,
+                "ready": True,
+                "noteId": kwargs["note_id"],
+                "indexes": {"qdrant": {"exists": True}, "bm25": {"exists": True}},
+            }
+
+    monkeypatch.setattr(rag_api, "get_rag_service", lambda: FakeRAGService())
+
+    job = rag_api._start_or_get_rag_index_job({"noteId": "pause-note", "requestId": "pause-request"})
+    assert first_progress.wait(timeout=2)
+
+    paused = rag_api._pause_rag_job(job)
+    assert paused["status"] == "paused"
+    continue_build.set()
+    time.sleep(0.1)
+
+    summary = rag_api._rag_job_summary(job)
+    assert summary["status"] == "paused"
+    assert summary["progress"]["stage"] == "paused"
+    assert not any(event.payload.get("stage") == "second" for event in job.events)
+
+    resumed = rag_api._resume_rag_job(job)
+    assert resumed["status"] == "running"
+    assert wait_for(lambda: rag_api._rag_job_summary(job)["status"] == "succeeded")
+    assert any(event.payload.get("stage") == "second" for event in job.events)
 
 
 def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
@@ -64,7 +203,7 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                     "root_dir": str(rag_root),
                     "index_root": str(rag_root / "custom-indexes"),
                     "image_root": str(rag_root / "custom-images"),
-                    "collections": {"text": "custom_text", "image": "custom_image"},
+                    "collections": {"text": "custom_text"},
                     "build": {"loader": "llamaparse", "include_images": True, "qdrant": False, "bm25": True},
                     "chunking": {"chunk_size": 512, "chunk_overlap": 64},
                     "embedding": {
@@ -73,10 +212,17 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                         "batch_size": 32,
                         "ollama": {"base_url": "http://ollama.test:11434"},
                     },
-                    "image_embedding": {"model": "configured-clip"},
+                    "image_captioning": {
+                        "enabled": True,
+                        "provider": "openai",
+                        "model": "gpt-5.4-mini",
+                        "max_images": 7,
+                        "max_image_bytes": 12345,
+                        "timeout": 42,
+                        "prompt": "Caption for retrieval.",
+                    },
                     "retrieval": {
                         "similarity_top_k": 9,
-                        "image_similarity_top_k": 4,
                         "bm25_similarity_top_k": 6,
                         "hybrid_weights": [0.8, 0.2],
                     },
@@ -109,7 +255,6 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
         rag_root / "custom-images" / "paper-one" / "pymupdf"
     ).resolve()
     assert rag_config.text_collection_name("Paper One") == "custom_text_paper_one"
-    assert rag_config.image_collection_name("Paper One") == "custom_image_paper_one"
     assert rag_config.build.loader == "llamaparse"
     assert rag_config.build.include_images is True
     assert rag_config.build.qdrant is False
@@ -118,9 +263,14 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
     assert rag_config.embedding.provider_name() == "openai"
     assert rag_config.embedding.model_for("openai") == "configured-embedding"
     assert rag_config.embedding.batch_size == 32
-    assert rag_config.image_embedding.model == "configured-clip"
+    assert rag_config.image_captioning.enabled is True
+    assert rag_config.image_captioning.provider == "openai"
+    assert rag_config.image_captioning.model == "gpt-5.4-mini"
+    assert rag_config.image_captioning.max_images == 7
+    assert rag_config.image_captioning.max_image_bytes == 12345
+    assert rag_config.image_captioning.timeout == 42
+    assert rag_config.image_captioning.prompt == "Caption for retrieval."
     assert rag_config.retrieval.similarity_top_k == 9
-    assert rag_config.retrieval.image_similarity_top_k == 4
     assert rag_config.retrieval.bm25_similarity_top_k == 6
     assert rag_config.retrieval.hybrid_weights == (0.8, 0.2)
     assert rag_config.llamaparse.tier == "cost_effective"
@@ -144,10 +294,232 @@ def test_rag_rejects_pdf_paths_outside_project():
         raise AssertionError("expected invalid_pdf_path")
 
 
-def test_search_paper_rag_tool_is_registered():
-    tool_names = {tool.name for tool in create_tools()}
+def test_image_captions_are_indexed_as_text_nodes():
+    nodes = build_image_caption_nodes(
+        [
+            {
+                "image_path": "/tmp/figure.png",
+                "paper_id": "paper-1",
+                "file_name": "paper.pdf",
+                "page_number": 3,
+                "image_index": 2,
+                "source_anchor": "paper-1:page:3:image:2",
+                "caption": "A chart compares retrieval accuracy across ablations.",
+                "caption_provider": "codex-oauth",
+                "caption_model": "gpt-5.4-mini",
+                "caption_generated": True,
+            }
+        ],
+        chunk_size=256,
+        chunk_overlap=0,
+    )
 
-    assert "search_paper_rag" in tool_names
+    assert len(nodes) == 1
+    assert "retrieval accuracy" in nodes[0].get_content()
+    assert nodes[0].metadata["source_type"] == "image_caption"
+    assert nodes[0].metadata["caption_provider"] == "codex-oauth"
+    assert nodes[0].metadata["source_anchor"] == "paper-1:page:3:image:2"
+
+
+def test_image_caption_request_sends_prompt_as_instructions(tmp_path):
+    image_path = tmp_path / "figure.png"
+    image_path.write_bytes(b"png")
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(output_text="A concise caption.")
+
+    caption = _caption_one_image(
+        SimpleNamespace(responses=FakeResponses()),
+        model="gpt-test",
+        prompt="Describe the figure.",
+        image_record={
+            "image_path": image_path,
+            "content_type": "image/png",
+            "page_number": None,
+            "image_index": 3,
+        },
+    )
+
+    assert caption == "A concise caption."
+    assert calls[0]["instructions"] == "Describe the figure."
+    assert calls[0]["input"][0]["content"][0]["text"] == "Source: image 3; page number was not provided by the parser."
+    assert calls[0]["input"][0]["content"][1]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_image_caption_can_collect_streamed_response_text(tmp_path):
+    image_path = tmp_path / "figure.jpg"
+    image_path.write_bytes(b"jpg")
+    calls = []
+
+    class FakeStream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return None
+
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(type="response.output_text.delta", delta="Graph "),
+                SimpleNamespace(type="response.output_text.delta", delta="caption."),
+            ])
+
+        def get_final_response(self):
+            return SimpleNamespace(output_text="")
+
+    class FakeResponses:
+        def stream(self, **kwargs):
+            calls.append(kwargs)
+            return FakeStream()
+
+    caption = _caption_one_image(
+        SimpleNamespace(responses=FakeResponses()),
+        model="gpt-test",
+        prompt="Describe the figure.",
+        stream=True,
+        image_record={
+            "image_path": image_path,
+            "content_type": "application/octet-stream",
+            "page_number": 2,
+            "image_index": 1,
+        },
+    )
+
+    assert caption == "Graph caption."
+    assert calls[0]["instructions"] == "Describe the figure."
+    assert calls[0]["input"][0]["content"][1]["image_url"].startswith("data:image/jpeg;base64,")
+    assert "stream" not in calls[0]
+
+
+def test_llamaparse_loader_downloads_images_from_metadata_without_items(monkeypatch, tmp_path):
+    downloads = []
+
+    def fake_download(*, url, output_dir, page_number, image_index, timeout, source_filename=None):
+        image_path = Path(output_dir) / f"downloaded-{image_index}.png"
+        image_path.write_bytes(b"png")
+        downloads.append(
+            {
+                "url": url,
+                "page_number": page_number,
+                "image_index": image_index,
+                "source_filename": source_filename,
+            }
+        )
+        return image_path, "image/png"
+
+    monkeypatch.setattr(llamaparse_loader, "_download_llamaparse_image", fake_download)
+    result = SimpleNamespace(
+        items=None,
+        markdown=SimpleNamespace(
+            pages=[
+                SimpleNamespace(
+                    success=True,
+                    page_number=4,
+                    markdown="Text before ![Figure 2](image_0.png) text after.",
+                )
+            ]
+        ),
+        images_content_metadata=SimpleNamespace(
+            images=[
+                SimpleNamespace(
+                    filename="image_0.png",
+                    index=0,
+                    presigned_url="https://llamaparse.test/image_0.png",
+                    content_type="image/png",
+                    category="layout",
+                    bbox=SimpleNamespace(model_dump=lambda: {"x": 1, "y": 2, "w": 30, "h": 40}),
+                )
+            ]
+        ),
+    )
+
+    records = llamaparse_loader._build_image_records(
+        result,
+        pdf_path=Path("paper.pdf"),
+        output_dir=tmp_path,
+        download_timeout=5,
+    )
+
+    assert len(records) == 1
+    assert downloads == [
+        {
+            "url": "https://llamaparse.test/image_0.png",
+            "page_number": 4,
+            "image_index": 1,
+            "source_filename": "image_0.png",
+        }
+    ]
+    assert records[0]["page_number"] == 4
+    assert records[0]["filename"] == "image_0.png"
+    assert records[0]["category"] == "layout"
+    assert records[0]["bbox"] == [{"x": 1, "y": 2, "w": 30, "h": 40}]
+
+
+def test_llamaparse_loader_accepts_image_items_without_type(monkeypatch, tmp_path):
+    downloads = []
+
+    def fake_download(*, url, output_dir, page_number, image_index, timeout, source_filename=None):
+        image_path = Path(output_dir) / f"page-{page_number}-image-{image_index}.png"
+        image_path.write_bytes(b"png")
+        downloads.append((url, page_number, image_index, source_filename))
+        return image_path, "image/png"
+
+    monkeypatch.setattr(llamaparse_loader, "_download_llamaparse_image", fake_download)
+    result = SimpleNamespace(
+        items=SimpleNamespace(
+            pages=[
+                SimpleNamespace(
+                    success=True,
+                    page_number=2,
+                    items=[
+                        SimpleNamespace(
+                            type=None,
+                            url="figures/image_3.png",
+                            md="![architecture](figures/image_3.png)",
+                            caption="Architecture overview.",
+                            bbox=[{"x": 5, "y": 6, "w": 70, "h": 80}],
+                        )
+                    ],
+                )
+            ]
+        ),
+        markdown=SimpleNamespace(pages=[]),
+        images_content_metadata=SimpleNamespace(
+            images=[
+                SimpleNamespace(
+                    filename="figures/image_3.png",
+                    index=3,
+                    presigned_url="https://llamaparse.test/image_3.png",
+                    content_type="image/png",
+                    category="embedded",
+                    bbox=None,
+                )
+            ]
+        ),
+    )
+
+    records = llamaparse_loader._build_image_records(
+        result,
+        pdf_path=Path("paper.pdf"),
+        output_dir=tmp_path,
+        download_timeout=5,
+    )
+
+    assert len(records) == 1
+    assert downloads == [("https://llamaparse.test/image_3.png", 2, 1, "image_3.png")]
+    assert records[0]["caption"] == "Architecture overview."
+    assert records[0]["page_number"] == 2
+    assert records[0]["category"] == "embedded"
+
+
+def test_query_paper_content_tool_is_registered():
+    tool_names = {tool_name(tool) for tool in create_tools(ToolContext(provider_name="openai", model="gpt-5.5"))}
+
+    assert "query_paper_content" in tool_names
+    assert "search_paper_rag" not in tool_names
 
 
 def test_import_pdf_does_not_trigger_rag_index(monkeypatch, tmp_path):
@@ -176,7 +548,7 @@ def test_import_pdf_does_not_trigger_rag_index(monkeypatch, tmp_path):
     assert (papers_dir / "RAG Paper.pdf").exists()
 
 
-def test_search_paper_rag_facade_routes_to_service(monkeypatch, tmp_path):
+def test_query_paper_content_facade_routes_to_service(monkeypatch, tmp_path):
     library_path = tmp_path / "notes.json"
     write_library(
         {
@@ -205,7 +577,7 @@ def test_search_paper_rag_facade_routes_to_service(monkeypatch, tmp_path):
 
     monkeypatch.setattr(facade, "get_rag_service", lambda: FakeRAGService())
 
-    payload = facade.search_paper_rag(
+    payload = facade.query_paper_content(
         {
             "note_id": "note-1",
             "query": "main contribution",
@@ -216,21 +588,70 @@ def test_search_paper_rag_facade_routes_to_service(monkeypatch, tmp_path):
 
     assert payload["success"] is True
     assert payload["results"][0]["text"] == "retrieved passage"
+    rag_config = load_app_config().rag
     assert calls == [
         {
             "query": "main contribution",
             "note_id": "note-1",
             "similarity_top_k": 8,
-            "image_similarity_top_k": 3,
             "bm25_similarity_top_k": 5,
-            "embedding_provider": "ollama",
+            "embedding_provider": rag_config.embedding.provider_name(),
             "embedding_model": None,
             "library_path": library_path,
         }
     ]
 
 
-def test_search_paper_rag_facade_uses_configured_rag_defaults(monkeypatch, tmp_path):
+def test_query_paper_content_facade_supports_multiple_queries(monkeypatch, tmp_path):
+    library_path = tmp_path / "notes.json"
+    write_library(
+        {
+            "notes": [
+                {
+                    "id": "note-1",
+                    "title": "Paper",
+                    "href": "resources/Papers/paper.pdf",
+                }
+            ]
+        },
+        library_path,
+    )
+    calls = []
+
+    class FakeRAGService:
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "success": True,
+                "query": kwargs["query"],
+                "indexKey": "note-1",
+                "noteId": kwargs["note_id"],
+                "pdfPath": "paper.pdf",
+                "results": [{"index": 1, "text": f"passage for {kwargs['query']}"}],
+                "resultCount": 1,
+            }
+
+    monkeypatch.setattr(facade, "get_rag_service", lambda: FakeRAGService())
+
+    payload = facade.query_paper_content(
+        {
+            "note_id": "note-1",
+            "query": "main contribution",
+            "queries": ["datasets and experiments", "main contribution"],
+        },
+        library_path=library_path,
+    )
+
+    assert payload["success"] is True
+    assert payload["queries"] == ["main contribution", "datasets and experiments"]
+    assert payload["queryCount"] == 2
+    assert payload["resultCount"] == 2
+    assert [call["query"] for call in calls] == ["main contribution", "datasets and experiments"]
+    assert payload["results"][0]["sourceQuery"] == "main contribution"
+    assert payload["results"][1]["sourceQuery"] == "datasets and experiments"
+
+
+def test_query_paper_content_facade_uses_configured_rag_defaults(monkeypatch, tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -239,7 +660,6 @@ def test_search_paper_rag_facade_uses_configured_rag_defaults(monkeypatch, tmp_p
                     "embedding": {"provider": "openai"},
                     "retrieval": {
                         "similarity_top_k": 9,
-                        "image_similarity_top_k": 4,
                         "bm25_similarity_top_k": 6,
                     },
                 }
@@ -277,7 +697,7 @@ def test_search_paper_rag_facade_uses_configured_rag_defaults(monkeypatch, tmp_p
 
     monkeypatch.setattr(facade, "get_rag_service", lambda: FakeRAGService())
 
-    payload = facade.search_paper_rag(
+    payload = facade.query_paper_content(
         {
             "note_id": "note-1",
             "query": "main contribution",
@@ -287,12 +707,11 @@ def test_search_paper_rag_facade_uses_configured_rag_defaults(monkeypatch, tmp_p
 
     assert payload["success"] is True
     assert calls[0]["similarity_top_k"] == 9
-    assert calls[0]["image_similarity_top_k"] == 4
     assert calls[0]["bm25_similarity_top_k"] == 6
     assert calls[0]["embedding_provider"] == "openai"
 
 
-def test_search_paper_rag_returns_read_paper_fallback_when_not_indexed(monkeypatch, tmp_path):
+def test_query_paper_content_reports_index_not_ready_without_visual_tool_fallback(monkeypatch, tmp_path):
     library_path = tmp_path / "notes.json"
     write_library(
         {
@@ -313,7 +732,7 @@ def test_search_paper_rag_returns_read_paper_fallback_when_not_indexed(monkeypat
 
     monkeypatch.setattr(facade, "get_rag_service", lambda: FakeRAGService())
 
-    payload = facade.search_paper_rag(
+    payload = facade.query_paper_content(
         {
             "note_id": "note-1",
             "query": "main contribution",
@@ -323,9 +742,5 @@ def test_search_paper_rag_returns_read_paper_fallback_when_not_indexed(monkeypat
 
     assert payload["success"] is False
     assert payload["code"] == "index_not_ready"
-    assert payload["fallbackTool"] == "read_paper"
-    assert payload["fallbackArguments"] == {
-        "action": "search_text",
-        "note_id": "note-1",
-        "query": "main contribution",
-    }
+    assert "fallbackTool" not in payload
+    assert "fallbackArguments" not in payload

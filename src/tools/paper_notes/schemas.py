@@ -5,16 +5,21 @@ from __future__ import annotations
 from typing import Any
 
 
-def search_notes_parameters() -> dict[str, Any]:
+def get_paper_context_parameters() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
+            "note_id": {
+                "type": "string",
+                "description": "Specific note id to inspect. When provided, returns detailed paper/note context.",
+            },
             "query": {
                 "type": "string",
                 "description": (
-                    "Optional concise metadata search keywords. Prefer English paper terms and common acronyms; "
+                    "Optional concise metadata search keywords. This searches library metadata, not PDF content. "
+                    "Prefer English paper terms and common acronyms; "
                     "preserve important original-language terms for multilingual queries. Use '*' or omit this "
-                    "only to list/count local notes."
+                    "only to list/count local papers when note_id is not provided."
                 ),
             },
             "limit": {
@@ -23,97 +28,67 @@ def search_notes_parameters() -> dict[str, Any]:
                 "maximum": 25,
                 "description": "Maximum notes to return.",
             },
-        },
-        "required": [],
-        "additionalProperties": False,
-    }
-
-
-def get_note_context_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "note_id": {"type": "string", "description": "The note id to inspect."},
-            "query": {"type": "string", "description": "Optional PDF text query for focused snippets."},
             "include_html": {"type": "boolean", "description": "Include current note HTML body when true."},
             "html_mode": {"type": "string", "enum": ["body", "full"], "description": "HTML read mode."},
-            "max_paper_matches": {"type": "integer", "minimum": 0, "maximum": 8},
-        },
-        "required": ["note_id"],
-        "additionalProperties": False,
-    }
-
-
-def read_paper_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["search_text", "read_pages", "render_page", "extract_images", "analyze_image"],
-            },
-            "note_id": {"type": "string", "description": "The note id whose PDF should be read."},
-            "query": {"type": "string", "description": "Search or image-analysis question."},
-            "page": {"type": "integer", "minimum": 1, "description": "Page number for render_page."},
-            "page_start": {"type": "integer", "minimum": 1},
-            "page_end": {"type": "integer", "minimum": 1},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-            "max_chars": {"type": "integer", "minimum": 500, "maximum": 20000},
-            "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
-            "artifact_id": {"type": "string", "description": "Registered image artifact id for analyze_image."},
-            "path": {"type": "string", "description": "Optional registered artifact path for analyze_image."},
-        },
-        "required": ["note_id"],
-        "additionalProperties": False,
-    }
-
-
-def read_workspace_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["read", "list", "search", "stat"],
-                "description": "Workspace read action. Defaults to read.",
-            },
-            "path": {
-                "type": "string",
-                "description": (
-                    "Relative or absolute path under the current Paper_Notes workspace, such as "
-                    ".paper-notes/media/generated/file.md, resources/Paper-html/Note.html, notes.json, or src/app.py."
-                ),
-            },
-            "query": {"type": "string", "description": "Text query for action=search."},
-            "glob": {"type": "string", "description": "Optional glob for list/search, such as *.md or **/*.json."},
-            "recursive": {"type": "boolean", "description": "Whether list/search should recurse into subdirectories."},
-            "offset": {"type": "integer", "minimum": 1, "description": "First line to read for action=read."},
-            "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 500,
-                "description": "Maximum entries, matches, or lines to return.",
-            },
-            "max_chars": {
-                "type": "integer",
-                "minimum": 100,
-                "maximum": 50000,
-                "description": "Maximum text characters to return for read, or per match for search.",
-            },
         },
         "required": [],
         "additionalProperties": False,
     }
 
 
-def search_paper_rag_parameters() -> dict[str, Any]:
+def inspect_paper_visuals_parameters(*, image_analysis: bool = False) -> dict[str, Any]:
+    actions = ["render_page", "extract_images"]
+    if image_analysis:
+        actions.append("analyze_image")
+    properties: dict[str, Any] = {
+        "action": {
+            "type": "string",
+            "enum": actions,
+        },
+        "note_id": {"type": "string", "description": "The note id whose PDF visuals should be inspected."},
+        "page": {"type": "integer", "minimum": 1, "description": "Page number for render_page."},
+        "page_start": {"type": "integer", "minimum": 1},
+        "page_end": {"type": "integer", "minimum": 1},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
+    }
+    if image_analysis:
+        properties.update({
+            "query": {"type": "string", "description": "Image-analysis question for analyze_image."},
+            "artifact_id": {"type": "string", "description": "Registered image artifact id for analyze_image."},
+            "path": {"type": "string", "description": "Optional registered artifact path for analyze_image."},
+        })
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": ["note_id"],
+        "additionalProperties": False,
+    }
+
+
+def query_paper_content_parameters() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "note_id": {"type": "string", "description": "The note id whose PDF should be searched."},
-            "query": {"type": "string", "description": "Semantic question or search query for the paper."},
+            "note_id": {"type": "string", "description": "The note id whose indexed PDF content should be queried."},
+            "query": {
+                "type": "string",
+                "description": (
+                    "One synthesized semantic retrieval query for the paper's actual PDF content. Build it from "
+                    "the user's paper question plus current paper/note context, not from vague wording alone."
+                ),
+            },
+            "queries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 5,
+                "description": (
+                    "Optional multiple focused retrieval queries for multi-part, broad, or ambiguous paper "
+                    "questions. Each query should target one concrete aspect of the paper."
+                ),
+            },
             "similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
-            "image_similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
             "bm25_similarity_top_k": {"type": "integer", "minimum": 1, "maximum": 20},
             "embedding_provider": {
                 "type": "string",
@@ -121,7 +96,7 @@ def search_paper_rag_parameters() -> dict[str, Any]:
             },
             "embedding_model": {"type": "string", "description": "Optional provider-specific embedding model."},
         },
-        "required": ["note_id", "query"],
+        "required": ["note_id"],
         "additionalProperties": False,
     }
 
@@ -210,32 +185,39 @@ def manage_annotations_parameters() -> dict[str, Any]:
     }
 
 
-def write_note_media_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ["write_from_image", "insert_image"]},
-            "note_id": {"type": "string", "description": "The note id to modify."},
-            "heading": {"type": "string", "description": "Heading to create, update, or insert the image near."},
-            "position": {
-                "type": "string",
-                "enum": ["append", "prepend", "after_heading", "replace_heading"],
-                "description": "Section or image placement.",
-            },
-            "artifact_id": {
-                "type": "string",
-                "description": (
-                    "Image artifact id or a path anywhere under Paper_Notes/.paper-notes/media, including subfolders. "
-                    "Do not use Desktop/Downloads/arbitrary local paths; ask the user to move/copy local images "
-                    "into .paper-notes/media or a subfolder first."
-                ),
-            },
+def write_note_media_parameters(*, image_analysis: bool = False) -> dict[str, Any]:
+    actions = ["insert_image"]
+    if image_analysis:
+        actions.insert(0, "write_from_image")
+    properties: dict[str, Any] = {
+        "action": {"type": "string", "enum": actions},
+        "note_id": {"type": "string", "description": "The note id to modify."},
+        "heading": {"type": "string", "description": "Heading to create, update, or insert the image near."},
+        "position": {
+            "type": "string",
+            "enum": ["append", "prepend", "after_heading", "replace_heading"],
+            "description": "Section or image placement.",
+        },
+        "artifact_id": {
+            "type": "string",
+            "description": (
+                "Image artifact id or a path anywhere under Paper_Notes/.paper-notes/media, including subfolders. "
+                "Do not use Desktop/Downloads/arbitrary local paths; ask the user to move/copy local images "
+                "into .paper-notes/media or a subfolder first."
+            ),
+        },
+        "caption": {"type": "string", "description": "Figure caption for insert_image."},
+        "alt": {"type": "string", "description": "Image alt text for insert_image."},
+    }
+    if image_analysis:
+        properties.update({
             "page": {"type": "integer", "minimum": 1, "description": "PDF page for write_from_image."},
             "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
             "question": {"type": "string", "description": "Image-analysis or writing focus for write_from_image."},
-            "caption": {"type": "string", "description": "Figure caption for insert_image."},
-            "alt": {"type": "string", "description": "Image alt text for insert_image."},
-        },
+        })
+    return {
+        "type": "object",
+        "properties": properties,
         "required": ["action", "note_id"],
         "additionalProperties": False,
     }

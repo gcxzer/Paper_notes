@@ -216,6 +216,23 @@ def test_chat_image_generation_prompt_falls_back_when_tool_is_unavailable():
     assert "Respond directly to the user in natural language" in prompt
 
 
+def test_chat_image_attachment_prompt_answers_directly_without_note_tools():
+    prompt = chat_preparation.system_prompt(
+        {"message": "翻译一下"},
+        tools=[],
+        attachments=[{
+            "id": "img_1",
+            "kind": "image",
+            "mimeType": "image/png",
+            "fileName": "page.png",
+        }],
+    )
+
+    assert "# Attached image handling" in prompt
+    assert "answer directly from the attached image content" in prompt
+    assert "Do not call write_note_media" in prompt
+
+
 def test_chat_image_generation_options_and_artifacts_are_forwarded(monkeypatch, tmp_path):
     captured: list[ModelProviderConfig] = []
     artifact = {
@@ -303,19 +320,19 @@ def test_chat_system_prompt_uses_agent_instructions_for_current_note():
 
 
 def test_prepare_chat_run_system_prompt_includes_enabled_tool_guidance(tmp_path):
-    def _read_paper(note_id: str) -> str:
-        return f"paper text for {note_id}"
+    def _inspect_paper_visuals(note_id: str) -> str:
+        return f"paper visual info for {note_id}"
 
     tool = StructuredTool.from_function(
-        func=_read_paper,
-        name="read_paper",
-        description="Read paper text.",
+        func=_inspect_paper_visuals,
+        name="inspect_paper_visuals",
+        description="Inspect paper visuals.",
     )
     service = AgentService(
         app_config=_config(),
         session_store=AgentSessionStore(tmp_path / "sessions"),
         chat_model=FakeMessagesListChatModel(responses=[AIMessage(content="Chat response.")]),
-        tools=[tool],
+        extra_tools=[tool],
         use_default_tools=False,
     )
 
@@ -334,7 +351,7 @@ def test_prepare_chat_run_system_prompt_includes_enabled_tool_guidance(tmp_path)
     assert request.system_prompt is not None
     assert "# Tool use and grounding" in request.system_prompt
     assert "Available local tools:" in request.system_prompt
-    assert "read_paper" in request.system_prompt
+    assert "inspect_paper_visuals" in request.system_prompt
     assert "id: pdf-deepseek-v4-mqcvdnpd" in request.system_prompt
 
 

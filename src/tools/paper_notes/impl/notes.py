@@ -35,7 +35,6 @@ from tools.paper_notes.impl.note_html_body import (
     validate_html_document,
     write_note_html_body,
 )
-from tools.paper_notes.impl.paper import search_paper_text
 
 
 _METADATA_INPUT_KEYS = {
@@ -321,8 +320,6 @@ def build_note_context(
     library_path: Path | None = None,
     annotations_dir: Path | None = None,
     html_dir: Path | None = None,
-    papers_dir: Path | None = None,
-    paper_text_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     note_result = get_note(args, library_path=library_path)
     if "error" in note_result:
@@ -330,18 +327,6 @@ def build_note_context(
     note = note_result["note"]
     sections_payload = list_note_sections(args, library_path=library_path, html_dir=html_dir)
     annotations_payload = read_annotations_tool(args, annotations_dir=annotations_dir)
-    query = normalize_text(args.get("query"))
-    paper_matches: list[dict[str, Any]] = []
-    if query:
-        max_matches = positive_int(args.get("max_paper_matches"), default=5, maximum=8)
-        paper_payload = search_paper_text(
-            {**args, "query": query, "limit": max_matches},
-            library_path=library_path,
-            papers_dir=papers_dir,
-            paper_text_cache_dir=paper_text_cache_dir,
-        )
-        if paper_payload.get("success"):
-            paper_matches = paper_payload.get("matches", [])
     return {
         "success": True,
         "note_id": note["id"],
@@ -349,7 +334,6 @@ def build_note_context(
         "rag": _rag_status_for_note(note["id"], library_path=library_path),
         "sections": sections_payload.get("sections", []) if sections_payload.get("success") else [],
         "annotations": annotations_payload.get("annotations", []) if not annotations_payload.get("error") else [],
-        "paper_matches": paper_matches,
     }
 
 

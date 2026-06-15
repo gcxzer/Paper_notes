@@ -485,7 +485,7 @@ def test_streaming_tool_call_event_includes_tool_args():
     message = AIMessage(
         content="",
         tool_calls=[{
-            "name": "search_notes",
+            "name": "get_paper_context",
             "args": {"query": "你好", "limit": 3},
             "id": "call-1",
             "type": "tool_call",
@@ -497,7 +497,7 @@ def test_streaming_tool_call_event_includes_tool_args():
     assert len(events) == 1
     assert events[0].event == "work_trace_item"
     assert events[0].data["traceType"] == "tool"
-    assert "search_notes" in events[0].data["text"]
+    assert "get_paper_context" in events[0].data["text"]
     assert '{"query":"你好","limit":3}' in events[0].data["text"]
 
 
@@ -507,7 +507,7 @@ def test_streaming_update_emits_provider_reasoning_before_tool_call():
         additional_kwargs={"reasoning_content": "Need note context first."},
         response_metadata={"model_provider": "deepseek"},
         tool_calls=[{
-            "name": "search_notes",
+            "name": "get_paper_context",
             "args": {"query": "DeepSeek"},
             "id": "call-1",
             "type": "tool_call",
@@ -518,7 +518,7 @@ def test_streaming_update_emits_provider_reasoning_before_tool_call():
 
     assert [event.data["traceType"] for event in events] == ["reasoning", "tool"]
     assert events[0].data["text"] == "Need note context first."
-    assert "search_notes" in events[1].data["text"]
+    assert "get_paper_context" in events[1].data["text"]
 
 
 def test_agent_service_continues_existing_session(tmp_path):
@@ -645,7 +645,7 @@ def test_agent_service_uses_generated_artifact_summary_when_final_text_is_empty(
         app_config=_config(),
         session_store=AgentSessionStore(tmp_path / "sessions"),
         chat_model=model,
-        tools=[tool],
+        extra_tools=[tool],
         use_default_tools=False,
     )
 
@@ -664,7 +664,7 @@ def test_agent_service_skips_tools_when_model_cannot_bind_them(tmp_path):
         name="lookup_note",
         description="Look up note text.",
     )
-    service = AgentService(app_config=_config(), session_store=store, chat_model=model, tools=[tool], use_default_tools=False)
+    service = AgentService(app_config=_config(), session_store=store, chat_model=model, extra_tools=[tool], use_default_tools=False)
 
     result = service.run(AgentServiceRequest(message="Hello", enable_tools=True))
 

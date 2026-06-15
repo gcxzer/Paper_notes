@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from library import import_pdf, import_pdf_from_url, read_library, rename_note, update_note_summary
+from library import delete_note, import_pdf, import_pdf_from_url, read_library, rename_note, update_note_summary
 
 
 def register_library_routes(app: FastAPI) -> None:
@@ -46,6 +46,13 @@ def register_library_routes(app: FastAPI) -> None:
     async def api_update_summary(note_id: str, request: Request) -> JSONResponse:
         body = await _json_body(request)
         note = update_note_summary(note_id, _text(body.get("summary")))
+        if note is None:
+            return _library_error_response(ValueError("Note not found."), status_code=404)
+        return JSONResponse({"success": True, "note": note, "library": read_library()})
+
+    @app.delete("/api/library/notes/{note_id}")
+    async def api_delete_note(note_id: str) -> JSONResponse:
+        note = delete_note(note_id)
         if note is None:
             return _library_error_response(ValueError("Note not found."), status_code=404)
         return JSONResponse({"success": True, "note": note, "library": read_library()})

@@ -43,6 +43,8 @@
     "panel-left",
     "panel-right",
     "paperclip",
+    "pause",
+    "play",
     "plus",
     "refresh-cw",
     "rotate-ccw",

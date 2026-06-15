@@ -7,26 +7,22 @@ from typing import TYPE_CHECKING, Any
 from app_config import load_app_config
 
 if TYPE_CHECKING:
-    from llama_index.core.indices.multi_modal import MultiModalVectorStoreIndex
+    from llama_index.core.indices.vector_store import VectorStoreIndex
     from llama_index.core.schema import BaseNode
 
 
 class QdrantIndex:
-    """Local Qdrant-backed multimodal vector index for paper nodes."""
+    """Local Qdrant-backed text vector index for paper nodes."""
 
     def __init__(
         self,
         text_embed_model: Any,
-        image_embed_model: Any,
         collection_name: str = "paper_notes",
-        image_collection_name: str | None = None,
         storage_path: str | Path | None = None,
     ) -> None:
         self.text_embed_model = text_embed_model
         self.collection_name = collection_name
-        self.image_collection_name = image_collection_name or f"{collection_name}_images"
         self.storage_path = Path(storage_path) if storage_path is not None else load_app_config().rag.qdrant_storage_path()
-        self.image_embed_model = image_embed_model
         self._closed = False
 
         import qdrant_client
@@ -38,36 +34,28 @@ class QdrantIndex:
             client=self.client,
             collection_name=self.collection_name,
         )
-        self.image_vector_store = QdrantVectorStore(
-            client=self.client,
-            collection_name=self.image_collection_name,
-        )
         self.storage_context = StorageContext.from_defaults(
             vector_store=self.vector_store,
-            image_store=self.image_vector_store,
         )
 
-    def build(self, nodes: list[BaseNode]) -> MultiModalVectorStoreIndex:
-        """Embed nodes and store text/images in separate local Qdrant collections."""
-        from llama_index.core.indices.multi_modal import MultiModalVectorStoreIndex
+    def build(self, nodes: list[BaseNode]) -> VectorStoreIndex:
+        """Embed text nodes and store them in a local Qdrant collection."""
+        from llama_index.core import VectorStoreIndex
 
-        return MultiModalVectorStoreIndex(
+        return VectorStoreIndex(
             nodes=nodes,
             storage_context=self.storage_context,
             embed_model=self.text_embed_model,
-            image_embed_model=self.image_embed_model,
             show_progress=True,
         )
 
-    def load(self) -> MultiModalVectorStoreIndex:
-        """Load existing Qdrant collections as a LlamaIndex multimodal index."""
-        from llama_index.core.indices.multi_modal import MultiModalVectorStoreIndex
+    def load(self) -> VectorStoreIndex:
+        """Load an existing Qdrant collection as a LlamaIndex text index."""
+        from llama_index.core import VectorStoreIndex
 
-        return MultiModalVectorStoreIndex.from_vector_store(
+        return VectorStoreIndex.from_vector_store(
             vector_store=self.vector_store,
-            image_vector_store=self.image_vector_store,
             embed_model=self.text_embed_model,
-            image_embed_model=self.image_embed_model,
         )
 
     def close(self) -> None:
@@ -84,15 +72,12 @@ class QdrantIndex:
     def exists(
         cls,
         collection_name: str = "paper_notes",
-        image_collection_name: str | None = None,
         storage_path: str | Path | None = None,
     ) -> bool:
-        """Return True when both text and image Qdrant collections exist."""
+        """Return True when the text Qdrant collection exists."""
         storage_path = Path(storage_path) if storage_path is not None else load_app_config().rag.qdrant_storage_path()
         if not storage_path.exists():
             return False
-
-        image_collection_name = image_collection_name or f"{collection_name}_images"
 
         meta_path = storage_path / "meta.json"
         if not meta_path.exists():
@@ -109,9 +94,7 @@ class QdrantIndex:
 
         return (
             collection_name in collections
-            and image_collection_name in collections
             and cls._collection_storage_exists(storage_path, collection_name)
-            and cls._collection_storage_exists(storage_path, image_collection_name)
         )
 
     @staticmethod

@@ -1676,7 +1676,9 @@
 .rag-settings-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-areas: "mark copy actions";
+  column-gap: 12px;
+  row-gap: 10px;
   align-items: center;
   min-height: 96px;
   padding: 14px;
@@ -1684,6 +1686,14 @@
   border-radius: var(--radius-md, 10px);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, var(--modal-bg)), var(--panel-alt));
+}
+
+.rag-settings-row.has-progress {
+  grid-template-areas:
+    "mark copy actions"
+    "mark progress actions";
+  align-items: center;
+  min-height: 132px;
 }
 
 .rag-settings-row.is-ready {
@@ -1695,8 +1705,19 @@
   border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
 }
 
+.rag-settings-row.is-indexing {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.rag-settings-row.is-paused {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warning) 62%, var(--line));
+}
+
 .rag-settings-mark {
+  grid-area: mark;
   display: grid;
+  align-self: center;
   place-items: center;
   width: 42px;
   height: 42px;
@@ -1709,6 +1730,7 @@
 }
 
 .rag-settings-copy {
+  grid-area: copy;
   display: grid;
   min-width: 0;
   gap: 8px;
@@ -1778,15 +1800,69 @@
   color: color-mix(in srgb, var(--danger) 72%, var(--text));
 }
 
+.rag-status-pill.is-paused {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+}
+
 .rag-settings-row-actions {
+  grid-area: actions;
   display: flex;
+  align-self: center;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 152px;
 }
 
 .rag-settings-row-actions .toolbar-button {
   min-width: 72px;
   min-height: 36px;
+}
+
+.rag-settings-row-actions.is-busy {
+  min-width: 104px;
+}
+
+.rag-control-button {
+  justify-content: center;
+  min-width: 96px;
+}
+
+.rag-control-button .rag-action-icon {
+  margin-left: -1px;
+}
+
+.rag-action-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 96px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--accent-wash, var(--accent-soft)) 54%, var(--panel));
+  color: var(--accent-strong);
+  font-size: 0.83rem;
+  font-weight: 760;
+}
+
+.rag-action-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-top-color: var(--accent-strong);
+  border-radius: 999px;
+  animation: rag-action-spin 780ms linear infinite;
+}
+
+@keyframes rag-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .rag-index-parts {
@@ -1824,6 +1900,80 @@
   background: var(--accent-strong);
 }
 
+.rag-progress {
+  grid-area: progress;
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--panel) 54%, var(--modal-bg));
+}
+
+.rag-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.rag-progress-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rag-progress-meta strong {
+  color: var(--accent-strong);
+  font-size: 0.7rem;
+}
+
+.rag-progress-track {
+  position: relative;
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.rag-progress-track span {
+  display: block;
+  height: 100%;
+  min-width: 7px;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 82%, var(--text)),
+    color-mix(in srgb, var(--accent-strong) 76%, var(--accent))
+  );
+  transition: width 160ms ease;
+}
+
+.rag-progress.is-paused .rag-progress-meta strong {
+  color: color-mix(in srgb, var(--warning) 76%, var(--text));
+}
+
+.rag-progress.is-paused .rag-progress-track span {
+  background: color-mix(in srgb, var(--warning) 68%, var(--accent));
+}
+
+.rag-progress-detail {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .rag-settings-empty {
   align-self: center;
   margin: 22px 0;
@@ -1833,6 +1983,22 @@
   margin: 0;
   padding: 14px 20px;
   border-top: 1px solid var(--line);
+}
+
+.rag-settings-card > .field-error {
+  margin: 0 20px 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line));
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--danger) 8%, var(--modal-bg));
+  color: color-mix(in srgb, var(--danger) 72%, var(--text));
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rag-settings-card > .field-error[hidden] {
+  display: none;
 }
 
 @media (max-width: 860px) {
@@ -1874,6 +2040,16 @@
 
   .rag-settings-row {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "copy"
+      "actions";
+  }
+
+  .rag-settings-row.has-progress {
+    grid-template-areas:
+      "copy"
+      "progress"
+      "actions";
   }
 
   .rag-settings-mark {
@@ -1882,5 +2058,6 @@
 
   .rag-settings-row-actions {
     justify-content: flex-end;
+    min-width: 0;
   }
 }

@@ -54,6 +54,19 @@ class ConfiguredWebSearch:
         )
 
 
+def configured_web_search_available() -> bool:
+    provider_name = _configured_custom_provider()
+    if provider_name == "Tavily":
+        return resolve_tavily_api_key().configured
+    if provider_name == "Brave":
+        return resolve_brave_search_api_key().configured
+    return False
+
+
+def configured_web_search_provider_name() -> str:
+    return _configured_custom_provider()
+
+
 def _configured_custom_provider() -> str:
     path = LOCAL_STATE_DIR / "tool-settings.json"
     try:

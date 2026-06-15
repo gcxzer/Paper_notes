@@ -151,6 +151,7 @@ function normalizeModelCapabilities(rawCapabilities) {
     supportsTools: raw.supportsTools !== false,
     supportsVision: Boolean(raw.supportsVision),
     supportsImageGeneration: Boolean(raw.supportsImageGeneration),
+    supportsImageArtifactGeneration: Boolean(raw.supportsImageArtifactGeneration),
     supportsWebSearch: Boolean(raw.supportsWebSearch),
     supportsReasoningOff: raw.supportsReasoningOff !== false,
     contextWindow: Math.max(0, Math.round(Number(raw.contextWindow) || 0)),
@@ -393,7 +394,6 @@ function gptReasoningOffSupported(provider, model = currentReaderModel()) {
 function activeProviderSupportsImageArtifacts() {
   const provider = currentReaderProvider();
   const profile = providerProfileFor(provider);
-  const model = currentReaderModel();
   const capabilities = modelCapabilitiesFor(provider, currentReaderModel());
   const settings = readerState.aiSettings || normalizeReaderAiSettings({});
   const configured = Boolean(
@@ -401,16 +401,20 @@ function activeProviderSupportsImageArtifacts() {
     || (normalizeProviderName(settings.provider) === provider && settings.configured)
   );
   if (!configured) return false;
-  if (provider === "codex-oauth") {
-    return normalizeText(model).toLowerCase() !== "gpt-5.3-codex-spark";
-  }
-  return Boolean(capabilities.supportsImageGeneration);
+  return Boolean(capabilities.supportsImageArtifactGeneration);
 }
 
 function activeProviderImageGenerationUnsupportedMessage() {
-  if (normalizeProviderName(currentReaderProvider()) === "codex-oauth") {
-    const label = modelDisplayLabel(currentReaderModel(), currentReaderProvider(), "label") || currentReaderModel();
-    return `${label || "This Codex model"} does not support image generation.`;
+  const provider = currentReaderProvider();
+  const profile = providerProfileFor(provider);
+  const settings = readerState.aiSettings || normalizeReaderAiSettings({});
+  const configured = Boolean(
+    profile?.configured
+    || (normalizeProviderName(settings.provider) === provider && settings.configured)
+  );
+  if (configured) {
+    const label = modelDisplayLabel(currentReaderModel(), provider, "label") || currentReaderModel();
+    return `${label || providerDisplayName(provider)} does not support image generation.`;
   }
   return "Image generation needs a connected Codex OAuth or OpenAI API key provider.";
 }

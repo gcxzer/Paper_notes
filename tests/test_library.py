@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 
 import library.store as library_module
-from library import read_library, sanitize_library, write_library
+from library import delete_note, read_library, sanitize_library, write_library
 
 
 def test_sanitize_library_strips_legacy_cloud_fields():
@@ -46,6 +46,31 @@ def test_write_library_uses_sanitized_shape(tmp_path):
 
     assert loaded["notes"][0]["title"] == "Paper"
     assert "pdfS3Key" not in loaded["notes"][0]
+
+
+def test_delete_note_removes_note_from_library_file(tmp_path, monkeypatch):
+    notes_path = tmp_path / "notes.json"
+    monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+    write_library(
+        {
+            "categories": [
+                {"id": "collection", "name": "Collection", "parentId": None, "order": 2},
+            ],
+            "notes": [
+                {"id": "note-1", "title": "First Paper", "categoryId": "uncategorized"},
+                {"id": "note-2", "title": "Second Paper", "categoryId": "uncategorized"},
+            ],
+        },
+        notes_path,
+    )
+
+    deleted = delete_note("note-1")
+
+    assert deleted is not None
+    assert deleted["title"] == "First Paper"
+    library = read_library(notes_path)
+    assert [note["id"] for note in library["notes"]] == ["note-2"]
+    assert {category["id"] for category in library["categories"]} >= {"all", "uncategorized", "collection"}
 
 
 def test_import_pdf_generates_note_outline_from_pdf_toc(tmp_path, monkeypatch):
