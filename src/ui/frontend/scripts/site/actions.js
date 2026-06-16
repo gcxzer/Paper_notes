@@ -502,6 +502,8 @@ async function openSettingsPanelFromUrl() {
   if (!panel) return;
   if (panel === "ai" || panel === "ai-provider" || panel === "provider") {
     await openAiSettingsDialog();
+  } else if (panel === "memory") {
+    await openMemorySettingsDialog();
   } else if (panel === "rag") {
     await openRagSettingsDialog();
   } else if (panel === "mcp") {

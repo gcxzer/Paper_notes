@@ -1,3 +1,5 @@
+"""Export helpers for loading global and per-paper memory prompts."""
+
 from memory.global_memory import MEMORY_DIR, build_memory_section
 from memory.paper_memory import (
     PAPER_MEMORY_DIR,

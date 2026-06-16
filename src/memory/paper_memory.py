@@ -1,3 +1,5 @@
+"""Read, write, and render durable memory for one paper or note."""
+
 from __future__ import annotations
 
 import json

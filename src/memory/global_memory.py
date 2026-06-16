@@ -1,3 +1,5 @@
+"""Load human-maintained long-term memory into the agent prompt."""
+
 from __future__ import annotations
 
 from pathlib import Path

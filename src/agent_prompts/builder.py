@@ -1,3 +1,5 @@
+"""Assemble Paper Notes agent instructions from prompts, memory, and context."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

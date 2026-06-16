@@ -1,3 +1,5 @@
+"""Export middleware components used by the Paper Notes agent runtime."""
+
 from middleware.compaction import (
     DEFAULT_COMPACTION_RESERVE_TOKENS,
     ContextCompactionMiddleware,

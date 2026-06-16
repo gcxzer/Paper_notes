@@ -1,3 +1,5 @@
+"""Build the default middleware stack for Paper Notes agent runs."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence

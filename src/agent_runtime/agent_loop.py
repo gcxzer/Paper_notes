@@ -1,3 +1,5 @@
+"""Create and run LangChain agents with the Paper Notes middleware stack."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence

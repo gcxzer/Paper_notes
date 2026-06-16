@@ -240,6 +240,22 @@ elements.deleteAiKeyButton?.addEventListener("click", () => deleteAiKey("openai"
 elements.deleteDeepSeekKeyButton?.addEventListener("click", () => deleteAiKey("deepseek"));
 elements.connectCodexButton?.addEventListener("click", handleCodexConnectAction);
 elements.logoutCodexButton?.addEventListener("click", logoutCodex);
+elements.openMemorySettings?.addEventListener("click", settingsLinkHandler(openMemorySettingsDialog));
+elements.closeMemorySettingsDialog?.addEventListener("click", closeMemorySettingsDialog);
+elements.cancelMemorySettings?.addEventListener("click", closeMemorySettingsDialog);
+elements.refreshMemorySettings?.addEventListener("click", () => {
+  void loadMemorySettings();
+});
+elements.memorySettingsForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void saveMemorySettings();
+});
+elements.memorySettingsDialog?.addEventListener("close", () => {
+  setMemorySettingsError("");
+  clearSettingsPanelUrl();
+});
+elements.memorySystemInput?.addEventListener("input", handleMemorySettingsInput);
+elements.memoryUserInput?.addEventListener("input", handleMemorySettingsInput);
 elements.openRagSettings?.addEventListener("click", settingsLinkHandler(openRagSettingsDialog));
 elements.closeRagSettingsDialog?.addEventListener("click", closeRagSettingsDialog);
 elements.cancelRagSettings?.addEventListener("click", (event) => {

@@ -1,3 +1,5 @@
+"""Verify durable paper memory updates and provider fallback behavior."""
+
 from __future__ import annotations
 
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel

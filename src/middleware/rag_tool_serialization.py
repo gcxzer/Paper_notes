@@ -1,3 +1,5 @@
+"""Serialize selected RAG tool calls per note during a single agent run."""
+
 from __future__ import annotations
 
 import asyncio

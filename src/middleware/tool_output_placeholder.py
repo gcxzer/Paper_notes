@@ -11,7 +11,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from middleware.tool_output_common import PLACEHOLDER_PREFIX, is_placeholder_content, saved_output_path, tool_output_text
 
 
-DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 20
+DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 40
 
 
 @dataclass(slots=True)

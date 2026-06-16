@@ -1,3 +1,5 @@
+"""Verify agent loop message handling and middleware wiring."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

@@ -1,3 +1,5 @@
+"""Recover failed model requests by retrying with provider-safe options."""
+
 from __future__ import annotations
 
 import copy

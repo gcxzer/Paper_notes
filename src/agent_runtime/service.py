@@ -1,3 +1,5 @@
+"""Coordinate agent requests, sessions, context, transcript updates, and retries."""
+
 from __future__ import annotations
 
 import copy

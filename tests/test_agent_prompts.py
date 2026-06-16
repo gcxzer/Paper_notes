@@ -1,3 +1,5 @@
+"""Verify Paper Notes prompt assembly, memory insertion, and tool guidance."""
+
 from __future__ import annotations
 
 import tools.visibility as tools_visibility

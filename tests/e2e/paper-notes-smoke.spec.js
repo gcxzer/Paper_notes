@@ -923,6 +923,7 @@ test("home settings and skills smoke", async ({ page }) => {
   await page.mouse.up();
   await expect(settingsButton).not.toHaveClass(/is-pressing/);
   await expect(page.locator("#openAiSettings")).toBeVisible();
+  await expect(page.locator("#openMemorySettings")).toBeVisible();
   await expect(page.locator("#openRagSettings")).toBeVisible();
   await expect(page.locator("#openMcpSettings")).toBeVisible();
   await expect(page.locator("#openSkillsSettings")).toBeVisible();

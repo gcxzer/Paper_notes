@@ -1,3 +1,5 @@
+"""Verify AgentService session handling and request-to-run wiring."""
+
 from __future__ import annotations
 
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel

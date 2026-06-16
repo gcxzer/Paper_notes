@@ -1,3 +1,5 @@
+"""Verify per-note serialization of selected RAG tool calls."""
+
 from __future__ import annotations
 
 import threading

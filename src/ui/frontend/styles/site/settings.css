@@ -612,6 +612,143 @@
   line-height: 1.35;
 }
 
+.memory-settings-modal {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
+
+.memory-settings-card {
+  display: grid;
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(800px, calc(100dvh - 32px));
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.memory-settings-header {
+  margin-bottom: 0;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.memory-settings-header h3 {
+  margin: 0;
+  font-size: 1.32rem;
+  line-height: 1.18;
+}
+
+.memory-settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-settings-header-actions .toolbar-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+}
+
+.memory-settings-header-actions .icon-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+
+.memory-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 20px;
+}
+
+.memory-editor {
+  display: grid;
+  grid-template-rows: auto minmax(280px, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-alt) 70%, var(--modal-bg));
+  overflow: hidden;
+}
+
+.memory-editor-head {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.memory-editor-head strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.memory-editor-head small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-editor textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: 0.86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  padding: 12px;
+  outline: none;
+  scrollbar-gutter: stable;
+}
+
+.memory-editor textarea:focus {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+.memory-settings-card > .settings-hint {
+  margin: 0 20px;
+  padding: 0 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-settings-card > .field-error {
+  margin: 0 20px 10px;
+}
+
+.memory-settings-actions {
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.memory-settings-status {
+  min-width: 130px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .mcp-settings-modal {
   position: fixed;
   inset: 50% auto auto 50%;
@@ -2002,6 +2139,15 @@
 }
 
 @media (max-width: 860px) {
+  .memory-settings-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
+  }
+
+  .memory-editor {
+    grid-template-rows: auto minmax(180px, 1fr);
+  }
+
   .mcp-settings-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);

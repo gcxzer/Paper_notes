@@ -1,3 +1,5 @@
+"""Update current-paper durable memory after enough conversation turns."""
+
 from __future__ import annotations
 
 from pathlib import Path
