@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from langchain.agents import create_agent
@@ -21,6 +21,7 @@ def run_agent_loop(
     app_config: AppConfig | None = None,
     system_prompt: str | BaseMessage | None = None,
     middleware: Sequence[AgentMiddleware] | None = None,
+    paper_memory_context: Mapping[str, Any] | None = None,
     thread_id: str = "default",
     run_config: dict[str, Any] | None = None,
     stream_mode: str = "values",
@@ -31,6 +32,7 @@ def run_agent_loop(
         model=model,
         middleware=middleware,
         app_config=app_config,
+        paper_memory_context=paper_memory_context,
     )
     agent = create_agent(
         model=model,
@@ -67,11 +69,14 @@ def with_context_management(
     model: str | BaseChatModel,
     middleware: Sequence[AgentMiddleware] | None,
     app_config: AppConfig | None,
+    paper_memory_context: Mapping[str, Any] | None = None,
 ) -> list[AgentMiddleware]:
-    return with_configured_middleware(model=model, middleware=middleware, app_config=app_config)
-
-
-_with_context_management = with_context_management
+    return with_configured_middleware(
+        model=model,
+        middleware=middleware,
+        app_config=app_config,
+        paper_memory_context=paper_memory_context,
+    )
 
 
 __all__ = ["run_agent_loop", "with_context_management"]

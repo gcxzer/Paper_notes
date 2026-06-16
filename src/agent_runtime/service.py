@@ -179,6 +179,7 @@ class AgentService:
             session=session,
             model_supports_tools=_model_supports_tools(model),
         )
+        paper_memory_context = self._paper_memory_context_for_request(request, session=session)
         input_messages = [
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
@@ -201,6 +202,7 @@ class AgentService:
                 tools=tools,
                 model_config=model_config,
                 system_prompt=request.system_prompt,
+                paper_memory_context=paper_memory_context,
                 thread_id=session.metadata.session_id,
                 run_config=request.run_config,
                 stream_mode=request.stream_mode,
@@ -253,6 +255,7 @@ class AgentService:
             session=session,
             model_supports_tools=_model_supports_tools(model),
         )
+        paper_memory_context = self._paper_memory_context_for_request(request, session=session)
         input_messages = [
             *_messages_from_transcript(session.messages),
             HumanMessage(content=_request_message_content(request)),
@@ -294,6 +297,7 @@ class AgentService:
                 tools=tools,
                 app_config=model_config,
                 system_prompt=request.system_prompt,
+                paper_memory_context=paper_memory_context,
                 thread_id=session.metadata.session_id,
                 run_config=request.run_config,
                 stream_mode=LANGCHAIN_AGENT_STREAM_MODES,
@@ -359,6 +363,7 @@ class AgentService:
                     tools=[],
                     app_config=recovery_config,
                     system_prompt=request.system_prompt,
+                    paper_memory_context=paper_memory_context,
                     thread_id=session.metadata.session_id,
                     run_config=request.run_config,
                     stream_mode=LANGCHAIN_AGENT_STREAM_MODES,
@@ -664,6 +669,21 @@ class AgentService:
             tools.extend(self.extra_tools)
         return _filter_disabled_tools(tools, tuple(request.disabled_tools or ()))
 
+    def _paper_memory_context_for_request(
+        self,
+        request: AgentServiceRequest,
+        *,
+        session: AgentSession,
+    ) -> dict[str, Any] | None:
+        note_id, note_title = _paper_memory_note_scope(request, session)
+        if not note_id:
+            return None
+        return {
+            "note_id": note_id,
+            "note_title": note_title,
+            "session_id": session.metadata.session_id,
+        }
+
     def close(self) -> None:
         manager = self.mcp_manager
         self.mcp_manager = None
@@ -696,6 +716,34 @@ def _compact_messages_with_model(model: str | BaseChatModel, messages: list[Base
         text_value = getattr(response, "text", None)
         text = text_value() if callable(text_value) else text_value
     return str(text or "").strip()
+
+
+def _paper_memory_note_scope(request: AgentServiceRequest, session: AgentSession) -> tuple[str, str]:
+    metadata = session.metadata.metadata if isinstance(session.metadata.metadata, dict) else {}
+    request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    note_id = _first_text(
+        request.note_id,
+        session.metadata.note_id,
+        _scoped_metadata_text(request_metadata, "currentNoteId", "originNoteId"),
+        _scoped_metadata_text(metadata, "currentNoteId", "originNoteId"),
+    )
+    note_title = _first_text(
+        _scoped_metadata_text(request_metadata, "currentNoteTitle", "originNoteTitle"),
+        _scoped_metadata_text(metadata, "currentNoteTitle", "originNoteTitle"),
+    )
+    return note_id, note_title
+
+
+def _scoped_metadata_text(metadata: dict[str, Any], *keys: str) -> str:
+    return _first_text(*(metadata.get(key) for key in keys))
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _compacted_summary_transcript_message(summary: str) -> dict[str, Any]:

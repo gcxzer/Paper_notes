@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,6 +20,16 @@ from middleware.context_collapse import (
     DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS,
     ContextCollapseMiddleware,
     create_context_collapse_middleware,
+)
+from middleware.paper_memory import (
+    DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL,
+    PaperMemoryMiddleware,
+    create_paper_memory_middleware,
+)
+from middleware.rag_tool_serialization import (
+    DEFAULT_SERIALIZED_RAG_TOOLS,
+    RagToolSerializationMiddleware,
+    create_rag_tool_serialization_middleware,
 )
 from middleware.tool_output_placeholder import (
     ToolOutputPlaceholderMiddleware,
@@ -39,14 +51,19 @@ def with_configured_middleware(
     model: str | BaseChatModel,
     middleware: Sequence[AgentMiddleware] | None,
     app_config: AppConfig | None,
+    paper_memory_context: Mapping[str, Any] | None = None,
 ) -> list[AgentMiddleware]:
     resolved = list(middleware or [])
     if app_config is None:
         return resolved
     if _tool_output_enabled(app_config):
         _insert_tool_output_middleware(resolved, app_config)
+    if _rag_tool_serialization_enabled(app_config):
+        _insert_rag_tool_serialization_middleware(resolved, app_config)
     if _tool_call_limit_enabled(app_config):
         _insert_tool_call_limit_middleware(resolved, app_config)
+    if _paper_memory_enabled(app_config):
+        _insert_paper_memory_middleware(resolved, model, app_config, paper_memory_context)
     if _config_bool(app_config, "context_management.enabled", "contextManagement.enabled", default=True) is False:
         return resolved
 
@@ -85,13 +102,34 @@ def _has_tool_call_limit_middleware(middleware: Sequence[AgentMiddleware], *, to
     )
 
 
+def _has_paper_memory_middleware(middleware: Sequence[AgentMiddleware]) -> bool:
+    return any(isinstance(item, PaperMemoryMiddleware) for item in middleware)
+
+
+def _has_rag_tool_serialization_middleware(middleware: Sequence[AgentMiddleware]) -> bool:
+    return any(isinstance(item, RagToolSerializationMiddleware) for item in middleware)
+
+
 def _tool_output_enabled(app_config: AppConfig) -> bool:
     return _config_bool(app_config, "tool_output.enabled", "toolOutput.enabled", default=True)
+
+
+def _rag_tool_serialization_enabled(app_config: AppConfig) -> bool:
+    return _config_bool(
+        app_config,
+        "rag_tool_serialization.enabled",
+        "ragToolSerialization.enabled",
+        default=True,
+    )
 
 
 def _tool_call_limit_enabled(app_config: AppConfig) -> bool:
     config = app_config.tool_call_limit
     return bool(config and config.enabled and config.limits)
+
+
+def _paper_memory_enabled(app_config: AppConfig) -> bool:
+    return _config_bool(app_config, "paper_memory.enabled", "paperMemory.enabled", default=True)
 
 
 def _insert_tool_output_middleware(middleware: list[AgentMiddleware], app_config: AppConfig) -> None:
@@ -101,6 +139,16 @@ def _insert_tool_output_middleware(middleware: list[AgentMiddleware], app_config
         insert_at += 1
     if not _has_tool_output_placeholder_middleware(middleware):
         middleware.insert(insert_at, _tool_output_placeholder_middleware(app_config))
+
+
+def _insert_rag_tool_serialization_middleware(middleware: list[AgentMiddleware], app_config: AppConfig) -> None:
+    if _has_rag_tool_serialization_middleware(middleware):
+        return
+    middleware.append(
+        create_rag_tool_serialization_middleware(
+            tool_names=_rag_tool_serialization_tool_names(app_config),
+        )
+    )
 
 
 def _insert_tool_call_limit_middleware(middleware: list[AgentMiddleware], app_config: AppConfig) -> None:
@@ -118,6 +166,29 @@ def _insert_tool_call_limit_middleware(middleware: list[AgentMiddleware], app_co
                 exit_behavior=rule.exit_behavior,
             )
         )
+
+
+def _insert_paper_memory_middleware(
+    middleware: list[AgentMiddleware],
+    model: str | BaseChatModel,
+    app_config: AppConfig,
+    paper_memory_context: Mapping[str, Any] | None,
+) -> None:
+    if _has_paper_memory_middleware(middleware):
+        return
+    note_id = _context_text(paper_memory_context, "note_id", "noteId")
+    if not note_id:
+        return
+    middleware.append(
+        create_paper_memory_middleware(
+            model,
+            note_id=note_id,
+            note_title=_context_text(paper_memory_context, "note_title", "noteTitle"),
+            session_id=_context_text(paper_memory_context, "session_id", "sessionId"),
+            memory_dir=_paper_memory_dir(app_config),
+            update_interval=_paper_memory_update_interval(app_config),
+        )
+    )
 
 
 def _tool_output_truncation_middleware(app_config: AppConfig) -> ToolOutputTruncationMiddleware:
@@ -175,12 +246,52 @@ def _context_compaction_middleware(
     )
 
 
+def _paper_memory_update_interval(app_config: AppConfig) -> int:
+    return _config_int(
+        app_config,
+        "paper_memory.update_interval",
+        "paperMemory.updateInterval",
+        default=DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL,
+        minimum=1,
+    )
+
+
+def _paper_memory_dir(app_config: AppConfig) -> Path | None:
+    value = app_config.get("paper_memory.dir", None)
+    if value is None:
+        value = app_config.get("paperMemory.dir", None)
+    text = str(value or "").strip()
+    return Path(text).expanduser() if text else None
+
+
+def _rag_tool_serialization_tool_names(app_config: AppConfig) -> tuple[str, ...]:
+    value = app_config.get("rag_tool_serialization.tool_names", None)
+    if value is None:
+        value = app_config.get("rag_tool_serialization.tools", None)
+    if value is None:
+        value = app_config.get("ragToolSerialization.toolNames", None)
+    if value is None:
+        value = app_config.get("ragToolSerialization.tools", None)
+    names = _config_string_tuple(value)
+    return names or DEFAULT_SERIALIZED_RAG_TOOLS
+
+
 def _insert_before_compaction(middleware: list[AgentMiddleware], item: AgentMiddleware) -> None:
     for index, existing in enumerate(middleware):
         if isinstance(existing, ContextCompactionMiddleware):
             middleware.insert(index, item)
             return
     middleware.append(item)
+
+
+def _context_text(context: Mapping[str, Any] | None, *keys: str) -> str:
+    if context is None:
+        return ""
+    for key in keys:
+        text = str(context.get(key) or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _config_bool(app_config: AppConfig, *keys: str, default: bool) -> bool:
@@ -206,6 +317,16 @@ def _config_int(app_config: AppConfig, *keys: str, default: int, minimum: int = 
         except (TypeError, ValueError):
             continue
     return default
+
+
+def _config_string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw_values = value.split(",")
+    elif isinstance(value, Sequence):
+        raw_values = value
+    else:
+        return ()
+    return tuple(text for item in raw_values if (text := str(item or "").strip()))
 
 
 __all__ = ["with_configured_middleware"]

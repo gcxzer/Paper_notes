@@ -7,9 +7,10 @@ facts in `agent_runtime`.
 ## Files
 
 - `__init__.py`: Public exports for prompt context and instruction builders.
-- `builder.py`: Composes the final instructions string from identity, response discipline, available tools, and reading context.
+- `builder.py`: Composes the final instructions string from identity, response discipline, available tools, memory, and reading context.
 - `reading_context.py`: Normalizes Reader context and renders current paper, page, selected text, and visible annotation context.
 - `defaults.py`: Static instruction blocks and per-tool guidance used by the prompt builder.
+- `.paper-notes/memory/system.md` and `.paper-notes/memory/user.md`: Human-maintained long-term memory loaded before request-specific reading context.
 
 ## Boundaries
 

@@ -13,6 +13,8 @@ from middleware import (
     SUMMARY_MESSAGE_PREFIX,
     ContextCollapseMiddleware,
     ContextCompactionMiddleware,
+    PaperMemoryMiddleware,
+    RagToolSerializationMiddleware,
     SummarizationMiddleware,
     ToolCallLimitMiddleware,
     ToolOutputPlaceholderMiddleware,
@@ -169,6 +171,55 @@ def test_context_management_inserts_tool_call_limit_middleware() -> None:
     assert limiter.run_limit == 4
     assert limiter.thread_limit is None
     assert limiter.exit_behavior == "continue"
+
+
+def test_context_management_inserts_paper_memory_middleware(tmp_path) -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
+    memory_dir = tmp_path / "paper-memory"
+    app_config = AppConfig(
+        data={
+            "models": {"default": "main", "main": {"provider": "openai", "name": "gpt-5.5"}},
+            "paper_memory": {
+                "dir": str(memory_dir),
+                "update_interval": 2,
+            },
+        },
+        path=None,
+    )
+
+    middleware = with_context_management(
+        model=model,
+        middleware=None,
+        app_config=app_config,
+        paper_memory_context={
+            "note_id": "note-1",
+            "note_title": "Graph RAG",
+            "session_id": "session-1",
+        },
+    )
+
+    paper_memory = next(item for item in middleware if isinstance(item, PaperMemoryMiddleware))
+    assert paper_memory.note_id == "note-1"
+    assert paper_memory.note_title == "Graph RAG"
+    assert paper_memory.session_id == "session-1"
+    assert paper_memory.memory_dir == memory_dir
+    assert paper_memory.update_interval == 2
+
+
+def test_context_management_inserts_rag_tool_serialization_middleware() -> None:
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="done")])
+    app_config = AppConfig(
+        data={
+            "models": {"default": "main", "main": {"provider": "openai", "name": "gpt-5.5"}},
+            "rag_tool_serialization": {"tool_names": ["query_paper_content"]},
+        },
+        path=None,
+    )
+
+    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+
+    serializer = next(item for item in middleware if isinstance(item, RagToolSerializationMiddleware))
+    assert serializer.tool_names == ("query_paper_content",)
 
 
 def test_tool_call_limit_middleware_blocks_excess_tool_calls() -> None:

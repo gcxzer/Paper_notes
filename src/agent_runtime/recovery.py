@@ -147,6 +147,8 @@ def run_agent_loop_with_recovery(
     stream_mode: str,
     provider: str,
     model_name: str,
+    middleware: list[Any] | None = None,
+    paper_memory_context: dict[str, Any] | None = None,
 ) -> tuple[list[Any], list[BaseMessage]]:
     try:
         chunks = list(
@@ -156,6 +158,8 @@ def run_agent_loop_with_recovery(
                 tools=tools,
                 app_config=model_config,
                 system_prompt=system_prompt,
+                middleware=middleware,
+                paper_memory_context=paper_memory_context,
                 thread_id=thread_id,
                 run_config=run_config,
                 stream_mode=stream_mode,
@@ -179,6 +183,8 @@ def run_agent_loop_with_recovery(
                 tools=[],
                 app_config=recovery_config,
                 system_prompt=system_prompt,
+                middleware=middleware,
+                paper_memory_context=paper_memory_context,
                 thread_id=thread_id,
                 run_config=run_config,
                 stream_mode=stream_mode,

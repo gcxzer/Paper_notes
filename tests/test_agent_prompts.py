@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import tools.visibility as tools_visibility
+import agent_prompts.builder as prompt_builder
 from agent_prompts import AgentPromptContext, build_agent_instructions, build_context_section, extract_tool_names
+from memory import build_memory_section, build_paper_memory_section, paper_memory_path, write_paper_memory_file
 from app_config.ai_settings import ResolvedValue
 from media import MediaStore
 from tools import ToolContext, create_tools
@@ -90,6 +92,74 @@ def test_prompt_places_context_after_extra_instructions():
     )
 
     assert prompt.index("Use the current selection first.") < prompt.index("# Current Reading Context")
+
+
+def test_prompt_places_memory_before_context(monkeypatch):
+    monkeypatch.setattr(prompt_builder, "build_memory_section", lambda: "# Memory\n\n## System Memory\n\n- Use local rules.")
+    monkeypatch.setattr(prompt_builder, "build_paper_memory_section", lambda _note_id: "")
+    prompt = build_agent_instructions(
+        context={"note": {"id": "note-1", "title": "Graph RAG"}},
+    )
+
+    assert "# Memory" in prompt
+    assert "## System Memory" in prompt
+    assert prompt.index("# Memory") < prompt.index("# Current Reading Context")
+
+
+def test_memory_section_reads_system_then_user_files(tmp_path):
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    (memory_dir / "user.md").write_text("## User Memory\n\n- Prefer concise answers.", encoding="utf-8")
+    (memory_dir / "system.md").write_text("## System Memory\n\n- Use local evidence.", encoding="utf-8")
+    (memory_dir / "other.md").write_text("## Ignored\n\n- Do not load me.", encoding="utf-8")
+
+    section = build_memory_section(memory_dir)
+
+    assert "# Memory" in section
+    assert "persistent, file-based memory system" in section
+    assert section.index("## System Memory") < section.index("## User Memory")
+    assert "Use local evidence" in section
+    assert "Prefer concise answers" in section
+    assert "Do not load me" not in section
+
+
+def test_prompt_places_current_paper_memory_after_context(monkeypatch):
+    monkeypatch.setattr(prompt_builder, "build_memory_section", lambda: "")
+    monkeypatch.setattr(
+        prompt_builder,
+        "build_paper_memory_section",
+        lambda note_id: "# Current Paper Memory\n\n- Loaded note-1 memory." if note_id == "note-1" else "",
+    )
+    prompt = build_agent_instructions(
+        context={"note": {"id": "note-1", "title": "Graph RAG"}},
+    )
+
+    assert "# Current Paper Memory" in prompt
+    assert prompt.index("# Current Reading Context") < prompt.index("# Current Paper Memory")
+
+
+def test_paper_memory_section_reads_only_current_paper(tmp_path):
+    memory_dir = tmp_path / "paper-memory"
+    write_paper_memory_file(
+        paper_memory_path(memory_dir, "note-1"),
+        "# Paper Memory: Note 1\n\n- Current paper memory.",
+        metadata={"note_id": "note-1"},
+    )
+    write_paper_memory_file(
+        paper_memory_path(memory_dir, "note-2"),
+        "# Paper Memory: Note 2\n\n- Other paper memory.",
+        metadata={"note_id": "note-2"},
+    )
+
+    section = build_paper_memory_section("note-1", memory_dir)
+
+    assert "# Current Paper Memory" in section
+    assert "file-based memory for the current paper/note only" in section
+    assert "Memory records can become stale or incomplete" in section
+    assert "verify against the current paper content or note context" in section
+    assert "Current paper memory" in section
+    assert "Other paper memory" not in section
+    assert "<!-- paper-memory" not in section
 
 
 def test_context_section_includes_current_note_selection_and_annotations():

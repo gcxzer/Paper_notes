@@ -13,7 +13,8 @@ from agent_prompts.defaults import (
     PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE,
     TOOL_GUIDANCE_BY_NAME,
 )
-from agent_prompts.reading_context import AgentPromptContext, build_context_section
+from agent_prompts.reading_context import AgentPromptContext, build_context_section, normalize_prompt_context
+from memory import build_memory_section, build_paper_memory_section
 
 
 def build_agent_instructions(
@@ -24,6 +25,7 @@ def build_agent_instructions(
     model: str = "",
 ) -> str:
     tool_names = extract_tool_names(tools or [])
+    normalized_context = normalize_prompt_context(context)
     parts = [
         PAPER_NOTES_AGENT_IDENTITY,
         PAPER_NOTES_RESPONSE_GUIDANCE,
@@ -31,7 +33,9 @@ def build_agent_instructions(
     ]
     if extra_instructions and extra_instructions.strip():
         parts.append(extra_instructions.strip())
-    parts.append(build_context_section(context))
+    parts.append(build_memory_section())
+    parts.append(build_context_section(normalized_context))
+    parts.append(build_paper_memory_section(_context_note_id(normalized_context)))
 
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
@@ -53,6 +57,11 @@ def _extract_tool_name(tool: Any) -> str:
         name = getattr(tool, "name", "")
     text = str(name).strip() if isinstance(name, str) else ""
     return "web_search" if text.startswith("web_search_") else text
+
+
+def _context_note_id(context: AgentPromptContext | None) -> str:
+    note = context.current_note if context and isinstance(context.current_note, dict) else {}
+    return str(note.get("id") or note.get("noteId") or note.get("note_id") or "").strip()
 
 
 def _build_tool_guidance(tool_names: set[str]) -> str:
