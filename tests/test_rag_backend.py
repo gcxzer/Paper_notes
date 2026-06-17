@@ -270,7 +270,6 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                         "vector_top_k": 9,
                         "bm25_top_k": 6,
                         "retriever_result_top_k": 12,
-                        "hybrid_weights": [0.8, 0.2],
                     },
                     "reranking": {
                         "enabled": True,
@@ -337,7 +336,6 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
     assert rag_config.retrieval.vector_top_k == 9
     assert rag_config.retrieval.bm25_top_k == 6
     assert rag_config.retrieval.retriever_result_top_k == 12
-    assert rag_config.retrieval.hybrid_weights == (0.8, 0.2)
     assert rag_config.reranking.enabled is True
     assert rag_config.reranking.provider_name() == "dashscope"
     assert rag_config.reranking.model == "qwen3-vl-rerank"
@@ -1230,10 +1228,34 @@ def test_hybrid_retriever_uses_retriever_result_top_k_for_candidate_count():
         bm25_retriever=FakeRetriever(results[2:]),
         qdrant_index=SimpleNamespace(),
         retriever_result_top_k=3,
-        weights=(0.5, 0.5),
     )
 
     assert len(retriever.retrieve("query")) == 3
+
+
+def test_hybrid_retriever_uses_standard_rrf_without_channel_weights():
+    class FakeRetriever:
+        def __init__(self, results):
+            self.results = results
+
+        def retrieve(self, _query):
+            return self.results
+
+    vector_results = [
+        SimpleNamespace(node=SimpleNamespace(node_id=f"vector-{index}"), score=1.0)
+        for index in range(1, 21)
+    ]
+    bm25_result = SimpleNamespace(node=SimpleNamespace(node_id="bm25-1"), score=1.0)
+    retriever = HybridRetriever(
+        vector_retriever=FakeRetriever(vector_results),
+        bm25_retriever=FakeRetriever([bm25_result]),
+        qdrant_index=SimpleNamespace(),
+        retriever_result_top_k=2,
+    )
+
+    results = retriever.retrieve("query")
+
+    assert [result.node.node_id for result in results] == ["vector-1", "bm25-1"]
 
 
 def test_query_paper_content_facade_requires_query(tmp_path):

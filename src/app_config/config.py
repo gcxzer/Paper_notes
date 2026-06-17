@@ -71,7 +71,6 @@ DEFAULT_LLAMAPARSE_IMAGE_CATEGORIES = ("embedded", "layout")
 DEFAULT_VECTOR_TOP_K = 5
 DEFAULT_BM25_TOP_K = 5
 DEFAULT_RETRIEVER_RESULT_TOP_K = 10
-DEFAULT_HYBRID_WEIGHTS = (0.7, 0.3)
 DEFAULT_RERANKING_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 DEFAULT_RERANKING_API_KEY_ENV = "DASHSCOPE_API_KEY"
 DEFAULT_RERANKING_MODEL = "qwen3-vl-rerank"
@@ -483,7 +482,6 @@ class RagRetrievalConfig:
     vector_top_k: int = DEFAULT_VECTOR_TOP_K
     bm25_top_k: int = DEFAULT_BM25_TOP_K
     retriever_result_top_k: int = DEFAULT_RETRIEVER_RESULT_TOP_K
-    hybrid_weights: tuple[float, float] = DEFAULT_HYBRID_WEIGHTS
 
     @classmethod
     def from_mapping(cls, value: object) -> RagRetrievalConfig:
@@ -513,7 +511,6 @@ class RagRetrievalConfig:
                 minimum=1,
                 maximum=100,
             ),
-            hybrid_weights=_float_pair(data, "hybrid_weights", "hybridWeights", default=DEFAULT_HYBRID_WEIGHTS),
         )
 
     def vector_top_k_for(self, value: int | None = None) -> int:
@@ -869,16 +866,6 @@ def _text_tuple(data: dict[str, Any], *keys: str, default: tuple[str, ...]) -> t
         return tuple(part.strip() for part in value.split(",") if part.strip())
     if isinstance(value, (list, tuple)):
         return tuple(str(item).strip() for item in value if str(item).strip())
-    return default
-
-
-def _float_pair(data: dict[str, Any], *keys: str, default: tuple[float, float]) -> tuple[float, float]:
-    value = _pick(data, *keys, default=default)
-    if isinstance(value, (list, tuple)) and len(value) >= 2:
-        try:
-            return (float(value[0]), float(value[1]))
-        except (TypeError, ValueError):
-            return default
     return default
 
 

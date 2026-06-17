@@ -23,24 +23,19 @@ class HybridRetriever:
         bm25_retriever: Any,
         qdrant_index: QdrantIndex,
         retriever_result_top_k: int,
-        weights: tuple[float, float] | None = None,
     ) -> None:
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
         self._qdrant_index = qdrant_index
         self.retriever_result_top_k = retriever_result_top_k
-        self.weights = weights or load_app_config().rag.retrieval.hybrid_weights
 
     def retrieve(self, query: str):
         combined: dict[str, dict[str, Any]] = {}
-        for retriever, weight in (
-            (self.vector_retriever, self.weights[0]),
-            (self.bm25_retriever, self.weights[1]),
-        ):
+        for retriever in (self.vector_retriever, self.bm25_retriever):
             for rank, result in enumerate(retriever.retrieve(query), start=1):
                 key = _result_key(result)
                 entry = combined.setdefault(key, {"score": 0.0, "result": result})
-                entry["score"] += weight / (60 + rank)
+                entry["score"] += 1 / (60 + rank)
                 if getattr(result, "score", None) is not None and getattr(entry["result"], "score", None) is None:
                     entry["result"] = result
 
@@ -91,7 +86,6 @@ def get_retriever(
         bm25_retriever=bm25_retriever,
         qdrant_index=qdrant_index,
         retriever_result_top_k=retriever_result_top_k,
-        weights=rag_config.retrieval.hybrid_weights,
     )
 
 
