@@ -1,3 +1,8 @@
+"""说明：提供 RAG 索引和查询的服务层。
+
+作用：负责索引任务状态、暂停恢复、进度事件和对外查询接口。
+"""
+
 from __future__ import annotations
 
 import threading

@@ -1,3 +1,8 @@
+"""说明：保存 Paper Notes agent 的固定提示词模板。
+
+作用：集中维护身份说明、工具使用规则、写作流程和生成文件指导，避免散落在调用代码里。
+"""
+
 from __future__ import annotations
 
 
@@ -155,6 +160,16 @@ TOOL_GUIDANCE_BY_NAME = {
     "create_image_artifact": (
         "Use create_image_artifact when the user asks for a generated/downloadable image, diagram, visual, "
         "or image edit."
+    ),
+    "skills_list": (
+        "Use skills_list when the user asks for a specialized workflow, mentions skills, or the request may "
+        "benefit from repository/user-defined instructions. It returns compact skill metadata only; do not "
+        "assume the full workflow from the list result."
+    ),
+    "skill_view": (
+        "Use skill_view after skills_list to load the relevant SKILL.md before following that skill. Read only "
+        "the skill or linked supporting file needed for the task; do not guess skill instructions from its name "
+        "or description."
     ),
     "web_search": (
         "Use web_search for current external web facts, source attribution, and information outside the local "

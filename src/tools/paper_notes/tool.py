@@ -1,3 +1,8 @@
+"""说明：创建 LangChain 可调用的 Paper Notes 工具。
+
+作用：把 schema、上下文和 facade 函数包装成 agent 可以调用的工具对象。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -141,4 +146,3 @@ def create_tools(
             ),
         )
     return tools
-

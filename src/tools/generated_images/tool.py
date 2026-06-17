@@ -1,3 +1,8 @@
+"""说明：实现 create_image_artifact 工具。
+
+作用：调用图片生成 provider，处理输入图片 artifact，并把结果保存到 MediaStore。
+"""
+
 from __future__ import annotations
 
 from contextlib import ExitStack

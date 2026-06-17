@@ -1,3 +1,8 @@
+"""说明：解析和写入 skill Markdown frontmatter。
+
+作用：让技能名称、描述和元数据可以从 SKILL.md 中稳定读取。
+"""
+
 from __future__ import annotations
 
 import re

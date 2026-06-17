@@ -1,4 +1,7 @@
-"""Export helpers for loading global and per-paper memory prompts."""
+"""说明：导出全局记忆和当前论文记忆的公共函数。
+
+作用：让 prompt 构建和设置页通过统一入口读取、写入 memory 文件。
+"""
 
 from memory.global_memory import build_memory_section
 from memory.paper_memory import (
@@ -17,4 +20,3 @@ __all__ = [
     "read_paper_memory_file",
     "write_paper_memory_file",
 ]
-

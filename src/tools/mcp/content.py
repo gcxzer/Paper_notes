@@ -1,3 +1,8 @@
+"""说明：处理 MCP 工具返回的内容块。
+
+作用：把文本、图片、文件和资源内容转换成 Paper Notes 可保存和展示的 artifact。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -369,4 +374,3 @@ def summarize_blob(blob: Any) -> str:
 def summarize_media(data: Any, mime_type: str) -> str:
     size = decoded_base64_payload_size(data, max_bytes=_MAX_MCP_FILE_BYTES, errors=_MCP_FILE_BASE64_ERRORS)
     return f"[MCP media content: {mime_type}, {size} bytes]"
-

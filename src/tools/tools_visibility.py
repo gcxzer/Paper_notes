@@ -1,3 +1,8 @@
+"""说明：判断哪些工具应该暴露给当前模型。
+
+作用：根据 provider 能力、配置和凭据过滤工具，避免模型看到不可用功能。
+"""
+
 from __future__ import annotations
 
 import json
@@ -197,4 +202,3 @@ def _provider_name(value: object) -> str:
 def _canonical_tool_name(value: object) -> str:
     text = normalize_text(value)
     return "web_search" if text.startswith("web_search_") else text
-

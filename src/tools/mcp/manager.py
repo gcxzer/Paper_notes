@@ -1,3 +1,8 @@
+"""说明：管理 MCP server 生命周期和工具发现。
+
+作用：负责启动/连接 server、缓存工具定义、执行调用并把结果接入 agent。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -1091,4 +1096,3 @@ def probe_mcp_server(server_config: dict[str, Any]) -> dict[str, Any]:
             "toolCount": 0,
             "error": sanitize_mcp_error(_format_exception(error)),
         }
-

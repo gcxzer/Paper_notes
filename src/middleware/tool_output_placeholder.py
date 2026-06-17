@@ -1,3 +1,8 @@
+"""说明：把旧工具输出替换成占位摘要。
+
+作用：减少历史消息里的大块工具结果对上下文窗口的占用。
+"""
+
 from __future__ import annotations
 
 import json

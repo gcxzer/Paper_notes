@@ -1,4 +1,7 @@
-"""Coordinate agent requests, sessions, context, transcript updates, and retries."""
+"""说明：提供 Paper Notes agent 的核心服务层。
+
+作用：串联会话、模型配置、工具、流式输出和持久化，是聊天 API 背后的主要协调者。
+"""
 
 from __future__ import annotations
 

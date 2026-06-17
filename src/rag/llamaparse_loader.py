@@ -1,4 +1,7 @@
-"""LlamaParse-based PDF loader for text, markdown, and extracted images."""
+"""说明：通过 LlamaParse 加载论文内容。
+
+作用：在配置启用时用外部解析服务获取更结构化的 PDF 文本。
+"""
 
 from __future__ import annotations
 

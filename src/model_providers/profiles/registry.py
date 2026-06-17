@@ -1,3 +1,8 @@
+"""说明：加载和合并模型 profile 注册表。
+
+作用：把内置 profile、配置文件和运行时覆盖项整理成查询接口。
+"""
+
 from __future__ import annotations
 
 from model_providers.profiles.builtin import (

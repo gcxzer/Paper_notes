@@ -1,3 +1,8 @@
+"""说明：构建和查询 BM25 关键词索引。
+
+作用：为论文检索提供非向量的关键词召回通道，补充语义检索。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

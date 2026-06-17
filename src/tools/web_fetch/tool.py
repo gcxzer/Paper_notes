@@ -1,3 +1,8 @@
+"""说明：实现 web_fetch 工具。
+
+作用：负责下载网页、调用安全检查、提取正文，并返回可引用的网页内容。
+"""
+
 from __future__ import annotations
 
 import gzip

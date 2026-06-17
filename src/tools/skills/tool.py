@@ -1,8 +1,6 @@
-"""Local agent skills tool definitions.
+"""说明：创建 agent 可调用的 skills 工具。
 
-Inspired by Hermes Agent `tools/skills_tool.py` (MIT License). The scanning,
-frontmatter parsing, setup metadata, and linked-file handling live in focused
-helpers so this module stays as the LangChain-facing entrypoint.
+作用：提供 skills_list 和 skill_view 等工具，让模型能查看可用技能说明。
 """
 
 from __future__ import annotations
@@ -85,4 +83,3 @@ def skill_view(args: dict[str, Any], *, store: SkillStore | None = None) -> dict
         name=str(args.get("name") or "").strip(),
         file_path=str(args.get("file_path") or "").strip(),
     )
-

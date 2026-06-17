@@ -1,3 +1,8 @@
+"""说明：管理 Qdrant 向量索引的写入和查询。
+
+作用：把论文节点 embedding 存入本地向量库，并执行相似度检索。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,8 @@
+"""说明：实现 web_search 工具。
+
+作用：负责接收模型查询、调用 provider、限制结果数量并返回搜索摘要。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

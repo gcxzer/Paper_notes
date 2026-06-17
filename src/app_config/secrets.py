@@ -1,3 +1,8 @@
+"""说明：处理本地 env/secret 文件的读写。
+
+作用：统一解析、查找和更新 API key 等敏感配置，避免业务模块直接操作密钥文件。
+"""
+
 from __future__ import annotations
 
 import os

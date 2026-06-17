@@ -1,4 +1,7 @@
-"""Helpers for building the current reading-context prompt section."""
+"""说明：定义当前阅读上下文的数据结构和 prompt 片段。
+
+作用：把当前论文、页码、选中文本和可见批注整理成模型可以理解的上下文说明。
+"""
 
 from __future__ import annotations
 

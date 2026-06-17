@@ -1,3 +1,8 @@
+"""说明：定义 MCP 子系统使用的错误类型。
+
+作用：让连接、发现和工具调用失败时能返回清晰、可分类的错误。
+"""
+
 from __future__ import annotations
 
 import re
@@ -129,4 +134,3 @@ def find_retry_after_value(value: Any) -> Any:
 def is_session_expired_error(error: BaseException) -> bool:
     text = f"{type(error).__name__}: {format_exception(error)}".lower()
     return any(marker in text for marker in _SESSION_EXPIRED_MARKERS)
-

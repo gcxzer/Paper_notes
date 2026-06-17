@@ -1,3 +1,8 @@
+"""说明：实现论文 PDF 内容和图片工具动作。
+
+作用：支持读取页面、渲染页面、提取图片和查询索引状态。
+"""
+
 from __future__ import annotations
 
 # PDF-backed page rendering, image extraction, and cache helpers.
@@ -327,4 +332,3 @@ def _note_pdf_path(note: dict[str, Any], *, papers_dir: Path | None = None) -> P
     if not is_relative_to(pdf_path, base_dir):
         return None
     return pdf_path
-

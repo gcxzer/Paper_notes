@@ -1,3 +1,8 @@
+"""说明：提供 MCP 连接和资源访问的安全校验。
+
+作用：限制本地路径、网络地址和危险配置，降低外部工具带来的风险。
+"""
+
 from __future__ import annotations
 
 import json
@@ -171,4 +176,3 @@ def _json_safe_for_scan(value: Any) -> Any:
     if hasattr(value, "__dict__"):
         return _json_safe_for_scan(vars(value))
     return str(value)
-

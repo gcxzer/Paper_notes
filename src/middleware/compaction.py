@@ -1,4 +1,7 @@
-"""Second-stage context compaction for older conversation history."""
+"""说明：提供上下文压缩相关的 middleware。
+
+作用：在消息历史过长时生成摘要消息，减少后续模型调用的上下文压力。
+"""
 
 from __future__ import annotations
 
@@ -208,4 +211,3 @@ def _previous_user_message_index(messages: list[AnyMessage]) -> int | None:
 def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
-

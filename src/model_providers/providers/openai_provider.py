@@ -1,3 +1,8 @@
+"""说明：实现 OpenAI 聊天模型 provider。
+
+作用：负责按配置创建 OpenAI chat model，并处理模型能力相关参数。
+"""
+
 from __future__ import annotations
 
 from typing import Any

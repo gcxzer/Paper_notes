@@ -1,3 +1,8 @@
+"""说明：校验附件类型并提取文本内容。
+
+作用：支持 PDF、纯文本和现代 Office 文件，让非图片附件可以进入聊天上下文。
+"""
+
 from __future__ import annotations
 
 import io

@@ -1,3 +1,8 @@
+"""说明：解析 Codex 流式 response 事件。
+
+作用：把增量文本、工具调用和完成事件转换成 agent runtime 可消费的流式事件。
+"""
+
 from __future__ import annotations
 
 import json
@@ -123,4 +128,3 @@ backfill_stream_output = _backfill_stream_output
 final_generation_chunk_from_response = _final_generation_chunk_from_response
 stream_chunk_from_responses_event = _stream_chunk_from_responses_event
 tool_call_chunks_from_tool_calls = _tool_call_chunks_from_tool_calls
-

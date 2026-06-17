@@ -1,3 +1,8 @@
+"""说明：定义 agent 会话和 transcript 的数据模型。
+
+作用：集中描述会话 metadata、消息记录、状态枚举和时间格式，保证持久化结构稳定。
+"""
+
 from __future__ import annotations
 
 import copy

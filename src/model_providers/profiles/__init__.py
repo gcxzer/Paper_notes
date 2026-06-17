@@ -1,3 +1,8 @@
+"""说明：导出模型 profile 注册表。
+
+作用：让设置页和运行时读取内置/自定义模型能力描述。
+"""
+
 from model_providers.profiles.builtin import DEFAULT_FALLBACK_CONTEXT_LENGTH
 from model_providers.profiles.registry import (
     capabilities_for_provider_model,
@@ -27,4 +32,3 @@ __all__ = [
     "register_provider_profile",
     "resolve_context_length_for_model",
 ]
-

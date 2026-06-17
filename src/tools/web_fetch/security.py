@@ -1,3 +1,8 @@
+"""说明：校验 web_fetch 请求的 URL 安全性。
+
+作用：阻止 localhost、内网地址和不允许的协议，避免 SSRF 风险。
+"""
+
 from __future__ import annotations
 
 import ipaddress

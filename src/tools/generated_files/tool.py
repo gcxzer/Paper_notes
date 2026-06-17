@@ -1,3 +1,8 @@
+"""说明：实现 create_file_artifact 工具。
+
+作用：把模型生成的文本、Markdown、JSON、CSV 或 HTML 保存成可下载 artifact。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

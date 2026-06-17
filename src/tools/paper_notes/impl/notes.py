@@ -1,3 +1,8 @@
+"""说明：实现笔记元数据和 HTML 内容工具动作。
+
+作用：支持读取、审阅和更新 note 文本内容，服务于写笔记相关工具。
+"""
+
 from __future__ import annotations
 
 # Note library, HTML section, metadata, context, and review operations.

@@ -1,3 +1,8 @@
+"""说明：封装 Codex Responses API 的低层 HTTP 调用。
+
+作用：负责发起请求、处理认证头、流式读取和基础错误转换。
+"""
+
 from __future__ import annotations
 
 from model_providers.providers.codex.response_common import get_attr
@@ -25,4 +30,3 @@ __all__ = [
     "stream_chunk_from_responses_event",
     "tool_call_chunks_from_tool_calls",
 ]
-

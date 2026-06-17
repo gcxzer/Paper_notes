@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import tools.visibility as tools_visibility
+import tools.tools_visibility as tools_visibility
 import agent_prompts.builder as prompt_builder
 from agent_prompts import AgentPromptContext, build_agent_instructions, build_context_section, extract_tool_names
 from memory import build_memory_section, build_paper_memory_section, paper_memory_path, write_paper_memory_file
@@ -50,6 +50,8 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance():
     assert "# External web lookup" in prompt
     assert "# Paper note-writing workflow" in prompt
     assert "Paper_Notes/.paper-notes/media" in prompt
+    assert "Use skills_list when the user asks for a specialized workflow" in prompt
+    assert "Use skill_view after skills_list to load the relevant SKILL.md" in prompt
 
 
 def test_prompt_includes_generated_artifact_tools_when_media_store_and_credentials_are_available(monkeypatch, tmp_path):

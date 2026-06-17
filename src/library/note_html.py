@@ -1,3 +1,8 @@
+"""说明：创建和更新论文 HTML note 文档。
+
+作用：负责生成导入论文后的初始 note 页面，并安全更新标题等基础内容。
+"""
+
 from __future__ import annotations
 
 import html

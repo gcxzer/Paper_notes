@@ -1,3 +1,8 @@
+"""说明：导出 MCP 工具管理入口。
+
+作用：让 agent runtime 可以按配置发现、连接和调用外部 MCP server。
+"""
+
 from tools.mcp.manager import (
     MCPManager,
     probe_mcp_server,

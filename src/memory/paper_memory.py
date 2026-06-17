@@ -1,4 +1,7 @@
-"""Read, write, and render durable memory for one paper or note."""
+"""说明：管理单篇论文对应的 memory 文件。
+
+作用：为当前阅读论文保存可复用观察、事实和用户偏好，并生成 prompt 片段。
+"""
 
 from __future__ import annotations
 

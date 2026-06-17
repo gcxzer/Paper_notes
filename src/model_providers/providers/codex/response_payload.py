@@ -1,3 +1,8 @@
+"""说明：构建发送给 Codex Responses API 的请求 payload。
+
+作用：负责把消息、工具、附件和模型选项转换成 Codex 接口接受的格式。
+"""
+
 from __future__ import annotations
 
 import json
@@ -299,4 +304,3 @@ def _assistant_tool_calls_to_response_items(tool_calls: list[dict[str, Any]]) ->
 create_responses_response = _create_responses_response
 codex_tool_spec = _codex_tool_spec
 responses_payload = _responses_payload
-

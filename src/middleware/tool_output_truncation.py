@@ -1,3 +1,8 @@
+"""说明：截断过长的工具输出。
+
+作用：保护模型上下文和前端展示，避免单个工具结果过大拖垮后续运行。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,4 +1,7 @@
-"""Load human-maintained long-term memory into the agent prompt."""
+"""说明：管理全局 system/user memory 文件。
+
+作用：把跨论文长期偏好和规则加载进 agent prompt，并支持设置页更新。
+"""
 
 from __future__ import annotations
 

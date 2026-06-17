@@ -1,3 +1,8 @@
+"""说明：读写 MCP server 配置。
+
+作用：支持设置页保存 server、环境变量、header 和 secret 引用。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,8 @@
+"""说明：协调论文 RAG 索引构建流程。
+
+作用：把加载、切分、向量化、BM25 和图片说明等步骤串成一次可恢复的索引任务。
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable

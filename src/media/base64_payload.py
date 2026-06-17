@@ -1,3 +1,8 @@
+"""说明：解析 base64 和 data URL 形式的上传内容。
+
+作用：给图片、附件和 MCP 文件复用统一的大小限制、错误文案和解码逻辑。
+"""
+
 from __future__ import annotations
 
 import base64
@@ -79,4 +84,3 @@ def decoded_base64_payload_size(
     except Exception:
         return len(text)
     return len(data)
-

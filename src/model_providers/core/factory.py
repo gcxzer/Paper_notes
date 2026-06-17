@@ -1,3 +1,8 @@
+"""说明：根据配置创建具体模型 provider。
+
+作用：把 provider 名称、模型名和凭据解析成可调用的聊天模型或响应客户端。
+"""
+
 from __future__ import annotations
 
 from typing import Any

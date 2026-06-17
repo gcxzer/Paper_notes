@@ -1,3 +1,8 @@
+"""说明：实现 Codex 作为模型 provider 的适配层。
+
+作用：把 Paper Notes 的请求转换成 Codex Responses API 调用并返回统一结果。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence

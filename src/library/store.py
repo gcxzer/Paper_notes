@@ -1,3 +1,8 @@
+"""说明：管理本地论文库 notes.json 和导入流程。
+
+作用：负责论文元数据、分类、PDF/HTML 文件、标签和摘要的核心 CRUD。
+"""
+
 from __future__ import annotations
 
 import base64

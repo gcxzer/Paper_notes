@@ -1,3 +1,8 @@
+"""说明：管理 AI provider、模型和密钥显示状态。
+
+作用：负责读取、保存和合并前端设置页使用的模型配置与凭据来源信息。
+"""
+
 from __future__ import annotations
 
 import os

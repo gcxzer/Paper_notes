@@ -1,3 +1,8 @@
+"""说明：定义 skills 子系统使用的路径常量。
+
+作用：集中管理仓库 skills、用户 skills 和设置文件的位置。
+"""
+
 from __future__ import annotations
 
 from app_config.secrets import LOCAL_STATE_DIR, PROJECT_ROOT

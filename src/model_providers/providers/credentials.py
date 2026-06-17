@@ -1,3 +1,8 @@
+"""说明：解析各模型 provider 所需的 API key。
+
+作用：从配置、环境变量和本地 secret 文件中找凭据，并返回可展示的来源状态。
+"""
+
 from __future__ import annotations
 
 from typing import Any

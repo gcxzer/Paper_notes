@@ -1,4 +1,7 @@
-"""Assemble Paper Notes agent instructions from prompts, memory, and context."""
+"""说明：组装 Paper Notes agent 的系统提示词。
+
+作用：把工具说明、长期记忆、当前论文记忆和阅读上下文合成模型调用时的指令。
+"""
 
 from __future__ import annotations
 

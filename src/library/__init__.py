@@ -1,3 +1,8 @@
+"""说明：导出论文库读写和批注相关 API。
+
+作用：让 UI 后端和工具层通过统一入口操作 notes.json、HTML note 和批注文件。
+"""
+
 from library.annotations import (
     read_annotations,
     write_annotations,
@@ -25,4 +30,3 @@ __all__ = [
     "write_annotations",
     "write_library",
 ]
-

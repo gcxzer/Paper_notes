@@ -1,3 +1,8 @@
+"""说明：处理工具返回中的 artifact 引用。
+
+作用：把媒体 artifact 转成聊天可展示 payload，并解析本地文件/下载目标。
+"""
+
 from __future__ import annotations
 
 # Media artifact lookup, path resolution, and registration helpers for note images.

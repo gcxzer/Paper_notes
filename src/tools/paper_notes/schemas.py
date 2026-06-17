@@ -1,3 +1,8 @@
+"""说明：定义 Paper Notes 工具的 JSON schema。
+
+作用：集中描述每个工具动作的参数，供模型工具调用和前端调试使用。
+"""
+
 from __future__ import annotations
 
 # JSON schemas for the public Paper Notes facade tools.

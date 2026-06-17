@@ -1,3 +1,8 @@
+"""说明：提供 skills 文件读写和路径安全工具。
+
+作用：确保查看、创建和更新 skill 文件时只能访问允许的目录。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

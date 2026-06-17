@@ -1,3 +1,8 @@
+"""说明：维护 agent 流式事件、activeRun 和 runTrace 数据。
+
+作用：把后端执行过程整理成前端进度、最终 runTrace 和会话 metadata 可保存的结构。
+"""
+
 from __future__ import annotations
 
 import copy

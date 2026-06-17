@@ -1,3 +1,8 @@
+"""说明：总结 MCP 工具调用结果。
+
+作用：把复杂返回内容压缩成前端进度、聊天文本和模型上下文可用的摘要。
+"""
+
 from __future__ import annotations
 
 from fnmatch import fnmatchcase
@@ -506,4 +511,3 @@ def tool_summary(server: Any, tool: Any, generated_name: str) -> dict[str, Any]:
         has_output_schema=mcp_tool_output_schema(tool, warnings=warnings) is not None,
         warnings=warnings,
     )
-

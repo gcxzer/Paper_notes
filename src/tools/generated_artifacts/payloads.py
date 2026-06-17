@@ -1,3 +1,8 @@
+"""说明：构建生成 artifact 工具返回给聊天的 payload。
+
+作用：把生成结果、附件卡片和 assistant 消息字段整理成前端可展示结构。
+"""
+
 from __future__ import annotations
 
 import copy
@@ -190,4 +195,3 @@ def message_with_generated_artifact_fallback_content(
 
 def copy_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [copy.deepcopy(artifact) for artifact in artifacts if isinstance(artifact, dict)]
-

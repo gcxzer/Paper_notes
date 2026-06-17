@@ -1,3 +1,8 @@
+"""说明：实现论文内容检索管线。
+
+作用：组合向量检索、BM25、重排和结果格式化，服务于 query_paper_content 工具。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-import tools.visibility as tools_visibility
+import tools.tools_visibility as tools_visibility
 from app_config.ai_settings import ResolvedValue
 from media import MediaStore
 from tools import ToolContext, create_tools, tool_name

@@ -1,3 +1,8 @@
+"""说明：定义 web_search 共享的数据结构和清洗逻辑。
+
+作用：让不同搜索 provider 返回一致的标题、链接、摘要和错误格式。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

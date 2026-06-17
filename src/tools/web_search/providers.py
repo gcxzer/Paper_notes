@@ -1,3 +1,8 @@
+"""说明：选择和配置可用的 web_search provider。
+
+作用：根据配置、凭据和开关决定使用 Brave、Tavily 或禁用搜索。
+"""
+
 from __future__ import annotations
 
 import json

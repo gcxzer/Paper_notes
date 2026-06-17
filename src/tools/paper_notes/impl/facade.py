@@ -1,3 +1,8 @@
+"""说明：统一调度 Paper Notes 工具动作。
+
+作用：把模型传入的 action 和参数分发到论文、笔记、批注、artifact 等具体实现。
+"""
+
 from __future__ import annotations
 
 # Registers model-visible Paper Notes tools and routes facade actions to domain modules.

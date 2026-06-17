@@ -1,3 +1,8 @@
+"""说明：实现 skills 的读取、搜索和保存服务。
+
+作用：统一管理 skill 文件发现、内容加载、校验和更新。
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,3 +1,8 @@
+"""说明：解析 Codex 非流式 response。
+
+作用：把 Codex Responses API 的输出转换成 Paper Notes 内部统一的 assistant 消息和工具结果。
+"""
+
 from __future__ import annotations
 
 import json
@@ -240,4 +245,3 @@ message_from_responses_response = _message_from_responses_response
 provider_trace = _provider_trace
 response_message_text = _response_message_text
 tool_call_from_response_item = _tool_call_from_response_item
-

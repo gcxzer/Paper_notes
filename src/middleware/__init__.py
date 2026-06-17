@@ -1,4 +1,7 @@
-"""Export middleware components used by the Paper Notes agent runtime."""
+"""说明：导出 LangChain agent middleware 的公共入口。
+
+作用：让运行时按配置组合压缩、论文记忆、工具限制和工具输出处理等中间件。
+"""
 
 from middleware.compaction import (
     DEFAULT_COMPACTION_RESERVE_TOKENS,
@@ -37,4 +40,3 @@ __all__ = [
     "create_tool_call_limit_middleware",
     "with_configured_middleware",
 ]
-

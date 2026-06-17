@@ -1,3 +1,8 @@
+"""说明：限制单轮 agent 可发起的工具调用数量。
+
+作用：防止模型陷入工具循环，并在达到上限时给出可控的停止行为。
+"""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -30,4 +35,3 @@ def create_tool_call_limit_middleware(
         run_limit=run_limit,
         exit_behavior=exit_behavior,
     )
-

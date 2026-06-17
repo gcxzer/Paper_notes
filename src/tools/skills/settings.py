@@ -1,3 +1,8 @@
+"""说明：读写 skills 启用状态和外部目录设置。
+
+作用：支持设置页控制禁用技能和额外 skill 搜索目录。
+"""
+
 from __future__ import annotations
 
 import json

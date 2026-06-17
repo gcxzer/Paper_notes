@@ -1,3 +1,8 @@
+"""说明：提供 MCP 子系统的通用小工具。
+
+作用：放置文本清洗、时间、字典处理等 manager/settings 共享的辅助函数。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -42,4 +47,3 @@ def format_exception(error: BaseException) -> str:
     if text:
         return text
     return repr(error)
-

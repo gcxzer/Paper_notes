@@ -1,3 +1,8 @@
+"""说明：读写单个会话的 transcript 文件。
+
+作用：把消息列表序列化到磁盘，并在加载时恢复成可继续运行的会话历史。
+"""
+
 from __future__ import annotations
 
 import json

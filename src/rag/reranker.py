@@ -1,3 +1,8 @@
+"""说明：封装检索结果重排逻辑。
+
+作用：根据配置对召回片段重新排序，提高最终提供给模型的上下文质量。
+"""
+
 from __future__ import annotations
 
 import os

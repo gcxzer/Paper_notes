@@ -1,3 +1,8 @@
+"""说明：管理 Codex OAuth 登录和本地会话信息。
+
+作用：负责启动认证、轮询状态和读取可用于 Codex provider 的访问令牌。
+"""
+
 from __future__ import annotations
 
 import base64
@@ -210,4 +215,3 @@ def _jwt_claims(token: str) -> dict[str, Any]:
     except Exception:
         return {}
     return claims if isinstance(claims, dict) else {}
-

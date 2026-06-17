@@ -1,3 +1,8 @@
+"""说明：从请求和配置里整理本轮模型运行参数。
+
+作用：确定 provider、model、工具开关、生成模式和 prompt 上下文，供 AgentService 使用。
+"""
+
 from __future__ import annotations
 
 import copy

@@ -1,4 +1,7 @@
-"""Recover failed model requests by retrying with provider-safe options."""
+"""说明：读取和判断正在运行的 agent run 恢复信息。
+
+作用：让前端刷新后可以知道上一轮请求是否还在运行、是否完成或是否需要恢复展示。
+"""
 
 from __future__ import annotations
 

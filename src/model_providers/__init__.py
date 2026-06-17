@@ -1,3 +1,8 @@
+"""说明：导出模型 provider 相关公共入口。
+
+作用：让 agent runtime 通过统一接口创建 OpenAI、DeepSeek、Codex 等 provider。
+"""
+
 from model_providers.core import (
     ModelProviderConfig,
     create_chat_model,
@@ -27,4 +32,3 @@ __all__ = [
     "register_provider_profile",
     "resolve_context_length_for_model",
 ]
-

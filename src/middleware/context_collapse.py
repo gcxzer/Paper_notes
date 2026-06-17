@@ -1,10 +1,6 @@
-"""Context collapse middleware for Paper Notes.
+"""说明：实现运行中上下文折叠逻辑。
 
-This module keeps LangChain's official ``SummarizationMiddleware`` behavior and
-only changes the treatment of generated summary messages: new summaries are
-prefixed with ``[summary]``, and existing ``[summary]`` messages are preserved
-instead of being summarized again. Constructor arguments are passed through to
-LangChain, so omitted options such as ``summary_prompt`` use official defaults.
+作用：当消息历史逼近上下文限制时压缩旧消息，保留摘要和最新对话继续运行。
 """
 
 from __future__ import annotations
@@ -159,4 +155,3 @@ def _previous_user_question_index(messages: list[AnyMessage]) -> int | None:
 def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
-

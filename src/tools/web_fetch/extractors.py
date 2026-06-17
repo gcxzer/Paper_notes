@@ -1,3 +1,8 @@
+"""说明：从网页或 PDF 响应中提取可读文本。
+
+作用：把 HTML、Markdown 和 PDF 内容转换成模型可消费的正文。
+"""
+
 from __future__ import annotations
 
 import html

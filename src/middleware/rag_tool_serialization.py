@@ -1,4 +1,7 @@
-"""Serialize selected RAG tool calls per note during a single agent run."""
+"""说明：串行化同一论文的 RAG 工具调用。
+
+作用：避免多个并发请求同时索引或查询同一 note 时互相踩状态。
+"""
 
 from __future__ import annotations
 
@@ -111,4 +114,3 @@ def _tool_args(request: Any) -> Any:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
-

@@ -1,3 +1,8 @@
+"""说明：解析前端文件/图片生成模式相关参数。
+
+作用：把 requestOptions 和生成开关整理成后端工具、provider payload 可以复用的配置。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -126,4 +131,3 @@ def truthy_option(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return False
-

@@ -1,3 +1,8 @@
+"""说明：提供通用文本、日期、文件名和内容格式化工具。
+
+作用：让库管理、聊天 payload 和工具实现共享一致的清洗、命名和文本提取逻辑。
+"""
+
 from __future__ import annotations
 
 import re

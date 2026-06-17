@@ -1,3 +1,8 @@
+"""说明：实现 Tavily Search provider 调用。
+
+作用：把搜索查询发送到 Tavily API，并转换成统一搜索结果结构。
+"""
+
 from __future__ import annotations
 
 import json

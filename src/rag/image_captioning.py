@@ -1,3 +1,8 @@
+"""说明：为 PDF 图片生成和缓存描述。
+
+作用：让论文中的图表截图可以进入检索结果和问答上下文。
+"""
+
 from __future__ import annotations
 
 import base64

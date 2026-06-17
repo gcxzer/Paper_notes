@@ -1,3 +1,8 @@
+"""说明：提供 Paper Notes 工具实现共享的通用逻辑。
+
+作用：负责 note 解析、错误 payload、HTML 清洗、路径安全和参数转换。
+"""
+
 from __future__ import annotations
 
 # Shared low-level helpers for Paper Notes paths, HTML fragments, and small validation utilities.
@@ -328,5 +333,3 @@ def _local_media_source_is_in_project(value: str) -> bool:
 
 def _has_control_chars(value: str) -> bool:
     return any(ord(char) < 32 or ord(char) == 127 for char in value)
-
-

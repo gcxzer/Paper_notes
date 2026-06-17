@@ -1,3 +1,8 @@
+"""说明：把论文文档切分成可索引节点。
+
+作用：统一生成 chunk、元数据和页码范围，供向量库和 BM25 使用。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any

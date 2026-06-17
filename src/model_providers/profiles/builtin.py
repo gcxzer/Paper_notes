@@ -1,3 +1,8 @@
+"""说明：定义内置 provider 和模型 profile。
+
+作用：集中维护默认模型列表、能力标记和前端设置页展示信息。
+"""
+
 from __future__ import annotations
 
 from model_providers.profiles.types import ModelCapabilities, ModelOption, ModelProviderProfile

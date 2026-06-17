@@ -1,3 +1,8 @@
+"""说明：处理 LangChain 消息和会话 transcript 的互转。
+
+作用：统一保存、恢复、比较消息，并提供 JSON 安全转换和最后回复提取能力。
+"""
+
 from __future__ import annotations
 
 import copy

@@ -1,3 +1,8 @@
+"""说明：定义模型 provider 的核心类型和协议。
+
+作用：描述 provider 能力、模型请求参数和上层运行时需要依赖的接口。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

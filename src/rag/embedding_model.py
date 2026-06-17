@@ -1,3 +1,8 @@
+"""说明：创建 RAG 使用的 embedding 模型。
+
+作用：根据配置选择 provider、模型和凭据，供向量索引与查询使用。
+"""
+
 import os
 
 from app_config import load_app_config

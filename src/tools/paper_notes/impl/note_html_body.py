@@ -1,3 +1,8 @@
+"""说明：实现 HTML note 正文编辑能力。
+
+作用：支持插入、替换、追加章节和媒体内容，并保证写回的 HTML 安全可读。
+"""
+
 from __future__ import annotations
 
 import html as html_lib

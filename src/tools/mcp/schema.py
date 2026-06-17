@@ -1,3 +1,8 @@
+"""说明：清洗和转换 MCP 工具 JSON schema。
+
+作用：让外部工具 schema 符合模型工具调用接口可接受的格式。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -73,4 +78,3 @@ def normalize_mcp_input_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(normalized["properties"], dict):
         normalized["properties"] = {}
     return normalized
-

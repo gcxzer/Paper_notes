@@ -1,3 +1,8 @@
+"""说明：实现本地媒体 artifact 存储和 manifest 管理。
+
+作用：负责保存上传附件、生成图片/文件、MCP 资源和已有图片，并提供读取、下载和提取文本能力。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,8 @@
+"""说明：提供 Codex response 解析时共享的内容提取工具。
+
+作用：把 Codex 返回的复杂 content 块压平成后续 parser 和 payload 需要的文本结构。
+"""
+
 from __future__ import annotations
 
 import json
@@ -109,4 +114,3 @@ def json_safe(value: Any) -> Any:
         except TypeError:
             return json_safe(model_dump())
     return str(getattr(value, "value", value))
-

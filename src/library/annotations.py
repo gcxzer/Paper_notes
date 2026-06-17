@@ -1,3 +1,8 @@
+"""说明：读写单篇论文的 PDF 批注 JSON 文件。
+
+作用：把 note id 映射成安全文件名，并提供批注读取、保存和空值处理。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,8 @@
+"""说明：实现基于文件系统的 agent 会话存储。
+
+作用：负责创建、更新、归档、分支和索引会话，并把 metadata 写入本地状态目录。
+"""
+
 from __future__ import annotations
 
 import threading

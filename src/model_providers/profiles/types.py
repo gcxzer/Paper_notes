@@ -1,3 +1,8 @@
+"""说明：定义 provider profile 的数据结构。
+
+作用：描述模型显示名、能力、上下文限制和图片/文件支持等配置字段。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace

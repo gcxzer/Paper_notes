@@ -1,4 +1,7 @@
-"""Build the default middleware stack for Paper Notes agent runs."""
+"""说明：根据模型和配置组装 middleware 列表。
+
+作用：把上下文压缩、工具输出处理、论文记忆等能力按 AppConfig 开关接入 agent。
+"""
 
 from __future__ import annotations
 
@@ -332,4 +335,3 @@ def _config_string_tuple(value: Any) -> tuple[str, ...]:
     else:
         return ()
     return tuple(text for item in raw_values if (text := str(item or "").strip()))
-

@@ -1,3 +1,8 @@
+"""说明：实现 DeepSeek 聊天模型 provider。
+
+作用：把 DeepSeek 配置转换成 LangChain 可用的 chat model。
+"""
+
 from __future__ import annotations
 
 from typing import Any

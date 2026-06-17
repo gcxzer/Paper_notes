@@ -1,3 +1,8 @@
+"""说明：实现 PDF 批注相关工具动作。
+
+作用：支持创建、更新、删除和定位批注，并把结果写回本地批注文件。
+"""
+
 from __future__ import annotations
 
 # Annotation create/update/delete logic, including PDF quote-to-rect location.

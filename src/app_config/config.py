@@ -1,3 +1,8 @@
+"""说明：定义 Paper Notes 的主配置结构和默认值。
+
+作用：从 config.json 读取服务端、RAG、工具、压缩和 provider 等全局运行参数。
+"""
+
 from __future__ import annotations
 
 import json

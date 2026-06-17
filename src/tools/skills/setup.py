@@ -1,3 +1,8 @@
+"""说明：初始化 skills 目录和默认文件。
+
+作用：在本地状态目录缺失时创建必要结构，保证技能工具可用。
+"""
+
 from __future__ import annotations
 
 import re

@@ -1,4 +1,7 @@
-"""Create and run LangChain agents with the Paper Notes middleware stack."""
+"""说明：封装 LangChain agent 的实际执行循环。
+
+作用：负责把模型、工具、中间件和消息历史接起来，产出最终消息或流式事件。
+"""
 
 from __future__ import annotations
 

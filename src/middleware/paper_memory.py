@@ -1,4 +1,7 @@
-"""Update current-paper durable memory after enough conversation turns."""
+"""说明：实现当前论文记忆的 middleware。
+
+作用：在对话中读取、生成和更新 paper memory，让 agent 记住单篇论文相关信息。
+"""
 
 from __future__ import annotations
 
@@ -258,4 +261,3 @@ def _int_value(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
-

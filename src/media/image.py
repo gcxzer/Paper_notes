@@ -1,3 +1,8 @@
+"""说明：处理图片 MIME 识别、验证和上传规范化。
+
+作用：确保图片 artifact 类型可信、大小受控，并在保存前提取宽高信息。
+"""
+
 from __future__ import annotations
 
 import base64

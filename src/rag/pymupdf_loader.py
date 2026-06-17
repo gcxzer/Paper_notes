@@ -1,4 +1,8 @@
-"""PyMuPDF-based PDF loader."""
+"""说明：使用 PyMuPDF 从 PDF 提取文本和页面信息。
+
+作用：提供本地默认 PDF 加载能力，不依赖外部解析服务。
+"""
+
 from pathlib import Path
 
 import pymupdf

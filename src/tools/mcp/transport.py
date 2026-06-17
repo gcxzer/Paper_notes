@@ -1,3 +1,8 @@
+"""说明：实现 MCP server 的进程和 HTTP 传输。
+
+作用：负责启动子进程、读写 stdio、连接 HTTP/SSE，并记录运行日志。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -334,4 +339,3 @@ def latest_protocol_version() -> str:
         return str(LATEST_PROTOCOL_VERSION)
     except Exception:
         return _DEFAULT_PROTOCOL_VERSION
-

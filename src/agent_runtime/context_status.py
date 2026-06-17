@@ -1,3 +1,8 @@
+"""说明：计算会话上下文和压缩状态。
+
+作用：给前端展示当前 token 使用、压缩次数和是否需要整理上下文的状态信息。
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
