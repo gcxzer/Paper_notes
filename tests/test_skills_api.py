@@ -68,7 +68,7 @@ def test_skills_api_saves_disabled_skills_and_preserves_settings(tmp_path, monke
     settings_path = tmp_path / "skill-settings.json"
 
     settings = update_skill_settings(
-        {"externalDirectories": [str(external_root)], "disabled_skills": ["alpha", "alpha", " "]},
+        {"externalDirectories": [str(external_root)], "disabledSkills": ["alpha", "alpha", " "]},
         settings_path=settings_path,
     )
     assert settings["externalDirectories"] == [{"path": str(external_root), "exists": True}]

@@ -267,8 +267,8 @@ def test_model_response_trace_extracts_provider_native_web_search():
         "data": {
             "turn": 1,
             "source": "openai",
-            "web_search_call_count": 1,
-            "web_search_source_count": 1,
-            "web_search_queries": ["OpenAI news"],
+            "webSearchCallCount": 1,
+            "webSearchSourceCount": 1,
+            "webSearchQueries": ["OpenAI news"],
         },
     }]

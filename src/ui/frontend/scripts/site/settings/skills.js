@@ -25,7 +25,7 @@ function normalizeSkillNameList(value) {
 }
 
 function normalizeSkillsSettings(payload) {
-  const disabledFromPayload = normalizeSkillNameList(payload?.disabledSkills || payload?.disabled_skills);
+  const disabledFromPayload = normalizeSkillNameList(payload?.disabledSkills);
   const disabledSet = new Set(disabledFromPayload);
   const skills = Array.isArray(payload?.skills)
     ? payload.skills.map(normalizeSkillSummary).filter((skill) => skill.name)
@@ -35,8 +35,8 @@ function normalizeSkillsSettings(payload) {
     ...disabledFromPayload,
     ...skills.filter((skill) => skill.enabled === false).map((skill) => skill.name)
   ]);
-  const externalDirectories = Array.isArray(payload?.externalDirectories || payload?.external_directories)
-    ? (payload.externalDirectories || payload.external_directories).map((entry) => {
+  const externalDirectories = Array.isArray(payload?.externalDirectories)
+    ? payload.externalDirectories.map((entry) => {
       if (typeof entry === "string") {
         return { path: normalizeText(entry), exists: true };
       }
@@ -54,54 +54,54 @@ function normalizeSkillsSettings(payload) {
     disabledSkills,
     message: normalizeText(payload?.message),
     hint: normalizeText(payload?.hint),
-    uiHint: normalizeText(payload?.uiHint || payload?.ui_hint),
+    uiHint: normalizeText(payload?.uiHint),
     roots: Array.isArray(payload?.roots) ? payload.roots.map(normalizeText).filter(Boolean) : [],
-    defaultRoots: Array.isArray(payload?.defaultRoots || payload?.default_roots)
-      ? (payload.defaultRoots || payload.default_roots).map(normalizeText).filter(Boolean)
+    defaultRoots: Array.isArray(payload?.defaultRoots)
+      ? payload.defaultRoots.map(normalizeText).filter(Boolean)
       : [],
     externalDirectories,
-    settingsPath: normalizeText(payload?.settingsPath || payload?.settings_path)
+    settingsPath: normalizeText(payload?.settingsPath)
   };
 }
 
 function normalizeSkillDetail(payload) {
-  const linkedFilesSource = payload?.linked_files || payload?.linkedFiles;
+  const linkedFilesSource = payload?.linkedFiles;
   const linkedFiles = linkedFilesSource && typeof linkedFilesSource === "object" ? linkedFilesSource : {};
-  const availableFilesSource = payload?.available_files || payload?.availableFiles;
+  const availableFilesSource = payload?.availableFiles;
   return {
     success: payload?.success !== false,
     name: normalizeText(payload?.name),
     description: normalizeText(payload?.description),
     category: normalizeText(payload?.category),
     tags: Array.isArray(payload?.tags) ? payload.tags.map(normalizeText).filter(Boolean) : [],
-    relatedSkills: Array.isArray(payload?.related_skills || payload?.relatedSkills)
-      ? (payload.related_skills || payload.relatedSkills).map(normalizeText).filter(Boolean)
+    relatedSkills: Array.isArray(payload?.relatedSkills)
+      ? payload.relatedSkills.map(normalizeText).filter(Boolean)
       : [],
     content: normalizeText(payload?.content),
     path: normalizeText(payload?.path),
-    skillDir: normalizeText(payload?.skill_dir || payload?.skillDir),
+    skillDir: normalizeText(payload?.skillDir),
     source: normalizeText(payload?.source),
     enabled: payload?.enabled !== false,
     linkedFiles,
-    usageHint: normalizeText(payload?.usage_hint || payload?.usageHint),
-    readinessStatus: normalizeText(payload?.readiness_status || payload?.readinessStatus || "available"),
-    setupNeeded: Boolean(payload?.setup_needed || payload?.setupNeeded),
-    setupSkipped: Boolean(payload?.setup_skipped || payload?.setupSkipped),
-    requiredEnvironmentVariables: Array.isArray(payload?.required_environment_variables || payload?.requiredEnvironmentVariables)
-      ? (payload.required_environment_variables || payload.requiredEnvironmentVariables)
+    usageHint: normalizeText(payload?.usageHint),
+    readinessStatus: normalizeText(payload?.readinessStatus || "available"),
+    setupNeeded: Boolean(payload?.setupNeeded),
+    setupSkipped: Boolean(payload?.setupSkipped),
+    requiredEnvironmentVariables: Array.isArray(payload?.requiredEnvironmentVariables)
+      ? payload.requiredEnvironmentVariables
       : [],
-    requiredCommands: Array.isArray(payload?.required_commands || payload?.requiredCommands)
-      ? (payload.required_commands || payload.requiredCommands).map(normalizeText).filter(Boolean)
+    requiredCommands: Array.isArray(payload?.requiredCommands)
+      ? payload.requiredCommands.map(normalizeText).filter(Boolean)
       : [],
-    missingRequiredEnvironmentVariables: Array.isArray(payload?.missing_required_environment_variables || payload?.missingRequiredEnvironmentVariables)
-      ? (payload.missing_required_environment_variables || payload.missingRequiredEnvironmentVariables).map(normalizeText).filter(Boolean)
+    missingRequiredEnvironmentVariables: Array.isArray(payload?.missingRequiredEnvironmentVariables)
+      ? payload.missingRequiredEnvironmentVariables.map(normalizeText).filter(Boolean)
       : [],
-    missingRequiredCommands: Array.isArray(payload?.missing_required_commands || payload?.missingRequiredCommands)
-      ? (payload.missing_required_commands || payload.missingRequiredCommands).map(normalizeText).filter(Boolean)
+    missingRequiredCommands: Array.isArray(payload?.missingRequiredCommands)
+      ? payload.missingRequiredCommands.map(normalizeText).filter(Boolean)
       : [],
-    isBinary: Boolean(payload?.is_binary || payload?.isBinary),
-    mimeType: normalizeText(payload?.mime_type || payload?.content_type),
-    filePath: normalizeText(payload?.file_path || payload?.filePath),
+    isBinary: Boolean(payload?.isBinary),
+    mimeType: normalizeText(payload?.mimeType || payload?.contentType),
+    filePath: normalizeText(payload?.filePath),
     error: normalizeText(payload?.error),
     hint: normalizeText(payload?.hint),
     availableFiles: availableFilesSource && typeof availableFilesSource === "object" ? availableFilesSource : null
@@ -504,14 +504,14 @@ async function loadSkillDetail(name, filePath = "") {
       ...payload,
       name: payload.name || normalizedName,
       enabled: payload.enabled ?? summary?.enabled,
-      file_path: state.selectedSkillFilePath || payload.file_path
+      filePath: state.selectedSkillFilePath || payload.filePath
     });
     setSkillsSettingsError("");
   } catch (error) {
     state.selectedSkillDetail = normalizeSkillDetail({
       success: false,
       name: normalizedName,
-      file_path: state.selectedSkillFilePath,
+      filePath: state.selectedSkillFilePath,
       error: error.message || "Could not load skill."
     });
     setSkillsSettingsError(error.message || "Could not load skill.");

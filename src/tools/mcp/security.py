@@ -4,6 +4,14 @@ import json
 import re
 from typing import Any
 
+__all__ = [
+    "collect_security_warnings",
+    "extend_security_warnings",
+    "mcp_security_warnings",
+    "sanitize_mcp_description",
+    "sanitize_mcp_error",
+    "sanitize_mcp_schema_descriptions",
+]
 
 _CREDENTIAL_PATTERNS = (
     re.compile(r"data:[-\w.+/]+;base64,[A-Za-z0-9+/=\s]{32,}", re.IGNORECASE),
@@ -164,12 +172,3 @@ def _json_safe_for_scan(value: Any) -> Any:
         return _json_safe_for_scan(vars(value))
     return str(value)
 
-
-__all__ = [
-    "collect_security_warnings",
-    "extend_security_warnings",
-    "mcp_security_warnings",
-    "sanitize_mcp_description",
-    "sanitize_mcp_error",
-    "sanitize_mcp_schema_descriptions",
-]

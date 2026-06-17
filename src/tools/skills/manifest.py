@@ -7,5 +7,3 @@ TOOL_GROUP = {
     "tools": ("skills_list", "skill_view"),
 }
 
-
-__all__ = ["TOOL_GROUP"]

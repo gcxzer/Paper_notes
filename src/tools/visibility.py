@@ -12,6 +12,13 @@ from app_infra.formatting import normalize_text
 from model_providers.profiles import ModelCapabilities, capabilities_for_provider_model, normalize_provider_profile_name
 from model_providers.providers.codex.auth import codex_auth_path
 
+__all__ = [
+    "AgentTool",
+    "ToolContext",
+    "create_tools",
+    "filter_disabled_tools",
+    "tool_name",
+]
 
 AgentTool = BaseTool | dict[str, Any]
 
@@ -191,11 +198,3 @@ def _canonical_tool_name(value: object) -> str:
     text = normalize_text(value)
     return "web_search" if text.startswith("web_search_") else text
 
-
-__all__ = [
-    "AgentTool",
-    "ToolContext",
-    "create_tools",
-    "filter_disabled_tools",
-    "tool_name",
-]

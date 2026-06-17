@@ -18,6 +18,15 @@ from tools.paper_notes.impl.common import (
     tool_error,
 )
 
+__all__ = [
+    "PAPER_VISUALS_DIR",
+    "_import_pymupdf",
+    "_paper_page_cache_path",
+    "_paper_visual_images_dir",
+    "_resolved_pdf_path_for_note",
+    "extract_paper_images",
+    "render_paper_page",
+]
 
 PAPER_VISUALS_DIR = PROJECT_ROOT / "resources" / "Paper-visuals"
 
@@ -319,5 +328,3 @@ def _note_pdf_path(note: dict[str, Any], *, papers_dir: Path | None = None) -> P
         return None
     return pdf_path
 
-
-__all__ = [name for name in globals() if not name.startswith("__")]

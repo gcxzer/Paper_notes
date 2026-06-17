@@ -1,14 +1,14 @@
 let readerProjectFlyoutCloseTimer = 0;
 
 function normalizeReaderChatProject(rawProject) {
-  const id = normalizeText(rawProject?.id || rawProject?.projectId || rawProject?.project_id);
+  const id = normalizeText(rawProject?.id);
   const name = normalizeText(rawProject?.name || rawProject?.title);
   if (!id || !name) return null;
   return {
     id,
     name,
-    createdAt: normalizeText(rawProject?.createdAt || rawProject?.created_at),
-    updatedAt: normalizeText(rawProject?.updatedAt || rawProject?.updated_at),
+    createdAt: normalizeText(rawProject?.createdAt),
+    updatedAt: normalizeText(rawProject?.updatedAt),
     order: Number(rawProject?.order) || 0,
   };
 }
@@ -39,11 +39,11 @@ function readerChatProjectName(projectId) {
 }
 
 function readerSessionProjectId(session) {
-  return normalizeText(session?.projectId || session?.metadata?.projectId || session?.metadata?.project_id);
+  return normalizeText(session?.projectId || session?.metadata?.projectId);
 }
 
 function readerSessionProjectName(session) {
-  return normalizeText(session?.projectName || session?.metadata?.projectName || session?.metadata?.project_name)
+  return normalizeText(session?.projectName || session?.metadata?.projectName)
     || readerChatProjectName(readerSessionProjectId(session));
 }
 

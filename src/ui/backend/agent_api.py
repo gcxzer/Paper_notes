@@ -169,52 +169,67 @@ def _metadata_payload(metadata: Any) -> dict[str, Any]:
     payload = metadata.to_dict() if hasattr(metadata, "to_dict") else _jsonable(metadata)
     if not isinstance(payload, dict):
         return {}
-    extra = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    session_id = payload.get("session_id", "")
-    origin_note_id = _text(
-        extra.get("originNoteId")
-        or extra.get("origin_note_id")
-        or extra.get("note_id")
-        or payload.get("note_id")
-    )
-    origin_note_title = _text(
-        extra.get("originNoteTitle")
-        or extra.get("origin_note_title")
-        or extra.get("noteTitle")
-        or extra.get("note_title")
-    )
-    current_note_id = _text(extra.get("currentNoteId") or extra.get("current_note_id") or origin_note_id)
-    current_note_title = _text(extra.get("currentNoteTitle") or extra.get("current_note_title") or origin_note_title)
-    project_id = _text(payload.get("projectId") or payload.get("project_id") or extra.get("projectId") or extra.get("project_id"))
-    project_name = _text(
-        payload.get("projectName") or payload.get("project_name") or extra.get("projectName") or extra.get("project_name")
-    )
-    state = _text(payload.get("state")) or ("archived" if payload.get("archived") else "active")
-    active_run = extra.get("activeRun") if isinstance(extra.get("activeRun"), dict) else None
+    extra = dict(payload.get("metadata")) if isinstance(payload.get("metadata"), dict) else {}
+    session_id = _text(payload.get("session_id"))
+    note_id = _text(payload.get("note_id"))
+    origin_note_id = _metadata_text(extra, "originNoteId") or note_id
+    origin_note_title = _metadata_text(extra, "originNoteTitle")
+    current_note_id = _metadata_text(extra, "currentNoteId") or origin_note_id
+    current_note_title = _metadata_text(extra, "currentNoteTitle") or origin_note_title
+    project_id = _metadata_text(extra, "projectId")
+    project_name = _metadata_text(extra, "projectName")
+    state = _session_state(payload)
+    active_run = _metadata_dict(extra, "activeRun")
     return {
-        **payload,
         "id": session_id,
         "sessionId": session_id,
-        "createdAt": payload.get("created_at", ""),
-        "updatedAt": payload.get("updated_at", ""),
-        "dateBucket": payload.get("date_bucket", ""),
-        "noteId": origin_note_id or payload.get("note_id"),
+        "title": _text(payload.get("title")) or "New chat",
+        "createdAt": _text(payload.get("created_at")),
+        "updatedAt": _text(payload.get("updated_at")),
+        "dateBucket": _text(payload.get("date_bucket")),
+        "noteId": origin_note_id or note_id,
         "originNoteId": origin_note_id,
         "originNoteTitle": origin_note_title,
         "currentNoteId": current_note_id,
         "currentNoteTitle": current_note_title,
-        "messageCount": payload.get("message_count", 0),
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "messageCount": _metadata_int(payload.get("message_count")),
         "projectId": project_id,
         "projectName": project_name,
-        "archivedAt": _text(extra.get("archivedAt") or extra.get("archived_at")),
-        "trashedAt": _text(extra.get("trashedAt") or extra.get("trashed_at")),
-        "deepseekThinkMode": _text(extra.get("deepseekThinkMode") or extra.get("deepseek_think_mode")),
-        "gptThinkMode": _text(extra.get("gptThinkMode") or extra.get("gpt_think_mode")),
+        "archivedAt": _metadata_text(extra, "archivedAt"),
+        "trashedAt": _metadata_text(extra, "trashedAt"),
+        "deepseekThinkMode": _metadata_text(extra, "deepseekThinkMode"),
+        "gptThinkMode": _metadata_text(extra, "gptThinkMode"),
         "activeRun": active_run,
+        "metadata": extra,
         "state": state,
         "archived": state == "archived",
         "trashed": state == "trashed",
     }
+
+
+def _metadata_text(metadata: dict[str, Any], key: str) -> str:
+    return _text(metadata.get(key)) if key in metadata else ""
+
+
+def _metadata_dict(metadata: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = metadata.get(key)
+    return value if isinstance(value, dict) else None
+
+
+def _metadata_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _session_state(payload: dict[str, Any]) -> str:
+    state = _text(payload.get("state")).lower()
+    if state in {"active", "archived", "trashed"}:
+        return state
+    return "archived" if _bool(payload.get("archived")) else "active"
 
 
 def _agent_error_response(error: Exception, *, code: str, status_code: int) -> JSONResponse:

@@ -4,76 +4,37 @@ from middleware.compaction import (
     DEFAULT_COMPACTION_RESERVE_TOKENS,
     ContextCompactionMiddleware,
     compaction_trigger_tokens,
-    create_context_compaction_middleware,
 )
 from middleware.context_collapse import (
     ContextCollapseMiddleware,
-    DEFAULT_CONTEXT_COLLAPSE_KEEP,
-    DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION,
-    DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES,
-    DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS,
     SUMMARY_MESSAGE_PREFIX,
     SummarizationMiddleware,
     create_context_collapse_middleware,
 )
 from middleware.configured import with_configured_middleware
-from middleware.paper_memory import (
-    DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL,
-    PAPER_MEMORY_DIR,
-    PaperMemoryMiddleware,
-    create_paper_memory_middleware,
-)
-from middleware.rag_tool_serialization import (
-    DEFAULT_SERIALIZED_RAG_TOOLS,
-    RagToolSerializationMiddleware,
-    create_rag_tool_serialization_middleware,
-)
+from middleware.paper_memory import PaperMemoryMiddleware
+from middleware.rag_tool_serialization import RagToolSerializationMiddleware
 from middleware.tool_call_limit import (
-    DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR,
-    ToolCallLimitExitBehavior,
     ToolCallLimitMiddleware,
     create_tool_call_limit_middleware,
 )
-from middleware.tool_output_placeholder import (
-    DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT,
-    ToolOutputPlaceholderMiddleware,
-    create_tool_output_placeholder_middleware,
-)
-from middleware.tool_output_truncation import (
-    DEFAULT_TOOL_OUTPUT_MAX_TOKENS,
-    ToolOutputTruncationMiddleware,
-    create_tool_output_truncation_middleware,
-)
+from middleware.tool_output_placeholder import ToolOutputPlaceholderMiddleware
+from middleware.tool_output_truncation import ToolOutputTruncationMiddleware
 
 __all__ = [
     "ContextCollapseMiddleware",
     "ContextCompactionMiddleware",
-    "DEFAULT_TOOL_OUTPUT_MAX_TOKENS",
-    "DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT",
     "DEFAULT_COMPACTION_RESERVE_TOKENS",
-    "DEFAULT_CONTEXT_COLLAPSE_KEEP",
-    "DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION",
-    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES",
-    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS",
-    "DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL",
-    "DEFAULT_SERIALIZED_RAG_TOOLS",
-    "DEFAULT_TOOL_CALL_LIMIT_EXIT_BEHAVIOR",
     "SUMMARY_MESSAGE_PREFIX",
-    "PAPER_MEMORY_DIR",
     "PaperMemoryMiddleware",
     "RagToolSerializationMiddleware",
     "SummarizationMiddleware",
-    "ToolCallLimitExitBehavior",
     "ToolCallLimitMiddleware",
     "ToolOutputPlaceholderMiddleware",
     "ToolOutputTruncationMiddleware",
     "compaction_trigger_tokens",
     "create_context_collapse_middleware",
-    "create_context_compaction_middleware",
-    "create_paper_memory_middleware",
-    "create_rag_tool_serialization_middleware",
     "create_tool_call_limit_middleware",
-    "create_tool_output_placeholder_middleware",
-    "create_tool_output_truncation_middleware",
     "with_configured_middleware",
 ]
+

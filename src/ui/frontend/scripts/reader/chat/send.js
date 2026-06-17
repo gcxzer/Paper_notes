@@ -33,7 +33,6 @@ async function sendReaderChatMessage(options = {}) {
   const context = readerChatContext();
   if (selectedPdfText) {
     context.selectionText = selectedPdfText;
-    context.selection_text = selectedPdfText;
   }
 
   if (!editing) {

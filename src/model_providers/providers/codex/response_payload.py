@@ -17,6 +17,11 @@ from model_providers.providers.codex.response_common import (
     merge_include as _merge_include,
 )
 
+__all__ = [
+    "codex_tool_spec",
+    "create_responses_response",
+    "responses_payload",
+]
 
 CODEX_RESPONSES_OPTIONS = {
     "include",
@@ -238,7 +243,7 @@ def _responses_reasoning(options: dict[str, Any]) -> dict[str, Any]:
 
 
 def _native_web_search_enabled(options: dict[str, Any]) -> bool:
-    for key in ("native_web_search", "web_search", "_paper_notes_native_web_search", "_paper_notes_provider_native_web_search"):
+    for key in ("native_web_search", "web_search", "_paper_notes_native_web_search"):
         value = options.get(key)
         if isinstance(value, bool | str):
             return truthy_option(value)
@@ -295,9 +300,3 @@ create_responses_response = _create_responses_response
 codex_tool_spec = _codex_tool_spec
 responses_payload = _responses_payload
 
-
-__all__ = [
-    "codex_tool_spec",
-    "create_responses_response",
-    "responses_payload",
-]

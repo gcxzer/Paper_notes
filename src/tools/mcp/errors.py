@@ -6,6 +6,10 @@ from typing import Any
 from tools.mcp.security import sanitize_mcp_error
 from tools.mcp.utils import format_exception
 
+__all__ = [
+    "is_session_expired_error",
+    "mcp_error_payload",
+]
 
 _RATE_LIMIT_ERROR_MARKERS = (
     "rate limit",
@@ -126,11 +130,3 @@ def is_session_expired_error(error: BaseException) -> bool:
     text = f"{type(error).__name__}: {format_exception(error)}".lower()
     return any(marker in text for marker in _SESSION_EXPIRED_MARKERS)
 
-
-__all__ = [
-    "extract_retry_after_seconds",
-    "find_retry_after_value",
-    "is_session_expired_error",
-    "mcp_error_code",
-    "mcp_error_payload",
-]

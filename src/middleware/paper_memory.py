@@ -15,10 +15,16 @@ from memory import (
     PAPER_MEMORY_DIR,
     paper_memory_path,
     read_paper_memory_file,
-    safe_paper_memory_stem,
     write_paper_memory_file,
 )
 
+__all__ = [
+    "DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL",
+    "PaperMemoryMiddleware",
+    "create_paper_memory_middleware",
+    "paper_memory_path",
+    "read_paper_memory_file",
+]
 
 DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL = 3
 DEFAULT_PAPER_MEMORY_MAX_CONVERSATION_CHARS = 60_000
@@ -253,16 +259,3 @@ def _int_value(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
 
-
-__all__ = [
-    "DEFAULT_PAPER_MEMORY_UPDATE_INTERVAL",
-    "PAPER_MEMORY_DIR",
-    "PAPER_MEMORY_UPDATE_PROMPT",
-    "PaperMemoryMiddleware",
-    "create_paper_memory_middleware",
-    "format_conversation_for_memory",
-    "paper_memory_path",
-    "read_paper_memory_file",
-    "safe_paper_memory_stem",
-    "write_paper_memory_file",
-]

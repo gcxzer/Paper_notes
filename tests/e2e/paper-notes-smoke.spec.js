@@ -4139,7 +4139,7 @@ test("reader sends selected PDF text as chat context", async ({ page }) => {
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].selectionText).toContain("stochastic");
   expect(requests[0].context.selectionText).toContain("stochastic");
-  expect(requests[0].context.selection_text).toContain("stochastic");
+  expect(requests[0].context.selection_text).toBeUndefined();
   await expect(page.locator(".ask-user-selected-text-badge")).toContainText("Text selected: 1 word");
   await expect(page.locator(".ask-user-selected-text-badge")).not.toContainText("p.");
   await expect(page.locator(".ask-user-selected-text-badge")).toHaveAttribute("data-selected-text-preview", /stochastic/);

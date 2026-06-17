@@ -1,8 +1,9 @@
-from model_providers.core import ModelProviderConfig, create_chat_model
+from model_providers.core import (
+    ModelProviderConfig,
+    create_chat_model,
+)
 from model_providers.profiles import (
     DEFAULT_FALLBACK_CONTEXT_LENGTH,
-    ModelCapabilities,
-    ModelOption,
     ModelProviderProfile,
     capabilities_for_provider_model,
     get_provider_profile,
@@ -15,8 +16,6 @@ from model_providers.profiles import (
 
 __all__ = [
     "DEFAULT_FALLBACK_CONTEXT_LENGTH",
-    "ModelCapabilities",
-    "ModelOption",
     "ModelProviderConfig",
     "ModelProviderProfile",
     "capabilities_for_provider_model",
@@ -28,3 +27,4 @@ __all__ = [
     "register_provider_profile",
     "resolve_context_length_for_model",
 ]
+

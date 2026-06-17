@@ -3,7 +3,7 @@ function normalizeMcpSettings(payload) {
   return {
     success: payload?.success !== false,
     servers,
-    settingsPath: normalizeText(payload?.settingsPath || payload?.settings_path || ".paper-notes/mcp-servers.json")
+    settingsPath: normalizeText(payload?.settingsPath || ".paper-notes/mcp-servers.json")
   };
 }
 
@@ -14,7 +14,7 @@ function cloneMcpSettings(settings) {
 function normalizeMcpServer(server) {
   const transport = normalizeText(server?.transport || (server?.url ? "http" : "stdio")).toLowerCase() === "http" ? "http" : "stdio";
   const status = server?.status && typeof server.status === "object" ? server.status : {};
-  const failureCount = Number(status.failureCount ?? status.failure_count) || 0;
+  const failureCount = Number(status.failureCount) || 0;
   return {
     id: normalizeText(server?.id || server?.name || `server_${Date.now().toString(36)}`),
     name: normalizeText(server?.name || server?.id || "MCP server"),
@@ -25,46 +25,41 @@ function normalizeMcpServer(server) {
     env: normalizeMcpSecretEntries(server?.env),
     url: normalizeText(server?.url || ""),
     headers: normalizeMcpSecretEntries(server?.headers),
-    bearerTokenEnvVar: normalizeText(server?.bearerTokenEnvVar || server?.bearer_token_env_var || ""),
-    headerEnvVars: normalizeMcpEnvRefEntries(
-      server?.headerEnvVars
-      ?? server?.header_env_vars
-      ?? server?.headersFromEnv
-      ?? server?.headers_from_env
-    ),
-    includeTools: normalizeMcpFilterList(server?.includeTools ?? server?.include_tools),
-    excludeTools: normalizeMcpFilterList(server?.excludeTools ?? server?.exclude_tools),
-    runtimeWarnings: normalizeMcpRuntimeWarnings(server?.runtimeWarnings || server?.runtime_warnings),
-    timeoutSeconds: Number(server?.timeoutSeconds || server?.timeout_seconds) || 120,
-    connectTimeoutSeconds: Number(server?.connectTimeoutSeconds || server?.connect_timeout_seconds) || 10,
+    bearerTokenEnvVar: normalizeText(server?.bearerTokenEnvVar || ""),
+    headerEnvVars: normalizeMcpEnvRefEntries(server?.headerEnvVars),
+    includeTools: normalizeMcpFilterList(server?.includeTools),
+    excludeTools: normalizeMcpFilterList(server?.excludeTools),
+    runtimeWarnings: normalizeMcpRuntimeWarnings(server?.runtimeWarnings),
+    timeoutSeconds: Number(server?.timeoutSeconds) || 120,
+    connectTimeoutSeconds: Number(server?.connectTimeoutSeconds) || 10,
     status: {
       connected: Boolean(status.connected),
       error: normalizeText(status.error || ""),
-      toolCount: Number(status.toolCount || status.tool_count) || 0,
+      toolCount: Number(status.toolCount) || 0,
       state: normalizeText(status.state || ""),
       failureCount: Math.max(0, Math.round(failureCount)),
-      nextRetryAt: status.nextRetryAt ?? status.next_retry_at ?? null,
-      circuitOpen: Boolean(status.circuitOpen || status.circuit_open),
-      securityWarnings: normalizeMcpSecurityWarnings(status.securityWarnings || status.security_warnings)
+      nextRetryAt: status.nextRetryAt ?? null,
+      circuitOpen: Boolean(status.circuitOpen),
+      securityWarnings: normalizeMcpSecurityWarnings(status.securityWarnings)
     },
     tools: Array.isArray(server?.tools) ? server.tools.map(normalizeMcpToolSummary).filter((tool) => tool.name) : []
   };
 }
 
 function normalizeMcpToolSummary(tool) {
-  const readOnly = Boolean(tool?.readOnly || tool?.read_only);
+  const readOnly = Boolean(tool?.readOnly);
   return {
     name: normalizeText(tool?.name),
-    generatedName: normalizeText(tool?.generatedName || tool?.generated_name),
+    generatedName: normalizeText(tool?.generatedName),
     description: normalizeText(tool?.description),
     readOnly,
     mutating: tool?.mutating === undefined ? !readOnly : Boolean(tool.mutating),
     title: normalizeText(tool?.title || tool?.annotations?.title || ""),
-    destructiveHint: Boolean(tool?.destructiveHint ?? tool?.destructive_hint ?? tool?.annotations?.destructiveHint),
-    idempotentHint: Boolean(tool?.idempotentHint ?? tool?.idempotent_hint ?? tool?.annotations?.idempotentHint),
-    openWorldHint: Boolean(tool?.openWorldHint ?? tool?.open_world_hint ?? tool?.annotations?.openWorldHint),
-    hasOutputSchema: Boolean(tool?.hasOutputSchema || tool?.has_output_schema),
-    securityWarnings: normalizeMcpSecurityWarnings(tool?.securityWarnings || tool?.security_warnings)
+    destructiveHint: Boolean(tool?.destructiveHint ?? tool?.annotations?.destructiveHint),
+    idempotentHint: Boolean(tool?.idempotentHint ?? tool?.annotations?.idempotentHint),
+    openWorldHint: Boolean(tool?.openWorldHint ?? tool?.annotations?.openWorldHint),
+    hasOutputSchema: Boolean(tool?.hasOutputSchema),
+    securityWarnings: normalizeMcpSecurityWarnings(tool?.securityWarnings)
   };
 }
 
@@ -116,7 +111,7 @@ function normalizeMcpEnvRefEntries(raw) {
   if (Array.isArray(raw)) {
     return raw.map((entry) => ({
       name: normalizeText(entry?.name || entry?.key || entry?.header),
-      value: normalizeText(entry?.value || entry?.envVar || entry?.env_var || entry?.variable || entry?.env)
+      value: normalizeText(entry?.value || entry?.envVar || entry?.variable || entry?.env)
     })).filter((entry) => entry.name || entry.value);
   }
   if (raw && typeof raw === "object") {
@@ -923,10 +918,10 @@ async function testMcpServer(id) {
       id,
       success: payload?.success !== false,
       error: normalizeText(payload?.error || ""),
-      toolCount: Number(payload?.toolCount || payload?.tool_count) || 0,
+      toolCount: Number(payload?.toolCount) || 0,
       tools: Array.isArray(payload?.tools) ? payload.tools.map(normalizeMcpToolSummary) : [],
-      runtimeWarnings: normalizeMcpRuntimeWarnings(payload?.runtimeWarnings || payload?.runtime_warnings),
-      securityWarnings: normalizeMcpSecurityWarnings(payload?.securityWarnings || payload?.security_warnings)
+      runtimeWarnings: normalizeMcpRuntimeWarnings(payload?.runtimeWarnings),
+      securityWarnings: normalizeMcpSecurityWarnings(payload?.securityWarnings)
     };
     if (state.mcpTestResult.success === false) {
       setMcpActionError("test", id, state.mcpTestResult.error || "MCP test failed.", "Connection failed");

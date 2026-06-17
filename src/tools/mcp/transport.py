@@ -13,6 +13,16 @@ from urllib.parse import urlsplit
 from app_config.secrets import LOCAL_STATE_DIR
 from tools.mcp.security import sanitize_mcp_error
 
+__all__ = [
+    "cleanup_stdio_process",
+    "latest_protocol_version",
+    "mcp_http_request_hook",
+    "mcp_stderr_log",
+    "read_mcp_stderr_log",
+    "resolve_stdio_command",
+    "resolve_stdio_env",
+    "tracked_stdio_client",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -325,14 +335,3 @@ def latest_protocol_version() -> str:
     except Exception:
         return _DEFAULT_PROTOCOL_VERSION
 
-
-__all__ = [
-    "cleanup_stdio_process",
-    "latest_protocol_version",
-    "mcp_http_request_hook",
-    "mcp_stderr_log",
-    "read_mcp_stderr_log",
-    "resolve_stdio_command",
-    "resolve_stdio_env",
-    "tracked_stdio_client",
-]

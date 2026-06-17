@@ -12,6 +12,11 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+__all__ = [
+    "DEFAULT_SERIALIZED_RAG_TOOLS",
+    "RagToolSerializationMiddleware",
+    "create_rag_tool_serialization_middleware",
+]
 
 DEFAULT_SERIALIZED_RAG_TOOLS = ("query_paper_content",)
 
@@ -107,9 +112,3 @@ def _tool_args(request: Any) -> Any:
 def _text(value: Any) -> str:
     return str(value or "").strip()
 
-
-__all__ = [
-    "DEFAULT_SERIALIZED_RAG_TOOLS",
-    "RagToolSerializationMiddleware",
-    "create_rag_tool_serialization_middleware",
-]

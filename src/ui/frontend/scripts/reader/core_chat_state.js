@@ -15,23 +15,23 @@ function normalizeReaderChatSession(rawSession) {
     id,
     title: normalizeText(rawSession?.title) || "New chat",
     noteId: normalizeText(rawSession?.noteId),
-    originNoteId: normalizeText(rawSession?.originNoteId || metadata.originNoteId || metadata.origin_note_id || rawSession?.noteId),
-    originNoteTitle: normalizeText(rawSession?.originNoteTitle || rawSession?.noteTitle || rawSession?.note_title || metadata.originNoteTitle || metadata.origin_note_title || metadata.noteTitle || metadata.note_title),
-    currentNoteId: normalizeText(rawSession?.currentNoteId || metadata.currentNoteId || metadata.current_note_id),
-    currentNoteTitle: normalizeText(rawSession?.currentNoteTitle || metadata.currentNoteTitle || metadata.current_note_title || rawSession?.noteTitle || rawSession?.note_title || metadata.noteTitle || metadata.note_title),
-    projectId: normalizeText(rawSession?.projectId || rawSession?.project_id || metadata.projectId || metadata.project_id),
-    projectName: normalizeText(rawSession?.projectName || rawSession?.project_name || metadata.projectName || metadata.project_name),
+    originNoteId: normalizeText(rawSession?.originNoteId || metadata.originNoteId || rawSession?.noteId),
+    originNoteTitle: normalizeText(rawSession?.originNoteTitle || rawSession?.noteTitle || metadata.originNoteTitle || metadata.noteTitle),
+    currentNoteId: normalizeText(rawSession?.currentNoteId || metadata.currentNoteId),
+    currentNoteTitle: normalizeText(rawSession?.currentNoteTitle || metadata.currentNoteTitle || rawSession?.noteTitle || metadata.noteTitle),
+    projectId: normalizeText(rawSession?.projectId || metadata.projectId),
+    projectName: normalizeText(rawSession?.projectName || metadata.projectName),
     provider: normalizeProviderName(rawSession?.provider),
     model: normalizeText(rawSession?.model),
-    deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode || metadata.deepseek_think_mode),
-    gptThinkMode: normalizeText(metadata.gptThinkMode || metadata.gpt_think_mode),
+    deepSeekThinkMode: normalizeText(metadata.deepseekThinkMode),
+    gptThinkMode: normalizeText(metadata.gptThinkMode),
     updatedAt: normalizeText(rawSession?.updatedAt || rawSession?.createdAt),
     createdAt: normalizeText(rawSession?.createdAt),
-    archivedAt: normalizeText(rawSession?.archivedAt || metadata.archivedAt || metadata.archived_at),
+    archivedAt: normalizeText(rawSession?.archivedAt || metadata.archivedAt),
     trashedAt: normalizeText(rawSession?.trashedAt),
     lastMessagePreview: normalizeText(rawSession?.lastMessagePreview),
     messageCount: Number(rawSession?.messageCount) || 0,
-    activeRun: normalizeActiveChatRun(rawSession?.activeRun || metadata.activeRun || metadata.active_run),
+    activeRun: normalizeActiveChatRun(rawSession?.activeRun || metadata.activeRun),
     state,
     archived: state === "archived",
     trashed: state === "trashed"
@@ -40,7 +40,7 @@ function normalizeReaderChatSession(rawSession) {
 
 function normalizeActiveChatRun(rawRun) {
   if (!rawRun || typeof rawRun !== "object" || Array.isArray(rawRun)) return null;
-  const requestId = normalizeText(rawRun.requestId || rawRun.request_id);
+  const requestId = normalizeText(rawRun.requestId);
   const status = normalizeText(rawRun.status || "running").toLowerCase();
   if (!requestId || !["pending", "running", "starting"].includes(status)) return null;
   const rawProgress = rawRun.progress && typeof rawRun.progress === "object" ? rawRun.progress : null;
@@ -50,11 +50,11 @@ function normalizeActiveChatRun(rawRun) {
   return {
     requestId,
     status,
-    startedAt: normalizeText(rawRun.startedAt || rawRun.started_at),
-    noteId: normalizeText(rawRun.noteId || rawRun.note_id),
+    startedAt: normalizeText(rawRun.startedAt),
+    noteId: normalizeText(rawRun.noteId),
     provider: normalizeProviderName(rawRun.provider),
     model: normalizeText(rawRun.model),
-    message: normalizeText(rawRun.message || rawRun.latestUserText || rawRun.latest_user_text),
+    message: normalizeText(rawRun.message || rawRun.latestUserText),
     progress
   };
 }

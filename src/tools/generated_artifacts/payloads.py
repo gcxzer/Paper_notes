@@ -6,6 +6,12 @@ from typing import Any
 
 from app_infra.content import content_text
 
+__all__ = [
+    "generated_artifact_success_payload",
+    "latest_assistant_artifacts",
+    "message_artifacts",
+    "with_generated_artifacts_on_latest_assistant",
+]
 
 GENERATED_ARTIFACT_TOOL_NAMES = {"create_file_artifact", "create_image_artifact"}
 
@@ -185,20 +191,3 @@ def message_with_generated_artifact_fallback_content(
 def copy_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [copy.deepcopy(artifact) for artifact in artifacts if isinstance(artifact, dict)]
 
-
-__all__ = [
-    "GENERATED_ARTIFACT_TOOL_NAMES",
-    "artifact_identity",
-    "artifacts_from_payload",
-    "content_text",
-    "copy_artifacts",
-    "generated_artifact_success_payload",
-    "generated_artifact_tool_payload",
-    "generated_artifacts_from_tool_message",
-    "latest_assistant_artifacts",
-    "message_artifacts",
-    "message_with_generated_artifact_fallback_content",
-    "message_with_response_metadata_artifacts",
-    "tool_message_payload",
-    "with_generated_artifacts_on_latest_assistant",
-]

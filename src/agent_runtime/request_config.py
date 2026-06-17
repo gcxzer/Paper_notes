@@ -14,8 +14,16 @@ from app_infra.artifact_generation import (
     truthy_option,
 )
 from model_providers import ModelProviderConfig
-from tools import AgentTool, ToolContext, tool_name
+from tools import AgentTool, ToolContext
 
+__all__ = [
+    "AgentTool",
+    "model_config_for_request",
+    "model_supports_tools",
+    "provider_model_names",
+    "provider_reasoning_enabled",
+    "tool_context_for_request",
+]
 
 def model_config_for_request(
     app_config: AppConfig,
@@ -112,7 +120,7 @@ def model_supports_tools(model: str | BaseChatModel) -> bool:
 def native_web_search_requested(options: dict[str, Any] | None) -> bool:
     if not isinstance(options, dict):
         return False
-    return truthy_option(options.get("_paper_notes_native_web_search", options.get("_paper_notes_provider_native_web_search")))
+    return truthy_option(options.get("_paper_notes_native_web_search"))
 
 
 def file_generation_options(options: dict[str, Any] | None) -> dict[str, Any]:
@@ -193,19 +201,3 @@ def reasoning_option_disabled(value: Any) -> bool:
 def off_text(value: Any) -> bool:
     return str(value or "").strip().lower() in {"0", "false", "none", "off", "disabled", "disable"}
 
-
-__all__ = [
-    "AgentTool",
-    "attachments_from_options",
-    "file_generation_options",
-    "file_generation_requested",
-    "image_generation_options",
-    "image_generation_requested",
-    "model_config_for_request",
-    "model_supports_tools",
-    "native_web_search_requested",
-    "provider_model_names",
-    "provider_reasoning_enabled",
-    "tool_context_for_request",
-    "tool_name",
-]

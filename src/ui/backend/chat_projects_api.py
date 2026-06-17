@@ -153,17 +153,19 @@ def delete_chat_project(body: Any, *, path: str | Path | None = None) -> dict[st
 def update_chat_session_project(body: Any, *, service: Any = None) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise ChatProjectAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
-    session_id = normalize_text(body.get("sessionId") or body.get("session_id") or body.get("id"))
+    session_id = normalize_text(body.get("sessionId"))
     if not session_id:
         raise ChatProjectAPIError(HTTPStatus.BAD_REQUEST, "session_id_required", "Session id is required.")
 
-    project_id = normalize_text(body.get("projectId") or body.get("project_id"))
-    project_name = normalize_text(body.get("projectName") or body.get("project_name"))
+    project_id = normalize_text(body.get("projectId"))
+    project_name = normalize_text(body.get("projectName"))
     agent_service = service or get_agent_service()
     try:
+        current = agent_service.session_store.require_session(session_id)
         metadata = agent_service.session_store.update_session_metadata(
             session_id,
-            _project_metadata(project_id, project_name),
+            _with_project_metadata(current.metadata.metadata, project_id, project_name),
+            replace=True,
         )
     except SessionNotFoundError as error:
         raise ChatProjectAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
@@ -191,7 +193,8 @@ def sync_chat_project_session_metadata(
         next_project_name = "" if clear else normalize_text(project_name)
         agent_service.session_store.update_session_metadata(
             metadata.session_id,
-            _project_metadata(next_project_id, next_project_name),
+            _with_project_metadata(metadata.metadata, next_project_id, next_project_name),
+            replace=True,
         )
         updated += 1
     return {"updatedSessions": updated}
@@ -230,8 +233,8 @@ def _normalize_projects(payload: Any) -> dict[str, Any]:
         projects.append({
             "id": project_id,
             "name": name[:80],
-            "createdAt": normalize_text(raw_project.get("createdAt") or raw_project.get("created_at")),
-            "updatedAt": normalize_text(raw_project.get("updatedAt") or raw_project.get("updated_at")),
+            "createdAt": normalize_text(raw_project.get("createdAt")),
+            "updatedAt": normalize_text(raw_project.get("updatedAt")),
             "order": _project_order(raw_project.get("order"), index),
         })
 
@@ -248,7 +251,7 @@ def _project_order(value: Any, fallback: int) -> int:
 
 
 def _project_id_from_body(body: dict[str, Any]) -> str:
-    project_id = normalize_text(body.get("projectId") or body.get("project_id") or body.get("id"))
+    project_id = normalize_text(body.get("projectId"))
     if not project_id:
         raise ChatProjectAPIError(HTTPStatus.BAD_REQUEST, "project_id_required", "Project id is required.")
     return project_id
@@ -257,15 +260,19 @@ def _project_id_from_body(body: dict[str, Any]) -> str:
 def _project_metadata(project_id: str, project_name: str) -> dict[str, str]:
     return {
         "projectId": project_id,
-        "project_id": project_id,
         "projectName": project_name,
-        "project_name": project_name,
     }
+
+
+def _with_project_metadata(metadata: Any, project_id: str, project_name: str) -> dict[str, Any]:
+    payload = dict(metadata) if isinstance(metadata, dict) else {}
+    payload.update(_project_metadata(project_id, project_name))
+    return payload
 
 
 def _session_project_id(metadata: Any) -> str:
     payload = metadata if isinstance(metadata, dict) else {}
-    return normalize_text(payload.get("projectId") or payload.get("project_id"))
+    return normalize_text(payload.get("projectId"))
 
 
 async def _json_body(request: Request) -> dict[str, Any]:

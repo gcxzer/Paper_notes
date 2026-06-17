@@ -4,10 +4,25 @@ from typing import Any
 
 from app_infra.formatting import normalize_text
 
+__all__ = [
+    "FILE_GENERATION_KEYS",
+    "FILE_GENERATION_MIME_TYPES",
+    "GENERATED_TEXT_MIME_KINDS",
+    "IMAGE_GENERATION_KEYS",
+    "file_generation_mime_type",
+    "file_generation_request_options",
+    "generated_text_artifact_kind",
+    "generation_options",
+    "generation_requested",
+    "image_generation_provider_options",
+    "image_generation_request_options",
+    "request_model_options",
+    "truthy_option",
+]
 
-IMAGE_GENERATION_KEYS = ("_paper_notes_image_generation", "imageGeneration", "image_generation")
-FILE_GENERATION_KEYS = ("_paper_notes_file_generation", "fileGeneration", "file_generation")
-REQUEST_MODEL_OPTION_KEYS = ("requestOptions", "request_options", "modelOptions", "model_options")
+IMAGE_GENERATION_KEYS = ("_paper_notes_image_generation", "imageGeneration")
+FILE_GENERATION_KEYS = ("_paper_notes_file_generation", "fileGeneration")
+REQUEST_MODEL_OPTION_KEYS = ("requestOptions",)
 IMAGE_GENERATION_CONFIG_KEYS = ("size", "quality", "format", "output_format", "outputFormat", "model")
 FILE_GENERATION_FORMATS = {
     "markdown": {"mime_type": "text/markdown", "kind": "text", "extension": ".md"},
@@ -112,23 +127,3 @@ def truthy_option(value: Any) -> bool:
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return False
 
-
-__all__ = [
-    "FILE_GENERATION_KEYS",
-    "FILE_GENERATION_FORMATS",
-    "FILE_GENERATION_MIME_TYPES",
-    "GENERATED_TEXT_MIME_KINDS",
-    "IMAGE_GENERATION_CONFIG_KEYS",
-    "IMAGE_GENERATION_KEYS",
-    "REQUEST_MODEL_OPTION_KEYS",
-    "file_generation_mime_type",
-    "file_generation_request_options",
-    "generated_text_artifact_kind",
-    "generation_options",
-    "generation_requested",
-    "image_generation_provider_options",
-    "image_generation_request_options",
-    "normalize_file_generation_format",
-    "request_model_options",
-    "truthy_option",
-]

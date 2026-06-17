@@ -21,6 +21,26 @@ from tools.paper_notes.impl.common import (
     tool_error,
 )
 
+__all__ = [
+    "NOTE_SECTION_POSITIONS",
+    "added_heading_names",
+    "apply_body_update",
+    "collect_headings",
+    "delete_heading_section",
+    "diff_summary",
+    "format_note_body_html",
+    "image_figure_html",
+    "load_note_html_body",
+    "note_body_match",
+    "note_body_child_indent",
+    "note_html_path",
+    "prepare_note_section_update",
+    "read_note_html_body_document",
+    "resolve_media_source_args",
+    "resolve_note_html_path",
+    "validate_html_document",
+    "write_note_html_body",
+]
 
 _NOTE_BODY_RE = re.compile(
     r"(?is)(<(?P<tag>section|div|main)\b(?=[^>]*\bclass=[\"'][^\"']*\bnote-body\b[^\"']*[\"'])[^>]*>)"
@@ -696,28 +716,3 @@ resolve_media_source_args = _resolve_media_source_args
 validate_html_document = _validate_html_document
 with_surrounding_newlines = _with_surrounding_newlines
 write_note_html_body = _write_note_html_body
-
-__all__ = [
-    "LoadedNoteHtmlBody",
-    "NOTE_SECTION_POSITIONS",
-    "added_heading_names",
-    "apply_body_update",
-    "collect_headings",
-    "delete_heading_section",
-    "diff_summary",
-    "format_note_body_html",
-    "image_figure_html",
-    "load_note_html_body",
-    "note_body_match",
-    "note_body_child_indent",
-    "note_body_container_indent",
-    "note_html_path",
-    "prepare_note_section_update",
-    "read_note_html_body_document",
-    "replace_note_html_body",
-    "resolve_media_source_args",
-    "resolve_note_html_path",
-    "validate_html_document",
-    "with_surrounding_newlines",
-    "write_note_html_body",
-]

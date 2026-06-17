@@ -33,6 +33,8 @@ def test_create_session_writes_index_and_date_bucket_transcript(tmp_path):
     assert indexed["note_id"] == "note-1"
     assert indexed["metadata"]["originNoteId"] == "note-1"
     assert indexed["metadata"]["currentNoteId"] == "note-1"
+    assert "origin_note_id" not in indexed["metadata"]
+    assert "current_note_id" not in indexed["metadata"]
     assert indexed["provider"] == "openai"
     assert indexed["message_count"] == 0
     assert store.transcript_path(session.metadata.session_id).read_text(encoding="utf-8") == ""
@@ -114,6 +116,8 @@ def test_session_metadata_backfills_origin_and_current_note_from_legacy_note_id(
 
     assert metadata.metadata["originNoteId"] == "legacy-note"
     assert metadata.metadata["currentNoteId"] == "legacy-note"
+    assert "origin_note_id" not in metadata.metadata
+    assert "current_note_id" not in metadata.metadata
 
 
 def test_list_sessions_sorts_by_updated_at_and_hides_archived(tmp_path):

@@ -12,6 +12,15 @@ from uuid import uuid4
 from app_config.secrets import LOCAL_STATE_DIR, default_env_paths, default_secrets_path, parse_env_file, write_env_values
 from app_infra.storage import atomic_write_json
 
+__all__ = [
+    "mcp_runtime_config",
+    "mcp_secrets_path",
+    "normalize_mcp_server_config",
+    "normalize_mcp_settings_update",
+    "public_mcp_settings",
+    "read_mcp_settings",
+    "write_mcp_settings",
+]
 
 DEFAULT_MCP_SETTINGS_PATH = LOCAL_STATE_DIR / "mcp-servers.json"
 DEFAULT_TOOL_TIMEOUT_SECONDS = 120
@@ -533,18 +542,3 @@ def _secure_settings_path(path: Path) -> None:
     except OSError:
         pass
 
-
-__all__ = [
-    "DEFAULT_CONNECT_TIMEOUT_SECONDS",
-    "DEFAULT_MCP_SETTINGS_PATH",
-    "DEFAULT_TOOL_TIMEOUT_SECONDS",
-    "mcp_runtime_config",
-    "mcp_secrets_path",
-    "mcp_settings_path",
-    "normalize_mcp_server_config",
-    "normalize_mcp_servers",
-    "normalize_mcp_settings_update",
-    "public_mcp_settings",
-    "read_mcp_settings",
-    "write_mcp_settings",
-]

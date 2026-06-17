@@ -51,6 +51,8 @@ def test_agent_session_routes_manage_sessions(monkeypatch, tmp_path):
     assert loaded["session"]["title"] == "Original"
     assert loaded["session"]["metadata"] == {}
     assert loaded["session"]["messages"][0]["content"] == "Hello"
+    assert "session_id" not in loaded["session"]
+    assert "message_count" not in loaded["session"]
 
     renamed = client.post(f"/api/agent/sessions/{session_id}/rename", json={"title": "Renamed"}).json()
     assert renamed["session"]["title"] == "Renamed"
@@ -137,6 +139,38 @@ def test_agent_session_route_exposes_active_run(monkeypatch, tmp_path):
 
     assert loaded["session"]["activeRun"]["requestId"] == "req-running"
     assert loaded["session"]["activeRun"]["progress"]["detail"] == "Starting agent run."
+
+
+def test_agent_session_metadata_payload_exposes_camel_case_contract():
+    payload = agent_api._metadata_payload({
+        "session_id": "session-camel",
+        "title": "Canonical",
+        "created_at": "2026-05-10T09:30:00+00:00",
+        "updated_at": "2026-05-10T09:31:00+00:00",
+        "date_bucket": "10_05_2026",
+        "note_id": "origin-note",
+        "message_count": "3",
+        "metadata": {
+            "originNoteId": "origin-note",
+            "currentNoteId": "current-note",
+            "originNoteTitle": "Origin title",
+            "currentNoteTitle": "Current title",
+            "projectId": "",
+            "deepseekThinkMode": "off",
+            "activeRun": {"requestId": "req-canonical", "status": "running"},
+        },
+    })
+
+    assert payload["sessionId"] == "session-camel"
+    assert payload["messageCount"] == 3
+    assert payload["originNoteId"] == "origin-note"
+    assert payload["currentNoteId"] == "current-note"
+    assert payload["projectId"] == ""
+    assert payload["deepseekThinkMode"] == "off"
+    assert payload["activeRun"]["requestId"] == "req-canonical"
+    assert payload["metadata"]["originNoteId"] == "origin-note"
+    assert "origin_note_id" not in payload["metadata"]
+    assert "session_id" not in payload
 
 
 def test_agent_session_routes_return_404_for_missing_session(monkeypatch, tmp_path):

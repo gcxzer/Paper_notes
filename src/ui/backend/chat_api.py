@@ -15,7 +15,7 @@ from agent_runtime import AgentService, AgentServiceRequest
 from agent_sessions import SessionNotFoundError
 from media import MediaStore, MediaStoreError
 from ui.backend.agent_api import get_agent_service, _metadata_payload
-from ui.backend.chat_errors import ChatAPIError, chat_error_response as _chat_error_response
+from ui.backend.api_errors import ChatAPIError, chat_error_response as _chat_error_response
 from ui.backend.chat_payloads import (
     bool_value as _bool,
     chat_result_payload,
@@ -141,7 +141,7 @@ def handle_chat_request(
     result.messages = session.messages
     return chat_result_payload(
         result,
-        request_id=_optional_text(body.get("requestId") or body.get("request_id")),
+        request_id=_optional_text(body.get("requestId")),
         session_payload=_metadata_payload(result.session.metadata),
     )
 
@@ -153,12 +153,12 @@ def upload_chat_attachment(
 ) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
-    attachment_data = _optional_text(body.get("data") or body.get("file") or body.get("image") or body.get("base64"))
+    attachment_data = _optional_text(body.get("data"))
     if not attachment_data:
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "attachment_required", "Attachment data is required.")
-    file_name = _optional_text(body.get("fileName") or body.get("file_name") or body.get("name"))
-    mime_type = _optional_text(body.get("mimeType") or body.get("mime_type") or body.get("type"))
-    scope = _optional_text(body.get("sessionId") or body.get("session_id") or body.get("requestId") or body.get("request_id"))
+    file_name = _optional_text(body.get("fileName"))
+    mime_type = _optional_text(body.get("mimeType"))
+    scope = _optional_text(body.get("sessionId") or body.get("requestId"))
     metadata = dict(body.get("metadata")) if isinstance(body.get("metadata"), dict) else {}
     try:
         artifact = (media_store or get_media_store()).create_upload(
@@ -179,7 +179,7 @@ def chat_context_status(
     service: AgentService | None = None,
 ) -> dict[str, Any]:
     agent_service = service or get_agent_service()
-    session_id = _optional_text(_query_value(query, "sessionId", "session_id"))
+    session_id = _optional_text(_query_value(query, "sessionId"))
     if not session_id:
         return {"success": True, "context": _empty_context_payload(query)}
     try:
@@ -187,7 +187,7 @@ def chat_context_status(
             session_id=session_id,
             provider=_optional_text(_query_value(query, "provider")),
             model=_optional_text(_query_value(query, "model")),
-            enable_tools=_bool(_query_value(query, "enableTools", "enable_tools"), default=True),
+            enable_tools=_bool(_query_value(query, "enableTools"), default=True),
         )
         session = agent_service.session_store.require_session(session_id)
     except SessionNotFoundError as error:
@@ -205,7 +205,7 @@ def compact_chat_session(
 ) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
-    session_id = _optional_text(body.get("sessionId") or body.get("session_id"))
+    session_id = _optional_text(body.get("sessionId"))
     if not session_id:
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "session_required", "sessionId is required.")
     agent_service = service or get_agent_service()
@@ -215,9 +215,9 @@ def compact_chat_session(
             focus=_optional_text(body.get("focus")),
             provider=_optional_text(body.get("provider")),
             model=_optional_text(body.get("model")),
-            enable_tools=_bool(body.get("enableTools", body.get("enable_tools")), default=True),
+            enable_tools=_bool(body.get("enableTools"), default=True),
             model_options=_model_options_from_body(body),
-            disabled_tools=tuple(_optional_text_list(body.get("disabledTools") or body.get("disabled_tools"))),
+            disabled_tools=tuple(_optional_text_list(body.get("disabledTools"))),
         )
     except SessionNotFoundError as error:
         raise ChatAPIError(HTTPStatus.NOT_FOUND, "session_not_found", str(error)) from error
@@ -252,7 +252,7 @@ def media_response(artifact_id: str, *, download: bool = False, media_store: Med
 
 
 async def _chat_sse_events(body: Any) -> AsyncIterator[bytes]:
-    request_id = _optional_text(body.get("requestId") or body.get("request_id")) if isinstance(body, dict) else ""
+    request_id = _optional_text(body.get("requestId")) if isinstance(body, dict) else ""
     try:
         body_for_run = _prepare_stream_body(body)
         prepared = _prepare_chat_run(body_for_run, media_store=get_media_store())

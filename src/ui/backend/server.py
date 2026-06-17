@@ -18,6 +18,7 @@ from app_infra.paths import NODE_MODULES_DIR, PUBLIC_DIR, RESOURCES_DIR
 from app_config import load_app_config
 from library import read_annotations, write_annotations
 from ui.backend.agent_api import register_agent_routes
+from ui.backend.api_errors import api_error_response as _api_error
 from ui.backend.chat_api import register_chat_routes
 from ui.backend.chat_projects_api import register_chat_project_routes
 from ui.backend.codex_auth_api import register_codex_auth_routes
@@ -85,20 +86,20 @@ def create_app() -> FastAPI:
     @app.post("/api/open-local-file")
     async def api_open_local_file(request: Request) -> JSONResponse:
         if request.headers.get("X-Paper-Notes-Local-Action") != "open-local-file":
-            return _local_file_error(
+            return _api_error(
                 HTTPStatus.FORBIDDEN,
                 "missing_local_action_header",
                 "Local file open requests require a trusted reader header.",
             )
         body = await _read_json_body(request)
         if not isinstance(body, dict):
-            return _local_file_error(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
+            return _api_error(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
         raw_target = normalize_text(body.get("path") or body.get("href"))
         if not raw_target:
-            return _local_file_error(HTTPStatus.BAD_REQUEST, "path_required", "path is required.")
+            return _api_error(HTTPStatus.BAD_REQUEST, "path_required", "path is required.")
         parsed = urlparse(raw_target)
         if parsed.scheme and parsed.scheme != "file":
-            return _local_file_error(
+            return _api_error(
                 HTTPStatus.BAD_REQUEST,
                 "unsupported_scheme",
                 "Only local filesystem paths can be opened.",
@@ -106,14 +107,14 @@ def create_app() -> FastAPI:
         raw_path = unquote(parsed.path if parsed.scheme == "file" else raw_target)
         target = Path(raw_path).expanduser()
         if not target.is_absolute():
-            return _local_file_error(
+            return _api_error(
                 HTTPStatus.BAD_REQUEST,
                 "absolute_path_required",
                 "Local file links must use an absolute path.",
             )
         target = target.resolve()
         if not target.exists():
-            return _local_file_error(HTTPStatus.NOT_FOUND, "file_not_found", f"File not found: {target}")
+            return _api_error(HTTPStatus.NOT_FOUND, "file_not_found", f"File not found: {target}")
         try:
             if sys.platform == "darwin":
                 subprocess.Popen(["open", str(target)])
@@ -122,7 +123,7 @@ def create_app() -> FastAPI:
             else:
                 subprocess.Popen(["xdg-open", str(target)])
         except OSError as error:
-            return _local_file_error(HTTPStatus.INTERNAL_SERVER_ERROR, "open_failed", str(error))
+            return _api_error(HTTPStatus.INTERNAL_SERVER_ERROR, "open_failed", str(error))
         return JSONResponse({"success": True, "path": str(target)})
 
     app.mount("/resources", StaticFiles(directory=RESOURCES_DIR), name="resources")
@@ -147,17 +148,6 @@ async def _read_json_body(request: Request) -> Any:
         return await request.json()
     except Exception:
         return {}
-
-
-def _local_file_error(status: HTTPStatus, code: str, message: str) -> JSONResponse:
-    return _api_error(status, code, message)
-
-
-def _api_error(status: HTTPStatus, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        {"success": False, "code": code, "error": message},
-        status_code=int(status),
-    )
 
 
 def main() -> None:

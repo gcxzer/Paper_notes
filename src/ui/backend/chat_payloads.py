@@ -15,6 +15,28 @@ from tools.generated_artifacts.payloads import (
     message_artifacts,
 )
 
+__all__ = [
+    "bool_value",
+    "chat_result_payload",
+    "context_payload",
+    "empty_context_payload",
+    "file_generation_options",
+    "image_generation_options",
+    "is_image_artifact",
+    "last_compaction_marker_message",
+    "message_artifacts",
+    "model_options_from_body",
+    "optional_int",
+    "optional_text",
+    "optional_text_list",
+    "public_chat_message",
+    "query_value",
+    "request_message",
+    "request_metadata",
+    "session_title",
+    "user_message_request_metadata",
+    "visible_annotations",
+]
 
 def chat_result_payload(
     result: Any,
@@ -193,14 +215,14 @@ def user_message_request_metadata(body: dict[str, Any]) -> dict[str, Any]:
         existing_generation = metadata.get("generation") if isinstance(metadata.get("generation"), dict) else {}
         metadata["generation"] = {**existing_generation, **generation}
 
-    selected_text_context = body.get("selectedTextContext") or body.get("selected_text_context")
+    selected_text_context = body.get("selectedTextContext")
     if isinstance(selected_text_context, dict):
         metadata.setdefault("selectedTextContext", selected_text_context)
     if not isinstance(metadata.get("selectedTextContext"), dict):
-        selection_text = optional_text(body.get("selectionText") or body.get("selection_text"))
+        selection_text = optional_text(body.get("selectionText"))
         if selection_text:
             context: dict[str, Any] = {"type": "selected_text", "text": selection_text}
-            current_page = optional_text(body.get("currentPage") or body.get("current_page"))
+            current_page = optional_text(body.get("currentPage"))
             if current_page:
                 context["page"] = current_page
             metadata["selectedTextContext"] = context
@@ -224,15 +246,15 @@ def request_message(body: dict[str, Any]) -> str:
 
 def request_metadata(body: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(body.get("metadata")) if isinstance(body.get("metadata"), dict) else {}
-    note_id = optional_text(body.get("noteId") or body.get("note_id"))
-    note_title = optional_text(body.get("noteTitle") or body.get("note_title"))
+    note_id = optional_text(body.get("noteId"))
+    note_title = optional_text(body.get("noteTitle"))
     if note_id:
         metadata.setdefault("originNoteId", note_id)
         metadata.setdefault("currentNoteId", note_id)
     if note_title:
         metadata.setdefault("originNoteTitle", note_title)
         metadata.setdefault("currentNoteTitle", note_title)
-    request_id = optional_text(body.get("requestId") or body.get("request_id"))
+    request_id = optional_text(body.get("requestId"))
     if request_id:
         metadata.setdefault("requestId", request_id)
     return metadata
@@ -261,7 +283,7 @@ def optional_text_list(value: Any) -> list[str]:
 
 
 def session_title(body: dict[str, Any], message: str) -> str:
-    explicit = optional_text(body.get("title") or body.get("sessionTitle") or body.get("session_title"))
+    explicit = optional_text(body.get("title") or body.get("sessionTitle"))
     if explicit:
         return explicit[:80]
     text = normalize_text(message).splitlines()[0] if message else "Attachment chat"
@@ -318,34 +340,3 @@ def public_chat_messages(
 ) -> list[dict[str, Any]]:
     return [message for raw in messages if (message := mapper(raw)) is not None]
 
-
-__all__ = [
-    "bool_value",
-    "chat_result_payload",
-    "compaction_marker_count",
-    "context_payload",
-    "empty_context_payload",
-    "file_generation_options",
-    "has_summary_message",
-    "image_generation_options",
-    "is_compaction_marker",
-    "is_image_artifact",
-    "last_compaction_marker_message",
-    "last_compaction_marker_time",
-    "latest_assistant_artifacts",
-    "message_artifacts",
-    "message_content_text",
-    "model_options_from_body",
-    "optional_int",
-    "optional_text",
-    "optional_text_list",
-    "public_chat_message",
-    "public_chat_messages",
-    "query_value",
-    "request_generation_metadata",
-    "request_message",
-    "request_metadata",
-    "session_title",
-    "user_message_request_metadata",
-    "visible_annotations",
-]

@@ -15,6 +15,11 @@ from model_providers.providers.codex.response_common import (
     normalize_phase as _normalize_phase,
 )
 
+__all__ = [
+    "message_from_responses_response",
+    "provider_trace",
+    "response_message_text",
+]
 
 def _message_from_responses_response(response: Any, *, options: dict[str, Any], model: str) -> AIMessage:
     content, tool_calls, info = _parse_responses_response(response, options=options, model=model)
@@ -236,10 +241,3 @@ provider_trace = _provider_trace
 response_message_text = _response_message_text
 tool_call_from_response_item = _tool_call_from_response_item
 
-
-__all__ = [
-    "message_from_responses_response",
-    "provider_trace",
-    "response_message_text",
-    "tool_call_from_response_item",
-]

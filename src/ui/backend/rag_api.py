@@ -87,8 +87,8 @@ def register_rag_routes(app: FastAPI) -> None:
         )
 
     @app.get("/api/rag/index/jobs")
-    async def api_rag_index_jobs(noteId: str = "", note_id: str = "") -> JSONResponse:
-        note_id_value = _text(noteId or note_id)
+    async def api_rag_index_jobs(noteId: str = "") -> JSONResponse:
+        note_id_value = _text(noteId)
         if note_id_value:
             job = _latest_rag_job_for_note(note_id_value)
             return JSONResponse({"success": True, "job": _rag_job_summary(job) if job else None})
@@ -127,21 +127,21 @@ def _build_rag_index(
 ) -> dict[str, Any]:
     build_config = load_app_config().rag.build
     return get_rag_service().build_index(
-        note_id=_text(_first(body, "noteId", "note_id")),
-        pdf_path=_first(body, "pdfPath", "pdf_path"),
-        index_key=_text(_first(body, "indexKey", "index_key")),
+        note_id=_text(_first(body, "noteId")),
+        pdf_path=_first(body, "pdfPath"),
+        index_key=_text(_first(body, "indexKey")),
         loader=_optional_text(_first(body, "loader")),
-        include_images=_optional_bool(_first(body, "includeImages", "include_images")),
+        include_images=_optional_bool(_first(body, "includeImages")),
         rebuild=_bool(_first(body, "rebuild")),
-        build_qdrant=_optional_bool(_first(body, "buildQdrant", "build_qdrant"), default=build_config.qdrant),
-        build_bm25=_optional_bool(_first(body, "buildBm25", "build_bm25"), default=build_config.bm25),
-        embedding_provider=_optional_text(_first(body, "embeddingProvider", "embedding_provider")),
-        embedding_model=_optional_text(_first(body, "embeddingModel", "embedding_model")),
-        caption_images=_optional_bool(_first(body, "captionImages", "caption_images", "imageCaptioningEnabled")),
-        caption_provider=_optional_text(_first(body, "captionProvider", "caption_provider")),
-        caption_model=_optional_text(_first(body, "captionModel", "caption_model")),
-        caption_prompt=_optional_text(_first(body, "captionPrompt", "caption_prompt")),
-        caption_max_images=_optional_int(_first(body, "captionMaxImages", "caption_max_images")),
+        build_qdrant=_optional_bool(_first(body, "buildQdrant"), default=build_config.qdrant),
+        build_bm25=_optional_bool(_first(body, "buildBm25"), default=build_config.bm25),
+        embedding_provider=_optional_text(_first(body, "embeddingProvider")),
+        embedding_model=_optional_text(_first(body, "embeddingModel")),
+        caption_images=_optional_bool(_first(body, "captionImages", "imageCaptioningEnabled")),
+        caption_provider=_optional_text(_first(body, "captionProvider")),
+        caption_model=_optional_text(_first(body, "captionModel")),
+        caption_prompt=_optional_text(_first(body, "captionPrompt")),
+        caption_max_images=_optional_int(_first(body, "captionMaxImages")),
         progress_callback=progress_callback,
     )
 
@@ -159,8 +159,8 @@ async def _rag_job_sse_events(job: _RagIndexJob, *, after_seq: int = 0) -> Async
 
 
 def _start_or_get_rag_index_job(body: dict[str, Any]) -> _RagIndexJob:
-    request_id = _text(_first(body, "requestId", "request_id")) or f"rag-{uuid4().hex}"
-    note_id = _text(_first(body, "noteId", "note_id"))
+    request_id = _text(_first(body, "requestId")) or f"rag-{uuid4().hex}"
+    note_id = _text(_first(body, "noteId"))
 
     with _RAG_INDEX_JOBS_LOCK:
         existing = _latest_rag_job_for_note_locked(note_id)

@@ -59,12 +59,8 @@ def update_ai_settings(body: Any, *, secrets_path: str | Path | None = None) -> 
     settings = save_local_ai_settings(
         provider=_optional_text(body.get("provider")) if "provider" in body else None,
         model=_optional_text(body.get("model")) if "model" in body else None,
-        api_key=_optional_text(body.get("apiKey", body.get("api_key"))) if (
-            "apiKey" in body or "api_key" in body
-        ) else None,
-        api_key_provider=_optional_text(body.get("apiKeyProvider", body.get("api_key_provider"))) if (
-            "apiKeyProvider" in body or "api_key_provider" in body
-        ) else None,
+        api_key=_optional_text(body.get("apiKey")) if "apiKey" in body else None,
+        api_key_provider=_optional_text(body.get("apiKeyProvider")) if "apiKeyProvider" in body else None,
         secrets_path=secrets_path,
         codex_auth=get_codex_auth_status(),
     )

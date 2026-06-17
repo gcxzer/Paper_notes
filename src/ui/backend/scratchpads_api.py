@@ -45,13 +45,13 @@ def normalize_scratchpads(payload: Any) -> dict[str, Any]:
         pads.append({
             "id": pad_id,
             "title": title,
-            "customTitle": bool(raw_pad.get("customTitle", raw_pad.get("custom_title", False))),
+            "customTitle": bool(raw_pad.get("customTitle", False)),
             "content": str(raw_pad.get("content") or ""),
-            "updatedAt": normalize_text(raw_pad.get("updatedAt", raw_pad.get("updated_at"))),
-            "createdAt": normalize_text(raw_pad.get("createdAt", raw_pad.get("created_at"))),
+            "updatedAt": normalize_text(raw_pad.get("updatedAt")),
+            "createdAt": normalize_text(raw_pad.get("createdAt")),
         })
 
-    active_id = normalize_text(raw.get("activeId", raw.get("active_id")))
+    active_id = normalize_text(raw.get("activeId"))
     if active_id not in seen:
         active_id = pads[0]["id"] if pads else ""
     return {"activeId": active_id, "pads": pads}

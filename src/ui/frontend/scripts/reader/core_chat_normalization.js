@@ -69,46 +69,44 @@ function normalizeApiChatMessages(rawMessages) {
 
 function normalizeContextStatus(payload) {
   const raw = payload?.context && typeof payload.context === "object" ? payload.context : (payload || {});
-  const contextLength = Math.max(0, Math.round(Number(raw.contextLength || raw.contextWindow || raw.context_length || raw.context_window) || 0));
+  const contextLength = Math.max(0, Math.round(Number(raw.contextLength || raw.contextWindow) || 0));
   const tokensUsed = Math.max(0, Math.round(Number(
     raw.tokensUsed
     || raw.estimatedTokens
     || raw.requestTokens
     || raw.estimatedRequestTokens
-    || raw.tokens_used
-    || raw.estimated_tokens
   ) || 0));
-  const estimatedRequestTokens = Math.max(0, Math.round(Number(raw.estimatedRequestTokens || raw.estimated_request_tokens || tokensUsed) || 0));
-  const percentFullRaw = raw.percentFull ?? raw.percent_full ?? (contextLength ? Math.round((tokensUsed / contextLength) * 100) : 0);
-  const thresholdTokens = Math.max(0, Math.round(Number(raw.thresholdTokens || raw.compactionTriggerTokens || raw.threshold_tokens || raw.compaction_trigger_tokens) || 0));
-  const thresholdPercentRaw = raw.thresholdPercent ?? raw.threshold_percent ?? (contextLength && thresholdTokens ? Math.round((thresholdTokens / contextLength) * 100) : 0);
-  const compressionCount = Math.max(0, Math.round(Number(raw.compressionCount || raw.compression_count) || 0));
+  const estimatedRequestTokens = Math.max(0, Math.round(Number(raw.estimatedRequestTokens || tokensUsed) || 0));
+  const percentFullRaw = raw.percentFull ?? (contextLength ? Math.round((tokensUsed / contextLength) * 100) : 0);
+  const thresholdTokens = Math.max(0, Math.round(Number(raw.thresholdTokens || raw.compactionTriggerTokens) || 0));
+  const thresholdPercentRaw = raw.thresholdPercent ?? (contextLength && thresholdTokens ? Math.round((thresholdTokens / contextLength) * 100) : 0);
+  const compressionCount = Math.max(0, Math.round(Number(raw.compressionCount) || 0));
   return {
-    sessionId: normalizeText(raw.sessionId || raw.session_id),
+    sessionId: normalizeText(raw.sessionId),
     provider: normalizeProviderName(raw.provider) || currentReaderProvider(),
     model: normalizeText(raw.model) || currentReaderModel(),
     contextLength,
     tokensUsed,
     estimatedRequestTokens,
-    actualInputTokens: Math.max(0, Math.round(Number(raw.actualInputTokens || raw.actual_input_tokens) || 0)),
+    actualInputTokens: Math.max(0, Math.round(Number(raw.actualInputTokens) || 0)),
     estimatedPercent: Math.min(100, Math.max(0, Math.round(Number(percentFullRaw) || 0))),
-    actualUsageAvailable: Boolean(raw.actualUsageAvailable ?? raw.actual_usage_available),
-    usageUpdatedAt: normalizeText(raw.usageUpdatedAt || raw.usage_updated_at),
-    usageRequestId: normalizeText(raw.usageRequestId || raw.usage_request_id),
-    messageTokens: Math.max(0, Math.round(Number(raw.messageTokens || raw.message_tokens) || 0)),
-    instructionTokens: Math.max(0, Math.round(Number(raw.instructionTokens || raw.instruction_tokens) || 0)),
-    toolSchemaTokens: Math.max(0, Math.round(Number(raw.toolSchemaTokens || raw.toolTokens || raw.tool_schema_tokens || raw.tool_tokens) || 0)),
+    actualUsageAvailable: Boolean(raw.actualUsageAvailable),
+    usageUpdatedAt: normalizeText(raw.usageUpdatedAt),
+    usageRequestId: normalizeText(raw.usageRequestId),
+    messageTokens: Math.max(0, Math.round(Number(raw.messageTokens) || 0)),
+    instructionTokens: Math.max(0, Math.round(Number(raw.instructionTokens) || 0)),
+    toolSchemaTokens: Math.max(0, Math.round(Number(raw.toolSchemaTokens || raw.toolTokens) || 0)),
     thresholdTokens,
     percentFull: Math.min(100, Math.max(0, Math.round(Number(percentFullRaw) || 0))),
     thresholdPercent: Math.min(100, Math.max(0, Math.round(Number(thresholdPercentRaw) || 0))),
-    messageCount: Math.max(0, Math.round(Number(raw.messageCount || raw.message_count) || 0)),
-    compactionEnabled: Boolean(raw.compactionEnabled ?? raw.compaction_enabled),
-    compactionReady: Boolean(raw.compactionReady ?? raw.compaction_ready),
+    messageCount: Math.max(0, Math.round(Number(raw.messageCount) || 0)),
+    compactionEnabled: Boolean(raw.compactionEnabled),
+    compactionReady: Boolean(raw.compactionReady),
     compressionCount,
-    lastCompressedAt: normalizeText(raw.lastCompressedAt || raw.last_compressed_at),
-    summaryAvailable: Boolean(raw.summaryAvailable ?? raw.summary_available ?? compressionCount),
-    lastCompressionError: normalizeText(raw.lastCompressionError || raw.last_compression_error),
-    fallbackUsed: Boolean(raw.fallbackUsed ?? raw.fallback_used)
+    lastCompressedAt: normalizeText(raw.lastCompressedAt),
+    summaryAvailable: Boolean(raw.summaryAvailable ?? compressionCount),
+    lastCompressionError: normalizeText(raw.lastCompressionError),
+    fallbackUsed: Boolean(raw.fallbackUsed)
   };
 }
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+__all__ = [
+    "normalize_mcp_input_schema",
+]
 
 def normalize_mcp_input_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(schema, dict) or not schema:
@@ -71,5 +74,3 @@ def normalize_mcp_input_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
         normalized["properties"] = {}
     return normalized
 
-
-__all__ = ["normalize_mcp_input_schema"]

@@ -15,12 +15,29 @@ from agent_runtime.messages import (
 )
 from agent_runtime.streaming import AgentStreamEvent, provider_reasoning_event_from_message
 
+__all__ = [
+    "context_compaction_trace_event",
+    "is_provider_reasoning_stream_event",
+    "isoformat_utc",
+    "model_response_trace_events",
+    "new_messages_for_current_run",
+    "now_utc",
+    "finish_active_run",
+    "persist_active_run",
+    "run_trace_event_from_stream_event",
+    "run_trace_has_equivalent_event",
+    "run_trace_payload",
+    "stamp_stream_event",
+    "update_active_run_progress",
+    "with_assistant_run_trace",
+    "work_trace_events_from_messages",
+]
 
 ACTIVE_RUN_METADATA_KEY = "activeRun"
 
 
 def request_id(request: Any) -> str:
-    return str(request.metadata.get("requestId") or request.metadata.get("request_id") or "").strip()
+    return str(request.metadata.get("requestId") or "").strip()
 
 
 def active_run_metadata(
@@ -54,7 +71,7 @@ def active_run_for_request(session: Any | None, current_request_id: str) -> dict
     active_run = metadata.get(ACTIVE_RUN_METADATA_KEY)
     if not isinstance(active_run, dict):
         return {}
-    if str(active_run.get("requestId") or active_run.get("request_id") or "").strip() != current_request_id:
+    if str(active_run.get("requestId") or "").strip() != current_request_id:
         return {}
     return active_run
 
@@ -115,7 +132,7 @@ def run_trace_event_work_item_complete(event: dict[str, Any]) -> bool:
 def is_provider_reasoning_stream_event(event: AgentStreamEvent) -> bool:
     if event.event not in {"work_trace_item", "work_trace_delta"}:
         return False
-    trace_type = str(event.data.get("traceType") or event.data.get("trace_type") or "").strip()
+    trace_type = str(event.data.get("traceType") or "").strip()
     if trace_type not in {"reasoning", "summary"}:
         return False
     data = event.data.get("data") if isinstance(event.data.get("data"), dict) else {}
@@ -150,7 +167,7 @@ def run_trace_event_from_stream_event(event: AgentStreamEvent) -> dict[str, Any]
         return None
     return {
         "type": event.event,
-        "stage": str(data.get("traceType") or data.get("trace_type") or "").strip(),
+        "stage": str(data.get("traceType") or "").strip(),
         "message": message,
         "at": str(data.get("at") or "").strip(),
         "data": json_safe(data),
@@ -188,8 +205,8 @@ def model_response_trace_events(messages: list[BaseMessage], *, at: datetime) ->
         web_search_data = web_search_trace_data_from_message(message)
         if not web_search_data:
             continue
-        call_count = int(web_search_data.get("web_search_call_count") or 0)
-        source_count = int(web_search_data.get("web_search_source_count") or 0)
+        call_count = int(web_search_data.get("webSearchCallCount") or 0)
+        source_count = int(web_search_data.get("webSearchSourceCount") or 0)
         source_text = (
             f" and {source_count} source{'s' if source_count != 1 else ''}"
             if source_count
@@ -227,11 +244,11 @@ def web_search_trace_data_from_message(message: AIMessage) -> dict[str, Any]:
             collect_web_search_trace_from_block(item, calls=calls, sources=sources, queries=queries, seen_urls=seen_urls)
     if not calls:
         return {}
-    data: dict[str, Any] = {"web_search_call_count": len(calls)}
+    data: dict[str, Any] = {"webSearchCallCount": len(calls)}
     if sources:
-        data["web_search_source_count"] = len(sources)
+        data["webSearchSourceCount"] = len(sources)
     if queries:
-        data["web_search_queries"] = queries[:6]
+        data["webSearchQueries"] = queries[:6]
     return data
 
 
@@ -366,7 +383,7 @@ def work_trace_events_from_messages(
                 continue
             events.append(AgentStreamEvent("work_trace_item", {
                 "text": text,
-                "traceType": str(item.get("traceType") or item.get("trace_type") or "summary"),
+                "traceType": str(item.get("traceType") or "summary"),
                 "source": str(item.get("source") or "codex"),
                 "data": json_safe(item.get("data") if isinstance(item.get("data"), dict) else item),
             }))
@@ -519,26 +536,3 @@ def context_compaction_trace_event(
         },
     }
 
-
-__all__ = [
-    "ACTIVE_RUN_METADATA_KEY",
-    "active_run_for_request",
-    "active_run_metadata",
-    "active_run_progress_payload",
-    "context_compaction_trace_event",
-    "is_provider_reasoning_stream_event",
-    "isoformat_utc",
-    "model_response_trace_events",
-    "new_messages_for_current_run",
-    "now_utc",
-    "finish_active_run",
-    "persist_active_run",
-    "request_id",
-    "run_trace_event_from_stream_event",
-    "run_trace_has_equivalent_event",
-    "run_trace_payload",
-    "stamp_stream_event",
-    "update_active_run_progress",
-    "with_assistant_run_trace",
-    "work_trace_events_from_messages",
-]

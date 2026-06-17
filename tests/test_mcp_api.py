@@ -321,6 +321,6 @@ def test_mcp_ops_endpoints_delegate_to_manager(monkeypatch):
         "max": max_chars,
     })
 
-    assert mcp_api.reset_mcp_server_circuit({"id": "filesystem"}, service=FakeService())["status"]["circuitOpen"] is False
+    assert mcp_api.reset_mcp_server_circuit({"serverId": "filesystem"}, service=FakeService())["status"]["circuitOpen"] is False
     assert mcp_api.get_mcp_stderr_log(max_chars=1234)["log"] == "stderr tail"
     assert calls == [("reset", "filesystem")]

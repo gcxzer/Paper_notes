@@ -14,6 +14,18 @@ from app_infra.formatting import normalize_text
 from app_infra.paths import PROJECT_ROOT, is_relative_to
 from library.store import find_note, read_library
 
+__all__ = [
+    "positive_float",
+    "positive_int",
+    "relative_project_path",
+    "resolve_note",
+    "safe_served_src",
+    "safe_src",
+    "sanitize_html_fragment",
+    "tool_error",
+    "truthy",
+]
+
 SAFE_HTML_TAGS = {
     "a",
     "blockquote",
@@ -318,5 +330,3 @@ def _has_control_chars(value: str) -> bool:
     return any(ord(char) < 32 or ord(char) == 127 for char in value)
 
 
-
-__all__ = [name for name in globals() if not name.startswith("__")]

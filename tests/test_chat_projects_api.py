@@ -89,8 +89,10 @@ def test_update_chat_session_project_updates_session_metadata(tmp_path):
 
     assert updated["session"]["projectId"] == "project-rag"
     assert updated["session"]["projectName"] == "RAG Review"
+    assert set(updated["session"]["metadata"]) == {"projectId", "projectName"}
     assert cleared["session"]["projectId"] == ""
     assert cleared["session"]["projectName"] == ""
+    assert set(cleared["session"]["metadata"]) == {"projectId", "projectName"}
 
 
 def test_sync_chat_project_session_metadata_renames_and_clears_assignments(tmp_path):

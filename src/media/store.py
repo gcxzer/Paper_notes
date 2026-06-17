@@ -26,11 +26,15 @@ from media.image import (
     sniff_image_mime,
 )
 from media.types import ImageArtifact
-from app_infra.artifact_generation import GENERATED_TEXT_MIME_KINDS, generated_text_artifact_kind
+from app_infra.artifact_generation import generated_text_artifact_kind
 from app_infra.formatting import normalize_text
 from app_infra.paths import LOCAL_STATE_DIR, PROJECT_ROOT, is_relative_to
 from app_infra.storage import atomic_write_json
 
+__all__ = [
+    "MediaStore",
+    "MediaStoreError",
+]
 
 class MediaStoreError(ValueError):
     pass
@@ -635,10 +639,3 @@ def _path_size(path: Path) -> int:
     except OSError:
         return 0
 
-
-__all__ = [
-    "DEFAULT_MAX_ATTACHMENT_BYTES",
-    "GENERATED_TEXT_MIME_KINDS",
-    "MediaStore",
-    "MediaStoreError",
-]

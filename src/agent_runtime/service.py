@@ -86,6 +86,11 @@ from tools.generated_artifacts.payloads import (
     with_generated_artifacts_on_latest_assistant,
 )
 
+__all__ = [
+    "ATTACHMENT_ONLY_MESSAGE",
+    "AgentService",
+    "AgentServiceRequest",
+]
 
 @dataclass(slots=True)
 class AgentServiceRequest:
@@ -769,12 +774,3 @@ def _context_compaction_marker_message(*, focus: str | None = None, warning: str
     }
 
 
-
-__all__ = [
-    "ATTACHMENT_ONLY_MESSAGE",
-    "AgentCompactResult",
-    "AgentContextStatus",
-    "AgentService",
-    "AgentServiceRequest",
-    "AgentServiceResult",
-]

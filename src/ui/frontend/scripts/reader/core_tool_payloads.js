@@ -13,19 +13,17 @@ function normalizeToolActivity(rawItems) {
     return {
       name: normalizeText(raw.name) || "tool",
       sessionId: normalizeText(raw.sessionId),
-      noteId: normalizeText(raw.noteId || raw.note_id),
+      noteId: normalizeText(raw.noteId),
       snapshotId: normalizeText(raw.snapshotId),
       heading: normalizeText(raw.heading),
       position: normalizeText(raw.position),
-      addedHeadings: (Array.isArray(raw.addedHeadings)
-        ? raw.addedHeadings
-        : Array.isArray(raw.added_headings) ? raw.added_headings : [])
+      addedHeadings: (Array.isArray(raw.addedHeadings) ? raw.addedHeadings : [])
         .map(normalizeText)
         .filter(Boolean),
       undoable: Boolean(raw.undoable),
-      writeMode: normalizeWriteToolMode(raw.writeMode || raw.write_mode),
+      writeMode: normalizeWriteToolMode(raw.writeMode),
       message: normalizeText(raw.message),
-      toolMessage: normalizeText(raw.toolMessage || raw.tool_message),
+      toolMessage: normalizeText(raw.toolMessage),
       summary: normalizeText(raw.summary),
       changed: raw.changed !== false,
       changedFiles
@@ -80,7 +78,7 @@ function normalizeToolSettings(payload) {
   const enabledToolsets = Array.isArray(payload?.enabledToolsets)
     ? payload.enabledToolsets.map(normalizeText).filter(Boolean)
     : customTools.filter((tool) => tool.enabled).map((tool) => tool.name);
-  const webSearchProviders = normalizeReaderWebSearchProviders(payload?.webSearchProviders || payload?.web_search_providers);
+  const webSearchProviders = normalizeReaderWebSearchProviders(payload?.webSearchProviders);
   const toolWriteModes = {};
   const rawWriteModes = payload?.toolWriteModes && typeof payload.toolWriteModes === "object"
     ? payload.toolWriteModes
@@ -107,17 +105,17 @@ function normalizeToolSettings(payload) {
 
 function normalizeReaderWebSearchProviders(raw) {
   const providers = raw && typeof raw === "object" ? raw : {};
-  const nativeRaw = providers.native_provider || providers.nativeProvider || {};
-  const customRaw = providers.custom_provider || providers.customProvider || {};
+  const nativeRaw = providers.nativeProvider || {};
+  const customRaw = providers.customProvider || {};
   const enabledEntry = (value) => ({
     enabled: Boolean(value && typeof value === "object" && value.enabled)
   });
   return {
-    native_provider: {
-      openaiCodex: enabledEntry(nativeRaw.openaiCodex || nativeRaw.openai_codex),
-      openaiAPIKey: enabledEntry(nativeRaw.openaiAPIKey || nativeRaw.openai_api_key),
+    nativeProvider: {
+      openaiCodex: enabledEntry(nativeRaw.openaiCodex),
+      openaiAPIKey: enabledEntry(nativeRaw.openaiAPIKey),
     },
-    custom_provider: {
+    customProvider: {
       Tavily: enabledEntry(customRaw.Tavily || customRaw.tavily),
       Brave: enabledEntry(customRaw.Brave || customRaw.brave || customRaw.braveSearch),
     }
@@ -149,7 +147,7 @@ function readerNativeWebSearchEnabledForCurrentProvider(settings) {
   if (!capabilities.supportsWebSearch) {
     return false;
   }
-  const native = settings?.webSearchProviders?.native_provider || {};
+  const native = settings?.webSearchProviders?.nativeProvider || {};
   const customSearchEnabled = readerCustomWebSearchEnabled(settings);
   if (provider === "codex-oauth") {
     return Boolean(native.openaiCodex?.enabled || settings?.nativeWebSearchEnabled);
@@ -161,7 +159,7 @@ function readerNativeWebSearchEnabledForCurrentProvider(settings) {
 }
 
 function readerCustomWebSearchEnabled(settings) {
-  const custom = settings?.webSearchProviders?.custom_provider || {};
+  const custom = settings?.webSearchProviders?.customProvider || {};
   return Boolean(custom.Tavily?.enabled || custom.Brave?.enabled);
 }
 
@@ -184,14 +182,14 @@ function normalizeGenerationRequest(raw) {
   if (normalizedType === "image") {
     return { type: "image", format: "image" };
   }
-  const fileGeneration = raw.fileGeneration || raw.file_generation;
+  const fileGeneration = raw.fileGeneration;
   if (fileGeneration?.enabled) {
     return {
       type: "file",
       format: normalizeFileGenerationFormat(fileGeneration.format)
     };
   }
-  const imageGeneration = raw.imageGeneration || raw.image_generation;
+  const imageGeneration = raw.imageGeneration;
   if (imageGeneration?.enabled) {
     return { type: "image", format: "image" };
   }
@@ -237,13 +235,13 @@ function generationRequestLabel(generation, attachments = []) {
 
 function normalizeSelectedTextContext(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const text = normalizeText(raw.text || raw.selectionText || raw.selection_text).slice(0, 4000);
+  const text = normalizeText(raw.text || raw.selectionText).slice(0, 4000);
   if (!text) return null;
   const words = text.split(/\s+/).filter(Boolean).length;
   return {
     type: "selected_text",
     text,
-    page: normalizeText(raw.page || raw.currentPage || raw.current_page),
-    wordCount: Number(raw.wordCount || raw.word_count || words || 0) || 0
+    page: normalizeText(raw.page || raw.currentPage),
+    wordCount: Number(raw.wordCount || words || 0) || 0
   };
 }

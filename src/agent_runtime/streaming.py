@@ -94,7 +94,7 @@ def _events_from_custom_chunk(chunk: Any) -> list[AgentStreamEvent]:
         event = "work_trace_delta" if data.get("delta") else "work_trace_item"
         return [AgentStreamEvent(event, {
             "delta" if event == "work_trace_delta" else "text": text,
-            "traceType": str(data.get("traceType") or data.get("trace_type") or data.get("type") or "status"),
+            "traceType": str(data.get("traceType") or data.get("type") or "status"),
             "source": str(data.get("source") or "langchain"),
             "data": _json_safe(data),
         })]
@@ -228,7 +228,7 @@ def _trace_event_from_payload(payload: dict[str, Any]) -> AgentStreamEvent | Non
         return None
     event_data = {
         "delta" if is_delta else "text": text,
-        "traceType": str(payload.get("traceType") or payload.get("trace_type") or payload.get("type") or "summary"),
+        "traceType": str(payload.get("traceType") or payload.get("type") or "summary"),
         "source": str(payload.get("source") or "provider"),
         "data": _json_safe(payload.get("data") if isinstance(payload.get("data"), dict) else payload),
     }

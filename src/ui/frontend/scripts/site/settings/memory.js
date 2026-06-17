@@ -16,7 +16,7 @@ function normalizeMemorySettings(payload) {
   const user = typeof payload?.user === "string" ? payload.user : userFile.content;
   return {
     success: payload?.success !== false,
-    memoryDir: normalizeText(payload?.memoryDir || payload?.memory_dir || ".paper-notes/memory"),
+    memoryDir: normalizeText(payload?.memoryDir || ".paper-notes/memory"),
     system,
     user,
     files: {

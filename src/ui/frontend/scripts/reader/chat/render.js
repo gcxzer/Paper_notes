@@ -163,17 +163,14 @@ function chatPayloadWritesHtmlNote(payload) {
 }
 
 function workTraceItemWritesHtmlNote(item) {
-  const type = normalizeText(item?.type || item?.traceType || item?.trace_type || item?.stage);
+  const type = normalizeText(item?.type || item?.traceType || item?.stage);
   if (type && type !== "tool" && !type.includes("tool")) return false;
   const data = item?.data && typeof item.data === "object" ? item.data : {};
   const nested = data.data && typeof data.data === "object" ? data.data : {};
   const toolName = normalizeText(
     item?.toolName
-    || item?.tool_name
     || data.toolName
-    || data.tool_name
     || nested.toolName
-    || nested.tool_name
     || item?.name
   );
   if (!["write_note", "write_note_media"].includes(toolName)) return false;
@@ -433,7 +430,7 @@ function normalizeToolActivityViewTarget(target) {
       .map(normalizeText)
       .filter(Boolean);
     return {
-      noteId: normalizeText(target.noteId || target.note_id),
+      noteId: normalizeText(target.noteId),
       heading: normalizeText(target.heading),
       position: normalizeText(target.position),
       addedHeadings

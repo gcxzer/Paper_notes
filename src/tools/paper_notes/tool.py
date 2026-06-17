@@ -16,6 +16,9 @@ from tools.paper_notes.schemas import (
     write_note_parameters,
 )
 
+__all__ = [
+    "create_tools",
+]
 
 def create_tools(
     *,
@@ -139,5 +142,3 @@ def create_tools(
         )
     return tools
 
-
-__all__ = ["create_tools"]

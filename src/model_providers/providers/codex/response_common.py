@@ -5,6 +5,18 @@ from typing import Any
 
 from app_infra.artifact_generation import image_generation_provider_options
 
+__all__ = [
+    "CODEX_PROVIDER_NAME",
+    "combine_instructions",
+    "content_text",
+    "first_int",
+    "get_attr",
+    "image_generation_options",
+    "json_safe",
+    "merge_include",
+    "normalize_phase",
+    "set_attr",
+]
 
 CODEX_PROVIDER_NAME = "codex-oauth"
 
@@ -98,16 +110,3 @@ def json_safe(value: Any) -> Any:
             return json_safe(model_dump())
     return str(getattr(value, "value", value))
 
-
-__all__ = [
-    "CODEX_PROVIDER_NAME",
-    "combine_instructions",
-    "content_text",
-    "first_int",
-    "get_attr",
-    "image_generation_options",
-    "json_safe",
-    "merge_include",
-    "normalize_phase",
-    "set_attr",
-]

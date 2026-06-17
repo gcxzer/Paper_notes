@@ -10,6 +10,14 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from agent_runtime.messages import last_assistant_text, messages_from_final_chunk
 from app_config import AppConfig
 
+__all__ = [
+    "is_recoverable_model_request_error",
+    "messages_with_recovery_instruction",
+    "model_config_for_recovery",
+    "recovered_final_messages",
+    "run_agent_loop_with_recovery",
+    "short_exception_text",
+]
 
 RECOVERY_MESSAGE_NAME = "paper_notes_recovery"
 RECOVERABLE_REQUEST_OPTION_KEYS = {
@@ -17,7 +25,6 @@ RECOVERABLE_REQUEST_OPTION_KEYS = {
     "imageGeneration",
     "image_generation",
     "_paper_notes_native_web_search",
-    "_paper_notes_provider_native_web_search",
     "native_web_search",
     "web_search",
     "temperature",
@@ -231,19 +238,3 @@ def short_exception_text(error: BaseException, *, limit: int = 500) -> str:
 def exception_text(error: BaseException) -> str:
     return " ".join(str(error or "").split())
 
-
-__all__ = [
-    "RECOVERABLE_REQUEST_OPTION_KEYS",
-    "RECOVERY_MESSAGE_NAME",
-    "exception_text",
-    "generic_recovery_response",
-    "is_recoverable_model_request_error",
-    "mark_latest_assistant_recovered",
-    "messages_with_recovery_instruction",
-    "model_config_for_recovery",
-    "model_request_recovery_instruction",
-    "recovered_final_messages",
-    "run_agent_loop_with_recovery",
-    "short_exception_text",
-    "without_recovery_messages",
-]

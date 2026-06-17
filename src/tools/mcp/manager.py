@@ -23,7 +23,7 @@ from tools.mcp.errors import (
     mcp_error_payload as _mcp_error_payload,
 )
 from tools.mcp.manifest import TOOLSET
-from tools.mcp.names import mcp_tool_name, sanitize_mcp_name_component
+from tools.mcp.names import mcp_tool_name
 from tools.mcp.schema import normalize_mcp_input_schema as _normalize_mcp_input_schema
 from tools.mcp.security import (
     collect_security_warnings as _collect_security_warnings,
@@ -61,6 +61,11 @@ from tools.mcp.transport import (
 )
 from tools.mcp.utils import format_exception as _format_exception
 
+__all__ = [
+    "MCPManager",
+    "probe_mcp_server",
+    "read_mcp_stderr_log",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -1087,14 +1092,3 @@ def probe_mcp_server(server_config: dict[str, Any]) -> dict[str, Any]:
             "error": sanitize_mcp_error(_format_exception(error)),
         }
 
-
-__all__ = [
-    "MCPManager",
-    "MCPServerTask",
-    "_normalize_mcp_input_schema",
-    "mcp_tool_name",
-    "probe_mcp_server",
-    "read_mcp_stderr_log",
-    "sanitize_mcp_error",
-    "sanitize_mcp_name_component",
-]

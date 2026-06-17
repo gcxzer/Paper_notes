@@ -10,6 +10,10 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from middleware.tool_output_common import PLACEHOLDER_PREFIX, is_placeholder_content, saved_output_path, tool_output_text
 
+__all__ = [
+    "ToolOutputPlaceholderMiddleware",
+    "create_tool_output_placeholder_middleware",
+]
 
 DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT = 40
 
@@ -84,10 +88,3 @@ def _tool_output_placeholder(message: ToolMessage) -> str:
         lines.append(f"Full output path: {output_path}")
     return "\n".join(lines)
 
-
-__all__ = [
-    "DEFAULT_TOOL_OUTPUT_PLACEHOLDER_KEEP_RECENT",
-    "ToolOutputPlaceholderMiddleware",
-    "create_tool_output_placeholder_middleware",
-    "placeholder_old_tool_outputs",
-]

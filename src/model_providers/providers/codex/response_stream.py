@@ -19,6 +19,12 @@ from model_providers.providers.codex.response_parser import (
     response_message_text as _response_message_text,
 )
 
+__all__ = [
+    "backfill_stream_output",
+    "final_generation_chunk_from_response",
+    "stream_chunk_from_responses_event",
+    "tool_call_chunks_from_tool_calls",
+]
 
 def _stream_chunk_from_responses_event(event: Any) -> list[ChatGenerationChunk]:
     event_type = str(_get_attr(event, "type", "") or "")
@@ -118,10 +124,3 @@ final_generation_chunk_from_response = _final_generation_chunk_from_response
 stream_chunk_from_responses_event = _stream_chunk_from_responses_event
 tool_call_chunks_from_tool_calls = _tool_call_chunks_from_tool_calls
 
-
-__all__ = [
-    "backfill_stream_output",
-    "final_generation_chunk_from_response",
-    "stream_chunk_from_responses_event",
-    "tool_call_chunks_from_tool_calls",
-]

@@ -36,6 +36,19 @@ from tools.paper_notes.impl.note_html_body import (
     write_note_html_body,
 )
 
+__all__ = [
+    "append_note_section",
+    "build_note_context",
+    "delete_note_section",
+    "insert_note_image",
+    "preview_note_diff",
+    "read_note_html",
+    "replace_note_section",
+    "search_library",
+    "update_note_metadata",
+    "validate_note_html",
+    "write_note_section",
+]
 
 _METADATA_INPUT_KEYS = {
     "note_id",
@@ -685,5 +698,3 @@ def update_note_metadata(args: dict[str, Any], *, library_path: Path | None = No
         "before": before,
         "after": _note_detail(after_note, saved),
     }
-
-__all__ = [name for name in globals() if not name.startswith("__")]

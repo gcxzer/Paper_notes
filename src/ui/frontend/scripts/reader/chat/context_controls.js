@@ -11,7 +11,6 @@ function readerChatContext() {
     currentPdfPage: currentPage,
     currentPage,
     selectionText,
-    selection_text: selectionText,
     visibleAnnotations: pdfState.annotations
       .filter((annotation) => !currentPage || annotation.page === currentPage)
       .slice(0, 12)

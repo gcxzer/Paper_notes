@@ -4,6 +4,14 @@ import json
 import re
 from typing import Any
 
+__all__ = [
+    "PLACEHOLDER_PREFIX",
+    "is_placeholder_content",
+    "safe_output_segment",
+    "saved_output_path",
+    "tool_output_text",
+    "truncate_output_text",
+]
 
 PLACEHOLDER_PREFIX = "[tool output omitted]"
 SAVED_PATH_RE = re.compile(r"^Full output path:\s*(?P<path>.+)$", re.MULTILINE)
@@ -37,12 +45,3 @@ def safe_output_segment(value: str) -> str:
     text = re.sub(r"-{2,}", "-", text).strip(".-")
     return text[:80] or "tool"
 
-
-__all__ = [
-    "PLACEHOLDER_PREFIX",
-    "is_placeholder_content",
-    "safe_output_segment",
-    "saved_output_path",
-    "tool_output_text",
-    "truncate_output_text",
-]

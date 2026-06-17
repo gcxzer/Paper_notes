@@ -34,12 +34,14 @@ def date_bucket_for(value: datetime | str | None = None) -> str:
 
 
 def metadata_with_note_scope(metadata: dict[str, Any], note_id: str | None) -> dict[str, Any]:
-    if note_id and not (metadata.get("originNoteId") or metadata.get("origin_note_id")):
-        metadata["originNoteId"] = note_id
-        metadata["origin_note_id"] = note_id
-    if note_id and not (metadata.get("currentNoteId") or metadata.get("current_note_id")):
-        metadata["currentNoteId"] = note_id
-        metadata["current_note_id"] = note_id
+    origin_note_id = metadata.get("originNoteId") or note_id
+    current_note_id = metadata.get("currentNoteId") or note_id
+    metadata.pop("origin_note_id", None)
+    metadata.pop("current_note_id", None)
+    if origin_note_id:
+        metadata["originNoteId"] = origin_note_id
+    if current_note_id:
+        metadata["currentNoteId"] = current_note_id
     return metadata
 
 

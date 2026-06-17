@@ -9,10 +9,17 @@ from fastapi.responses import JSONResponse
 
 from app_infra.formatting import normalize_text
 from app_infra.storage import atomic_write_json, atomic_write_text
-from tools.skills import DEFAULT_SKILL_SETTINGS_PATH, SkillStore, default_skill_roots
+from tools.skills import SkillStore, default_skill_roots
 from tools.skills.settings import normalize_disabled_skills, normalize_external_directories, skill_settings_path
 from ui.backend.agent_api import reset_agent_service
 
+__all__ = [
+    "list_skills",
+    "register_skills_routes",
+    "update_skill",
+    "update_skill_settings",
+    "view_skill",
+]
 
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(?P<frontmatter>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)")
 _MAX_SKILL_DESCRIPTION_LENGTH = 2000
@@ -25,9 +32,9 @@ def register_skills_routes(app: FastAPI) -> None:
         return JSONResponse(list_skills(category=category))
 
     @app.get("/api/skills/view")
-    async def api_view_skill(name: str = "", filePath: str = "", file_path: str = "") -> JSONResponse:
+    async def api_view_skill(name: str = "", filePath: str = "") -> JSONResponse:
         try:
-            return JSONResponse(view_skill(name=name, file_path=filePath or file_path))
+            return JSONResponse(view_skill(name=name, file_path=filePath))
         except Exception as error:
             return _skills_error_response(error)
 
@@ -60,12 +67,13 @@ def view_skill(name: str, file_path: str = "", *, settings_path: str | Path | No
     normalized_name = normalize_text(name)
     if not normalized_name:
         raise ValueError("Skill name is required.")
-    return SkillStore(default_skill_roots(settings_path), settings_path=settings_path).view(
+    payload = SkillStore(default_skill_roots(settings_path), settings_path=settings_path).view(
         name=normalized_name,
         file_path=normalize_text(file_path),
         include_disabled=True,
         include_enabled_state=True,
     )
+    return _skill_detail_payload(payload)
 
 
 def update_skill(body: Any, *, settings_path: str | Path | None = None) -> dict[str, Any]:
@@ -110,19 +118,10 @@ def update_skill_settings(body: Any, *, settings_path: str | Path | None = None)
     path = skill_settings_path(settings_path)
     existing = _read_settings_path(path)
     external_directories = normalize_external_directories(
-        body.get(
-            "externalDirectories",
-            body.get(
-                "external_directories",
-                existing.get("externalDirectories", existing.get("external_directories", [])),
-            ),
-        )
+        body.get("externalDirectories", existing.get("externalDirectories", []))
     )
     disabled_skills = normalize_disabled_skills(
-        body.get(
-            "disabledSkills",
-            body.get("disabled_skills", existing.get("disabledSkills", existing.get("disabled_skills", []))),
-        )
+        body.get("disabledSkills", existing.get("disabledSkills", []))
     )
     atomic_write_json(path, {"externalDirectories": external_directories, "disabledSkills": disabled_skills})
     reset_agent_service()
@@ -132,10 +131,8 @@ def update_skill_settings(body: Any, *, settings_path: str | Path | None = None)
 def _skill_settings_payload(*, settings_path: str | Path | None = None) -> dict[str, Any]:
     path = skill_settings_path(settings_path)
     settings = _read_settings_path(path)
-    external_directories = normalize_external_directories(
-        settings.get("externalDirectories", settings.get("external_directories", []))
-    )
-    disabled_skills = normalize_disabled_skills(settings.get("disabledSkills", settings.get("disabled_skills", [])))
+    external_directories = normalize_external_directories(settings.get("externalDirectories", []))
+    disabled_skills = normalize_disabled_skills(settings.get("disabledSkills", []))
     return {
         "success": True,
         "settingsPath": str(path),
@@ -154,6 +151,33 @@ def _skill_settings_payload(*, settings_path: str | Path | None = None) -> dict[
         ),
         "hint": "Use skill_view(name) to load full SKILL.md content and linked files.",
     }
+
+
+def _skill_detail_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    field_map = {
+        "available_skills": "availableSkills",
+        "linked_files": "linkedFiles",
+        "available_files": "availableFiles",
+        "related_skills": "relatedSkills",
+        "skill_dir": "skillDir",
+        "usage_hint": "usageHint",
+        "readiness_status": "readinessStatus",
+        "setup_needed": "setupNeeded",
+        "setup_skipped": "setupSkipped",
+        "setup_help": "setupHelp",
+        "setup_note": "setupNote",
+        "required_environment_variables": "requiredEnvironmentVariables",
+        "required_commands": "requiredCommands",
+        "missing_required_environment_variables": "missingRequiredEnvironmentVariables",
+        "missing_required_commands": "missingRequiredCommands",
+        "security_warning": "securityWarning",
+        "is_binary": "isBinary",
+        "file_type": "fileType",
+    }
+    result: dict[str, Any] = {}
+    for key, value in payload.items():
+        result[field_map.get(key, key)] = value
+    return result
 
 
 def _read_settings_path(path: Path) -> dict[str, Any]:
@@ -232,12 +256,3 @@ def _skills_error_response(error: Exception) -> JSONResponse:
         status_code=400,
     )
 
-
-__all__ = [
-    "DEFAULT_SKILL_SETTINGS_PATH",
-    "list_skills",
-    "register_skills_routes",
-    "update_skill",
-    "update_skill_settings",
-    "view_skill",
-]

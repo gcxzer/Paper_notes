@@ -6,6 +6,12 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+__all__ = [
+    "Base64PayloadErrors",
+    "base64_payload_text",
+    "decoded_base64_payload_size",
+    "parse_base64_payload",
+]
 
 _DATA_URL_RE = re.compile(r"^data:(?P<mime>[-\w.]+/[-\w.+]+);base64,(?P<data>.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -74,10 +80,3 @@ def decoded_base64_payload_size(
         return len(text)
     return len(data)
 
-
-__all__ = [
-    "Base64PayloadErrors",
-    "base64_payload_text",
-    "decoded_base64_payload_size",
-    "parse_base64_payload",
-]

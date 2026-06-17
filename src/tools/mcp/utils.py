@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+__all__ = [
+    "first_field",
+    "format_exception",
+    "get_field",
+    "json_safe_value",
+]
 
 def get_field(value: Any, name: str) -> Any:
     if value is None:
@@ -37,10 +43,3 @@ def format_exception(error: BaseException) -> str:
         return text
     return repr(error)
 
-
-__all__ = [
-    "first_field",
-    "format_exception",
-    "get_field",
-    "json_safe_value",
-]

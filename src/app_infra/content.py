@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+__all__ = [
+    "content_text",
+]
 
 def content_text(content: Any) -> str:
     if isinstance(content, str):
@@ -18,5 +21,3 @@ def content_text(content: Any) -> str:
         return "\n".join(parts)
     return str(content or "")
 
-
-__all__ = ["content_text"]

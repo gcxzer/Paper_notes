@@ -17,6 +17,14 @@ from tools.mcp import (
 )
 from ui.backend.agent_api import reset_agent_service
 
+__all__ = [
+    "connect_mcp_server",
+    "get_mcp_stderr_log",
+    "register_mcp_routes",
+    "reset_mcp_server_circuit",
+    "test_mcp_server",
+    "update_mcp_settings",
+]
 
 def register_mcp_routes(app: FastAPI) -> None:
     @app.get("/api/settings/mcp")
@@ -52,8 +60,8 @@ def register_mcp_routes(app: FastAPI) -> None:
             return _mcp_error_response(error)
 
     @app.get("/api/settings/mcp/stderr-log")
-    async def api_get_mcp_stderr_log(maxChars: int = 60000, max_chars: int = 0) -> JSONResponse:
-        return JSONResponse(get_mcp_stderr_log(max_chars=max_chars or maxChars))
+    async def api_get_mcp_stderr_log(maxChars: int = 60000) -> JSONResponse:
+        return JSONResponse(get_mcp_stderr_log(max_chars=maxChars))
 
 
 def get_mcp_settings(
@@ -99,7 +107,7 @@ def connect_mcp_server(
     current = read_mcp_settings(settings_path)
     if isinstance(body.get("servers"), list):
         settings = normalize_mcp_settings_update(body, current=current)
-        server_id = str(body.get("serverId") or body.get("server_id") or "").strip()
+        server_id = str(body.get("serverId") or "").strip()
     else:
         server = normalize_mcp_server_config(body, strict=True)
         server_id = str(server.get("id") or "").strip()
@@ -180,7 +188,7 @@ def _mcp_manager(service: Any = None) -> Any:
 def _server_id_from_body(body: Any) -> str:
     if not isinstance(body, dict):
         raise ValueError("Request body must be a JSON object.")
-    server_id = str(body.get("serverId") or body.get("server_id") or body.get("id") or "").strip()
+    server_id = str(body.get("serverId") or "").strip()
     if not server_id:
         raise ValueError("MCP server id is required.")
     return server_id
@@ -200,13 +208,3 @@ def _mcp_error_response(error: Exception) -> JSONResponse:
         status_code=400,
     )
 
-
-__all__ = [
-    "connect_mcp_server",
-    "get_mcp_settings",
-    "get_mcp_stderr_log",
-    "register_mcp_routes",
-    "reset_mcp_server_circuit",
-    "test_mcp_server",
-    "update_mcp_settings",
-]

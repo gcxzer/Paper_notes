@@ -15,6 +15,13 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from middleware.context_collapse import SUMMARY_MESSAGE_PREFIX
 from model_providers import resolve_context_length_for_model
 
+__all__ = [
+    "COMPACT_SUMMARY_PROMPT",
+    "DEFAULT_COMPACTION_RESERVE_TOKENS",
+    "ContextCompactionMiddleware",
+    "compaction_trigger_tokens",
+    "create_context_compaction_middleware",
+]
 
 DEFAULT_COMPACTION_RESERVE_TOKENS = 13_000
 COMPACT_SUMMARY_PROMPT = """You are a summarization agent creating a context checkpoint. Treat the conversation history below as source material for a compact record of prior work. Produce only the structured summary; do not add a greeting, preamble, or prefix. Write the summary in the same language the user was using in the conversation. NEVER include API keys, tokens, passwords, secrets, credentials, or connection strings in the summary; replace any that appear with [REDACTED].
@@ -202,11 +209,3 @@ def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
 
-
-__all__ = [
-    "COMPACT_SUMMARY_PROMPT",
-    "DEFAULT_COMPACTION_RESERVE_TOKENS",
-    "ContextCompactionMiddleware",
-    "compaction_trigger_tokens",
-    "create_context_compaction_middleware",
-]

@@ -17,6 +17,11 @@ from tools.paper_notes.impl.common import (
 )
 from tools.paper_notes.impl.paper import _import_pymupdf, _resolved_pdf_path_for_note
 
+__all__ = [
+    "create_annotation",
+    "delete_annotation",
+    "update_annotation",
+]
 
 ANNOTATION_COLORS = {"yellow", "green", "blue", "red", "purple"}
 ANNOTATION_TYPES = {"highlight", "underline", "area", "note"}
@@ -477,5 +482,3 @@ def _next_annotation_id(annotation_type: str, existing_annotations: list[dict[st
 
 def _iso_timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-__all__ = [name for name in globals() if not name.startswith("__")]

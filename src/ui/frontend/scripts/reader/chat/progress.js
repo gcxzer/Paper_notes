@@ -125,7 +125,7 @@ function runTraceFromPayload(payload, startedAtMs) {
   const start = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
   const end = Date.now();
   return normalizeRunTrace({
-    requestId: normalizeText(payload?.requestId || payload?.request_id),
+    requestId: normalizeText(payload?.requestId),
     startedAt: new Date(start).toISOString(),
     finishedAt: new Date(end).toISOString(),
     durationMs: Math.max(0, end - start),
@@ -209,12 +209,12 @@ function workTraceFromProgressPayload(progress) {
 }
 
 function providerNativeWebSearchText(data) {
-  const searchCount = positiveInteger(data?.web_search_call_count || data?.webSearchCallCount);
+  const searchCount = positiveInteger(data?.webSearchCallCount);
   if (!searchCount) return "";
-  const sourceCount = positiveInteger(data?.web_search_source_count || data?.webSearchSourceCount);
+  const sourceCount = positiveInteger(data?.webSearchSourceCount);
   const searchLabel = searchCount === 1 ? "search" : "searches";
   const countText = `${searchCount} ${searchLabel}${sourceCount ? `, ${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` : ""}`;
-  const queryText = webSearchQuerySummary(data?.web_search_queries || data?.webSearchQueries);
+  const queryText = webSearchQuerySummary(data?.webSearchQueries);
   return queryText
     ? `Searched the web: ${queryText} (${countText}).`
     : `Searched the web: ${countText}.`;
@@ -442,7 +442,7 @@ function startReaderChatProgress(requestId, sessionId = getChatSessionId()) {
 function appendReaderChatProgressWorkTrace(data, runKey = chatSessionRunKey(), eventType = "") {
   const text = normalizeText(data?.text || data?.delta);
   if (!text) return;
-  const itemType = normalizeText(data?.traceType || data?.trace_type) || "summary";
+  const itemType = normalizeText(data?.traceType) || "summary";
   if (isStructuredToolCallProgressText(itemType, text)) return;
   const source = normalizeText(data?.source) || "provider";
   const at = normalizeText(data?.at) || new Date().toISOString();

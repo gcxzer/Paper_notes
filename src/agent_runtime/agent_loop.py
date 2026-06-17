@@ -14,6 +14,10 @@ from langchain_core.tools import BaseTool
 from app_config import AppConfig
 from middleware import with_configured_middleware
 
+__all__ = [
+    "run_agent_loop",
+    "with_context_management",
+]
 
 def run_agent_loop(
     model: str | BaseChatModel,
@@ -80,5 +84,3 @@ def with_context_management(
         paper_memory_context=paper_memory_context,
     )
 
-
-__all__ = ["run_agent_loop", "with_context_management"]

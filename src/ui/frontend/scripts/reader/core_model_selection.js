@@ -130,7 +130,7 @@ function normalizeModelOption(rawOption) {
   const value = normalizeText(rawOption?.value || rawOption?.model || rawOption?.id || rawOption);
   if (!value) return null;
   const label = normalizeText(rawOption?.label) || value;
-  const shortLabel = normalizeText(rawOption?.shortLabel || rawOption?.short_label) || label;
+  const shortLabel = normalizeText(rawOption?.shortLabel) || label;
   const description = normalizeText(rawOption?.description || rawOption?.detail);
   const hasCapabilities = rawOption
     && typeof rawOption === "object"
@@ -168,20 +168,20 @@ function normalizeModelProvider(rawProvider) {
   const models = (Array.isArray(rawProvider?.models) ? rawProvider.models : [])
     .map(normalizeModelOption)
     .filter(Boolean);
-  const defaultModel = normalizeText(rawProvider?.defaultModel || rawProvider?.default_model);
+  const defaultModel = normalizeText(rawProvider?.defaultModel);
   const selectedModel = normalizeText(rawProvider?.selectedModel || rawProvider?.model);
   return {
     name,
     aliases,
-    displayName: normalizeText(rawProvider?.displayName || rawProvider?.display_name) || fallbackProviderDisplayName(name),
-    authType: normalizeText(rawProvider?.authType || rawProvider?.auth_type),
+    displayName: normalizeText(rawProvider?.displayName) || fallbackProviderDisplayName(name),
+    authType: normalizeText(rawProvider?.authType),
     description: normalizeText(rawProvider?.description),
     defaultModel,
     configured: Boolean(rawProvider?.configured),
     ready: Boolean(rawProvider?.ready),
     model: selectedModel,
     selectedModel,
-    modelSource: normalizeText(rawProvider?.modelSource || rawProvider?.model_source || "profile"),
+    modelSource: normalizeText(rawProvider?.modelSource || "profile"),
     capabilities: normalizeModelCapabilities(rawProvider?.capabilities),
     models
   };

@@ -8,7 +8,7 @@ from agent_prompts import AgentPromptContext, build_agent_instructions, extract_
 from agent_runtime import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
 from media import MediaStore, MediaStoreError
 from ui.backend.agent_api import get_agent_service
-from ui.backend.chat_errors import ChatAPIError
+from ui.backend.api_errors import ChatAPIError
 from ui.backend.chat_payloads import (
     bool_value,
     file_generation_options,
@@ -25,6 +25,12 @@ from ui.backend.chat_payloads import (
     visible_annotations,
 )
 
+__all__ = [
+    "persist_latest_user_request_metadata",
+    "prepare_chat_run",
+    "prepare_stream_body",
+    "system_prompt",
+]
 
 @dataclass(frozen=True, slots=True)
 class PreparedChatRun:
@@ -48,11 +54,11 @@ def prepare_chat_run(
     if not message and not attachments:
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "message_required", "Message is required.")
 
-    session_id = optional_text(body.get("sessionId") or body.get("session_id"))
-    if bool_value(body.get("editLatestUserMessage") or body.get("edit_latest_user_message")) and session_id:
+    session_id = optional_text(body.get("sessionId"))
+    if bool_value(body.get("editLatestUserMessage")) and session_id:
         truncate_latest_user_turn(agent_service, session_id)
 
-    enable_tools = bool_value(body.get("enableTools", body.get("enable_tools")), default=True)
+    enable_tools = bool_value(body.get("enableTools"), default=True)
     model_options = model_options_from_body(body)
     model_options["_write_note_media_store"] = media_store
     model_options["_paper_notes_attachments"] = attachments
@@ -68,16 +74,16 @@ def prepare_chat_run(
         message=message_content(message, attachments, media_store),
         session_id=session_id or None,
         title=session_title(body, message),
-        note_id=optional_text(body.get("noteId") or body.get("note_id")) or None,
+        note_id=optional_text(body.get("noteId")) or None,
         provider=optional_text(body.get("provider")),
         model=optional_text(body.get("model")),
         system_prompt=None,
         enable_tools=enable_tools,
         metadata=request_metadata(body),
         model_options=model_options,
-        disabled_tools=tuple(optional_text_list(body.get("disabledTools") or body.get("disabled_tools"))),
+        disabled_tools=tuple(optional_text_list(body.get("disabledTools"))),
         run_config=body.get("runConfig") if isinstance(body.get("runConfig"), dict) else None,
-        stream_mode=optional_text(body.get("streamMode") or body.get("stream_mode")) or "values",
+        stream_mode=optional_text(body.get("streamMode")) or "values",
     )
     prompt_session = agent_service.session_store.get_session(session_id) if session_id else None
     prompt_model_config = agent_service._model_config_for_request(request, session=prompt_session)
@@ -99,8 +105,8 @@ def prepare_stream_body(body: Any, *, service: AgentService | None = None) -> di
     if not isinstance(body, dict):
         raise ChatAPIError(HTTPStatus.BAD_REQUEST, "invalid_body", "Request body must be a JSON object.")
     prepared = dict(body)
-    session_id = optional_text(prepared.get("sessionId") or prepared.get("session_id"))
-    if session_id or bool_value(prepared.get("editLatestUserMessage") or prepared.get("edit_latest_user_message")):
+    session_id = optional_text(prepared.get("sessionId"))
+    if session_id or bool_value(prepared.get("editLatestUserMessage")):
         return prepared
     message = request_message(prepared)
     if not message and not prepared.get("attachments"):
@@ -108,13 +114,12 @@ def prepare_stream_body(body: Any, *, service: AgentService | None = None) -> di
     agent_service = service or get_agent_service()
     session = agent_service.session_store.create_session(
         title=session_title(prepared, message),
-        note_id=optional_text(prepared.get("noteId") or prepared.get("note_id")) or None,
+        note_id=optional_text(prepared.get("noteId")) or None,
         provider=optional_text(prepared.get("provider")) or None,
         model=optional_text(prepared.get("model")) or None,
         metadata=request_metadata(prepared),
     )
     prepared["sessionId"] = session.metadata.session_id
-    prepared["session_id"] = session.metadata.session_id
     return prepared
 
 
@@ -300,38 +305,26 @@ def agent_prompt_context(body: dict[str, Any]) -> AgentPromptContext | None:
     context = body.get("context") if isinstance(body.get("context"), dict) else {}
     note_id = optional_text(
         body.get("noteId")
-        or body.get("note_id")
         or context.get("selectedNoteId")
-        or context.get("selected_note_id")
         or context.get("noteId")
-        or context.get("note_id")
     )
     note_title = optional_text(
         body.get("noteTitle")
-        or body.get("note_title")
         or context.get("selectedNoteTitle")
-        or context.get("selected_note_title")
         or context.get("noteTitle")
-        or context.get("note_title")
     )
     collection_path = optional_text(
         context.get("selectedCategoryName")
-        or context.get("selected_category_name")
         or context.get("collectionPath")
-        or context.get("collection_path")
     )
-    current_page = optional_int(body.get("currentPage") or context.get("currentPage") or context.get("current_page"))
+    current_page = optional_int(body.get("currentPage") or context.get("currentPage"))
     selection = optional_text(
         body.get("selectionText")
-        or body.get("selection_text")
         or context.get("selectionText")
-        or context.get("selection_text")
     )
     annotations = visible_annotations(
         body.get("visibleAnnotations")
-        or body.get("visible_annotations")
         or context.get("visibleAnnotations")
-        or context.get("visible_annotations")
     )
     if not any([note_id, note_title, collection_path, current_page is not None, selection, annotations]):
         return None
@@ -343,21 +336,6 @@ def agent_prompt_context(body: dict[str, Any]) -> AgentPromptContext | None:
         current_page=current_page,
         selection_text=selection,
         visible_annotations=annotations,
-        session_title=optional_text(body.get("sessionTitle") or body.get("session_title") or body.get("title")),
+        session_title=optional_text(body.get("sessionTitle") or body.get("title")),
     )
 
-
-__all__ = [
-    "PreparedChatRun",
-    "agent_prompt_context",
-    "attachment_artifacts",
-    "attachment_context",
-    "generation_mode_instructions",
-    "image_content_parts",
-    "message_content",
-    "persist_latest_user_request_metadata",
-    "prepare_chat_run",
-    "prepare_stream_body",
-    "system_prompt",
-    "truncate_latest_user_turn",
-]

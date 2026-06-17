@@ -149,7 +149,7 @@ function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
   const message = sanitizeChatProgressDetail(event?.message);
   const data = event?.data && typeof event.data === "object" ? event.data : {};
   const text = sanitizeChatProgressDetail(data.text || data.delta || message);
-  const traceType = normalizeText(data.trace_type || data.traceType) || eventType;
+  const traceType = normalizeText(data.traceType) || eventType;
   const nativeWebSearchText = providerNativeWebSearchText(data);
   if (eventType === "model_response" && nativeWebSearchText) {
     return {
@@ -171,7 +171,7 @@ function runTraceEventWorkItem(event, { includeToolEvents = true } = {}) {
   }
   if (eventType === "tool_call" || eventType === "tool_result") {
     if (!includeToolEvents) return null;
-    const name = normalizeText(data.name || data.toolName || data.tool_name);
+    const name = normalizeText(data.name || data.toolName);
     return {
       type: name && (name === "skills_list" || name === "skill_view") ? "skill" : "tool",
       text,

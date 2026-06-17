@@ -18,6 +18,18 @@ from langchain_core.messages import (
 from app_infra.content import content_text
 from middleware import SUMMARY_MESSAGE_PREFIX
 
+__all__ = [
+    "ATTACHMENT_ONLY_MESSAGE",
+    "content_text",
+    "json_safe",
+    "last_assistant_text",
+    "last_assistant_transcript_text",
+    "merge_existing_transcript_fields",
+    "messages_from_final_chunk",
+    "messages_from_transcript",
+    "messages_to_transcript",
+    "request_message_content",
+]
 
 ATTACHMENT_ONLY_MESSAGE = "Please read and summarize the attached file."
 
@@ -229,23 +241,3 @@ def transcript_messages_match(existing: dict[str, Any], message: dict[str, Any])
 def role_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
-
-__all__ = [
-    "ATTACHMENT_ONLY_MESSAGE",
-    "content_text",
-    "json_safe",
-    "last_assistant_text",
-    "last_assistant_transcript_text",
-    "merge_existing_transcript_fields",
-    "message_from_transcript",
-    "message_metadata",
-    "message_to_transcript",
-    "messages_from_final_chunk",
-    "messages_from_transcript",
-    "messages_to_transcript",
-    "public_additional_kwargs",
-    "request_message_content",
-    "role_for_message",
-    "role_text",
-    "transcript_messages_match",
-]

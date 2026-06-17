@@ -8,7 +8,11 @@ from model_providers.profiles.registry import (
     register_provider_profile,
     resolve_context_length_for_model,
 )
-from model_providers.profiles.types import ModelCapabilities, ModelOption, ModelProviderProfile
+from model_providers.profiles.types import (
+    ModelCapabilities,
+    ModelOption,
+    ModelProviderProfile,
+)
 
 __all__ = [
     "DEFAULT_FALLBACK_CONTEXT_LENGTH",
@@ -23,3 +27,4 @@ __all__ = [
     "register_provider_profile",
     "resolve_context_length_for_model",
 ]
+

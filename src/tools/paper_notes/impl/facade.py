@@ -26,6 +26,15 @@ from tools.paper_notes.impl.notes import (
 )
 from tools.paper_notes.impl.paper import extract_paper_images, render_paper_page
 
+__all__ = [
+    "get_paper_context",
+    "inspect_paper_visuals",
+    "manage_annotations",
+    "query_paper_content",
+    "review_note",
+    "write_note",
+    "write_note_media",
+]
 
 def _write_note_resources(args: dict[str, Any]) -> list[str]:
     note_id = normalize_text(args.get("note_id"))
@@ -296,5 +305,3 @@ def _with_html_validation(
         "validation": validation,
         "success": bool(validation.get("success") and validation.get("valid") is not False),
     }
-
-__all__ = [name for name in globals() if not name.startswith("__")]

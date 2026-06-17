@@ -115,8 +115,8 @@ def start_codex_auth(*, codex_factory: _CodexFactory = Codex) -> dict[str, objec
 def poll_codex_auth(body: Any, *, codex_factory: _CodexFactory = Codex) -> dict[str, object]:
     if not isinstance(body, dict):
         raise ValueError("Request body must be a JSON object.")
-    login_id = _required_text(body.get("deviceAuthId", body.get("device_auth_id")), "deviceAuthId")
-    user_code = _required_text(body.get("userCode", body.get("user_code")), "userCode")
+    login_id = _required_text(body.get("deviceAuthId"), "deviceAuthId")
+    user_code = _required_text(body.get("userCode"), "userCode")
     attempt = _attempt(login_id)
     if attempt is None or attempt.user_code != user_code:
         raise ValueError("Codex login attempt was not found.")

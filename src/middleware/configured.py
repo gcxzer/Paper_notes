@@ -47,6 +47,9 @@ from middleware.tool_output_truncation import (
 )
 from model_providers.core.types import ModelProviderConfig
 
+__all__ = [
+    "with_configured_middleware",
+]
 
 def with_configured_middleware(
     *,
@@ -330,5 +333,3 @@ def _config_string_tuple(value: Any) -> tuple[str, ...]:
         return ()
     return tuple(text for item in raw_values if (text := str(item or "").strip()))
 
-
-__all__ = ["with_configured_middleware"]

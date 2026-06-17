@@ -16,6 +16,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AnyMessage, HumanMessage, RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+__all__ = [
+    "ContextCollapseMiddleware",
+    "DEFAULT_CONTEXT_COLLAPSE_KEEP",
+    "DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION",
+    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES",
+    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS",
+    "SUMMARY_MESSAGE_PREFIX",
+    "SummarizationMiddleware",
+    "create_context_collapse_middleware",
+]
 
 SUMMARY_MESSAGE_PREFIX = "[summary]"
 DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES = 60
@@ -150,14 +160,3 @@ def _is_summary_message(message: AnyMessage) -> bool:
     content = message.content
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
 
-
-__all__ = [
-    "ContextCollapseMiddleware",
-    "DEFAULT_CONTEXT_COLLAPSE_KEEP",
-    "DEFAULT_CONTEXT_COLLAPSE_KEEP_TO_PREVIOUS_USER_QUESTION",
-    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_MESSAGES",
-    "DEFAULT_CONTEXT_COLLAPSE_TRIGGER_TOKENS",
-    "SUMMARY_MESSAGE_PREFIX",
-    "SummarizationMiddleware",
-    "create_context_collapse_middleware",
-]

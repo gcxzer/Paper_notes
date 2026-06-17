@@ -36,17 +36,17 @@ function normalizeRunTrace(rawTrace) {
       at: normalizeText(event?.at),
       data: event?.data && typeof event.data === "object" ? event.data : {}
     })).filter((event) => {
-      const traceType = normalizeText(event.data?.traceType || event.data?.trace_type || event.stage || event.type);
+      const traceType = normalizeText(event.data?.traceType || event.stage || event.type);
       const text = sanitizeChatProgressDetail(event.data?.text || event.data?.delta || event.message);
       return (event.type || event.message) && !isStructuredToolCallProgressText(traceType, text);
     })
     : [];
-  const durationMs = Number(rawTrace.durationMs || rawTrace.duration_ms || 0);
+  const durationMs = Number(rawTrace.durationMs || 0);
   if (!events.length && !durationMs) return null;
   return {
-    requestId: normalizeText(rawTrace.requestId || rawTrace.request_id),
-    startedAt: normalizeText(rawTrace.startedAt || rawTrace.started_at),
-    finishedAt: normalizeText(rawTrace.finishedAt || rawTrace.finished_at),
+    requestId: normalizeText(rawTrace.requestId),
+    startedAt: normalizeText(rawTrace.startedAt),
+    finishedAt: normalizeText(rawTrace.finishedAt),
     durationMs: Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0,
     status: normalizeText(rawTrace.status) || "completed",
     error: normalizeText(rawTrace.error),
@@ -139,17 +139,11 @@ function workTraceItemIdentity(item) {
   const data = item?.data && typeof item.data === "object" ? item.data : {};
   return normalizeText(
     data.itemId
-    || data.item_id
     || data.id
     || data.item?.id
     || data.item?.itemId
-    || data.item?.item_id
     || data.toolCallId
-    || data.tool_call_id
     || data.toolCall?.id
-    || data.toolCall?.tool_call_id
-    || data.tool_call?.id
-    || data.tool_call?.tool_call_id
   );
 }
 
@@ -193,14 +187,14 @@ function normalizeAttachmentArtifacts(rawArtifacts) {
     if (!artifact || typeof artifact !== "object") return null;
     const id = normalizeText(artifact.id || artifact.artifactId);
     const url = normalizeText(artifact.url || artifact.previewUrl || artifact.localPreviewUrl);
-    const downloadUrl = normalizeText(artifact.downloadUrl || artifact.download_url);
+    const downloadUrl = normalizeText(artifact.downloadUrl);
     if (!id && !url) return null;
     return {
       id,
       kind: normalizeText(artifact.kind) || "image",
       source: normalizeText(artifact.source),
-      mimeType: normalizeText(artifact.mimeType || artifact.mime_type),
-      fileName: normalizeText(artifact.fileName || artifact.file_name) || "attachment",
+      mimeType: normalizeText(artifact.mimeType),
+      fileName: normalizeText(artifact.fileName) || "attachment",
       url,
       downloadUrl,
       size: Number(artifact.size) || 0,
@@ -233,4 +227,3 @@ function normalizeChatSources(rawSources) {
     };
   }).filter((source) => source && (source.label || source.uri || source.excerpt));
 }
-
