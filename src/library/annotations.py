@@ -5,9 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app_infra.files import ANNOTATIONS_DIR, atomic_write_json
 from app_infra.formatting import normalize_text
-from app_infra.paths import ANNOTATIONS_DIR
-from app_infra.storage import atomic_write_json
 
 
 def safe_annotation_id(note_id: str) -> str:

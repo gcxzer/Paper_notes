@@ -11,7 +11,6 @@ from app_infra.artifact_generation import (
     IMAGE_GENERATION_KEYS,
     generation_options,
     generation_requested,
-    truthy_option,
 )
 from model_providers import ModelProviderConfig
 from tools import AgentTool, ToolContext
@@ -25,6 +24,8 @@ __all__ = [
     "tool_context_for_request",
 ]
 
+
+# 模型配置
 def model_config_for_request(
     app_config: AppConfig,
     request: Any,
@@ -32,6 +33,7 @@ def model_config_for_request(
     session: Any | None,
     media_store: Any | None = None,
 ) -> AppConfig:
+    """根据请求和会话覆盖默认模型配置，并注入生成类工具需要的运行上下文。"""
     provider = str(getattr(request, "provider", "") or (session.metadata.provider if session is not None else "") or "")
     model = str(getattr(request, "model", "") or (session.metadata.model if session is not None else "") or "")
     if not provider and not model:
@@ -47,7 +49,7 @@ def model_config_for_request(
     request_options = getattr(request, "model_options", None)
     if isinstance(request_options, dict):
         options.update(request_options)
-    if image_generation_requested(options):
+    if generation_requested(options, IMAGE_GENERATION_KEYS):
         options.setdefault("_paper_notes_provider", resolved_provider)
         if session is not None:
             options["_paper_notes_session_id"] = session.metadata.session_id
@@ -64,6 +66,25 @@ def model_config_for_request(
     return AppConfig(data=base_data, path=app_config.path)
 
 
+def provider_model_names(config: AppConfig | None, *, fallback_provider: str = "", fallback_model: str = "") -> tuple[str, str]:
+    """从 AppConfig 里读取 provider/model，读取失败时回退到请求显式传入的值。"""
+    if config is None:
+        return fallback_provider, fallback_model
+    try:
+        model_config = ModelProviderConfig.from_app_config(config)
+    except Exception:
+        return fallback_provider, fallback_model
+    return model_config.provider, model_config.model
+
+
+def model_supports_tools(model: str | BaseChatModel) -> bool:
+    """判断当前模型对象是否实现 LangChain 的 bind_tools 能力。"""
+    if not isinstance(model, BaseChatModel):
+        return True
+    return type(model).bind_tools is not BaseChatModel.bind_tools
+
+
+# 工具上下文
 def tool_context_for_request(
     base_context: ToolContext,
     request: Any,
@@ -72,6 +93,7 @@ def tool_context_for_request(
     session: Any | None,
     model_supports_tools: bool = True,
 ) -> ToolContext:
+    """把请求、会话、模型配置转换成工具层使用的 ToolContext。"""
     provider, model = (
         provider_model_names(
             model_config,
@@ -83,6 +105,8 @@ def tool_context_for_request(
     )
     options = getattr(request, "model_options", None)
     options = options if isinstance(options, dict) else {}
+    attachments_value = options.get("_paper_notes_attachments")
+    attachments = [dict(item) for item in attachments_value if isinstance(item, dict)] if isinstance(attachments_value, list) else []
     return ToolContext(
         library_path=base_context.library_path,
         annotations_dir=base_context.annotations_dir,
@@ -94,59 +118,16 @@ def tool_context_for_request(
         session_id=str(options.get("_paper_notes_session_id") or (session.metadata.session_id if session is not None else "")),
         provider_name=provider,
         model=model,
-        file_generation=file_generation_options(options),
-        image_generation=image_generation_options(options),
-        attachments=attachments_from_options(options),
+        file_generation=generation_options(options, FILE_GENERATION_KEYS),
+        image_generation=generation_options(options, IMAGE_GENERATION_KEYS),
+        attachments=attachments,
         model_supports_tools=model_supports_tools,
     )
 
 
-def provider_model_names(config: AppConfig | None, *, fallback_provider: str = "", fallback_model: str = "") -> tuple[str, str]:
-    if config is None:
-        return fallback_provider, fallback_model
-    try:
-        model_config = ModelProviderConfig.from_app_config(config)
-    except Exception:
-        return fallback_provider, fallback_model
-    return model_config.provider, model_config.model
-
-
-def model_supports_tools(model: str | BaseChatModel) -> bool:
-    if not isinstance(model, BaseChatModel):
-        return True
-    return type(model).bind_tools is not BaseChatModel.bind_tools
-
-
-def native_web_search_requested(options: dict[str, Any] | None) -> bool:
-    if not isinstance(options, dict):
-        return False
-    return truthy_option(options.get("_paper_notes_native_web_search"))
-
-
-def file_generation_options(options: dict[str, Any] | None) -> dict[str, Any]:
-    return generation_options(options, FILE_GENERATION_KEYS)
-
-
-def image_generation_options(options: dict[str, Any] | None) -> dict[str, Any]:
-    return generation_options(options, IMAGE_GENERATION_KEYS)
-
-
-def attachments_from_options(options: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(options, dict):
-        return []
-    value = options.get("_paper_notes_attachments")
-    return [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
-
-
-def image_generation_requested(options: dict[str, Any] | None) -> bool:
-    return generation_requested(options, IMAGE_GENERATION_KEYS)
-
-
-def file_generation_requested(options: dict[str, Any] | None) -> bool:
-    return generation_requested(options, FILE_GENERATION_KEYS)
-
-
+# Provider reasoning 开关
 def provider_reasoning_enabled(config: AppConfig) -> bool:
+    """根据模型 options 判断是否允许把 provider reasoning/summary 暴露成 trace。"""
     try:
         options = ModelProviderConfig.from_app_config(config).options
     except Exception:
@@ -155,6 +136,7 @@ def provider_reasoning_enabled(config: AppConfig) -> bool:
 
 
 def reasoning_options_disabled(options: dict[str, Any]) -> bool:
+    """识别多家 provider 常见的关闭 reasoning/thinking 的 option 组合。"""
     thinking = options.get("thinking")
     if thinking_option_disabled(thinking):
         return True
@@ -174,6 +156,7 @@ def reasoning_options_disabled(options: dict[str, Any]) -> bool:
 
 
 def thinking_option_disabled(value: Any) -> bool:
+    """判断 thinking 配置项是否表达为关闭。"""
     if value is False or value is None:
         return value is False
     if isinstance(value, str):
@@ -184,6 +167,7 @@ def thinking_option_disabled(value: Any) -> bool:
 
 
 def reasoning_option_disabled(value: Any) -> bool:
+    """判断 reasoning 配置项是否表达为关闭。"""
     if value is False or value is None:
         return value is False
     if isinstance(value, str):
@@ -199,5 +183,5 @@ def reasoning_option_disabled(value: Any) -> bool:
 
 
 def off_text(value: Any) -> bool:
+    """判断文本值是否属于常见的关闭标记。"""
     return str(value or "").strip().lower() in {"0", "false", "none", "off", "disabled", "disable"}
-

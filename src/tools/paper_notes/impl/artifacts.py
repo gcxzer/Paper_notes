@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from app_infra.formatting import normalize_text
-from app_infra.paths import PROJECT_ROOT
+from app_infra.files import PROJECT_ROOT
 
 
 def _artifact_to_payload(artifact: Any) -> dict[str, Any]:

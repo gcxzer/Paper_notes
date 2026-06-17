@@ -15,6 +15,15 @@ from bs4 import BeautifulSoup
 from xml.etree import ElementTree
 
 from app_config import load_app_config
+from app_infra.files import (
+    HTML_DIR,
+    HTML_HREF_PREFIX,
+    NOTES_PATH,
+    PAPERS_DIR,
+    PAPERS_HREF_PREFIX,
+    atomic_write_json,
+    atomic_write_text,
+)
 from app_infra.formatting import (
     finite_number,
     get_today_label,
@@ -25,8 +34,6 @@ from app_infra.formatting import (
     safe_file_name,
 )
 from library.note_html import create_paper_note_html, update_note_html_title
-from app_infra.paths import HTML_DIR, HTML_HREF_PREFIX, NOTES_PATH, PAPERS_DIR, PAPERS_HREF_PREFIX
-from app_infra.storage import atomic_write_json, atomic_write_text
 
 
 ALL_CATEGORY_ID = "all"

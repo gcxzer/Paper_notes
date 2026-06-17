@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app_infra.formatting import normalize_text
-from app_infra.paths import NODE_MODULES_DIR, PUBLIC_DIR, RESOURCES_DIR
+from app_infra.files import NODE_MODULES_DIR, PUBLIC_DIR, RESOURCES_DIR
 from app_config import load_app_config
 from library import read_annotations, write_annotations
 from ui.backend.agent_api import register_agent_routes

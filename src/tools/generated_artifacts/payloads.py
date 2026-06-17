@@ -4,7 +4,7 @@ import copy
 import json
 from typing import Any
 
-from app_infra.content import content_text
+from app_infra.formatting import content_text
 
 __all__ = [
     "generated_artifact_success_payload",

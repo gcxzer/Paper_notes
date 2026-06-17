@@ -12,9 +12,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from agent_sessions import SessionNotFoundError
+from app_infra.files import LOCAL_STATE_DIR, atomic_write_json
 from app_infra.formatting import normalize_text
-from app_infra.paths import LOCAL_STATE_DIR
-from app_infra.storage import atomic_write_json
 from ui.backend.agent_api import get_agent_service, _metadata_payload
 
 

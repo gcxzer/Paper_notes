@@ -16,8 +16,8 @@ from middleware import with_configured_middleware
 
 __all__ = [
     "run_agent_loop",
-    "with_context_management",
 ]
+
 
 def run_agent_loop(
     model: str | BaseChatModel,
@@ -33,8 +33,13 @@ def run_agent_loop(
     stream_mode: str = "values",
     stream_version: str | None = None,
 ) -> Iterator[Any]:
-    config = _with_thread_id(run_config, thread_id)
-    resolved_middleware = with_context_management(
+    """创建 LangChain agent，并按指定 stream_mode 产出原始 LangChain chunk。"""
+    config = dict(run_config or {})
+    configurable = dict(config.get("configurable") or {})
+    configurable.setdefault("thread_id", thread_id)
+    config["configurable"] = configurable
+
+    resolved_middleware = with_configured_middleware(
         model=model,
         middleware=middleware,
         app_config=app_config,
@@ -49,38 +54,9 @@ def run_agent_loop(
     stream_kwargs: dict[str, Any] = {"stream_mode": stream_mode}
     if stream_version:
         stream_kwargs["version"] = stream_version
+    input_messages = [HumanMessage(content=messages)] if isinstance(messages, str) else list(messages)
     yield from agent.stream(
-        {"messages": _coerce_messages(messages)},
+        {"messages": input_messages},
         config=config,
         **stream_kwargs,
     )
-
-
-def _coerce_messages(messages: Sequence[BaseMessage] | str) -> list[BaseMessage]:
-    if isinstance(messages, str):
-        return [HumanMessage(content=messages)]
-    return list(messages)
-
-
-def _with_thread_id(run_config: dict[str, Any] | None, thread_id: str) -> dict[str, Any]:
-    config = dict(run_config or {})
-    configurable = dict(config.get("configurable") or {})
-    configurable.setdefault("thread_id", thread_id)
-    config["configurable"] = configurable
-    return config
-
-
-def with_context_management(
-    *,
-    model: str | BaseChatModel,
-    middleware: Sequence[AgentMiddleware] | None,
-    app_config: AppConfig | None,
-    paper_memory_context: Mapping[str, Any] | None = None,
-) -> list[AgentMiddleware]:
-    return with_configured_middleware(
-        model=model,
-        middleware=middleware,
-        app_config=app_config,
-        paper_memory_context=paper_memory_context,
-    )
-

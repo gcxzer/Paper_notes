@@ -8,7 +8,7 @@ from typing import Any
 
 from agent_sessions.models import AgentSessionMetadata, AgentTranscriptMessage
 
-from app_infra.storage import atomic_write_text
+from app_infra.files import atomic_write_text
 
 
 _LOCKS: dict[Path, threading.Lock] = {}

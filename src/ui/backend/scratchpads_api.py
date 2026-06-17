@@ -6,7 +6,7 @@ from typing import Any
 
 from app_config.secrets import LOCAL_STATE_DIR
 from app_infra.formatting import normalize_text
-from app_infra.storage import atomic_write_json
+from app_infra.files import atomic_write_json
 
 
 DEFAULT_SCRATCHPADS_PATH = LOCAL_STATE_DIR / "scratchpads.json"

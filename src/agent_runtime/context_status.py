@@ -16,11 +16,14 @@ __all__ = [
     "has_compactable_history",
     "latest_usage_from_transcript",
     "manual_compaction_cutoff_index",
-    "model_visible_transcript_messages",
 ]
 
+
+# 前端上下文状态
 @dataclass(slots=True)
 class AgentContextStatus:
+    """描述一个会话当前的上下文占用、实际用量和压缩可用状态。"""
+
     session_id: str
     provider: str
     model: str
@@ -46,11 +49,13 @@ class AgentContextStatus:
 
     @property
     def percent_full(self) -> int:
+        """返回估算 token 占上下文窗口的百分比，供前端进度条显示。"""
         if self.context_window <= 0:
             return 0
         return min(100, max(0, round((self.estimated_tokens / self.context_window) * 100)))
 
     def to_dict(self) -> dict[str, Any]:
+        """转换成前端 API 使用的 camelCase payload。"""
         return {
             "sessionId": self.session_id,
             "provider": self.provider,
@@ -78,7 +83,9 @@ class AgentContextStatus:
         }
 
 
+# 用量读取
 def latest_usage_from_transcript(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """从 transcript 里倒序读取最近一次 assistant 消息的 token usage。"""
     for message in reversed(messages):
         if message.get("role") != "assistant":
             continue
@@ -99,71 +106,8 @@ def latest_usage_from_transcript(messages: list[dict[str, Any]]) -> dict[str, An
     }
 
 
-def context_reserve_tokens(config: AppConfig) -> int:
-    for key in ("context_compaction.reserve_tokens", "contextCompaction.reserveTokens"):
-        value = config.get(key, None)
-        if value is None:
-            continue
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            continue
-    return DEFAULT_COMPACTION_RESERVE_TOKENS
-
-
-def context_collapse_trigger_messages(config: AppConfig) -> int:
-    for key in ("context_collapse.trigger_messages", "contextCollapse.triggerMessages"):
-        value = config.get(key, None)
-        if value is None:
-            continue
-        try:
-            return max(1, int(value))
-        except (TypeError, ValueError):
-            continue
-    return 40
-
-
-def context_collapse_trigger_tokens(config: AppConfig) -> int:
-    for key in ("context_collapse.trigger_tokens", "contextCollapse.triggerTokens"):
-        value = config.get(key, None)
-        if value is None:
-            continue
-        try:
-            return max(1, int(value))
-        except (TypeError, ValueError):
-            continue
-    return 40_000
-
-
-def has_compactable_history(messages: list[BaseMessage]) -> bool:
-    user_indices = [
-        index
-        for index, message in enumerate(messages)
-        if isinstance(message, HumanMessage)
-        and not (isinstance(message.content, str) and message.content.strip().startswith(SUMMARY_MESSAGE_PREFIX))
-    ]
-    return len(user_indices) >= 2 and user_indices[-2] > 0
-
-
-def manual_compaction_cutoff_index(messages: list[dict[str, Any]]) -> int | None:
-    user_indices = [
-        index
-        for index, message in enumerate(messages)
-        if _role_text(message.get("role"))
-        == "user"
-        and not _is_summary_transcript_message(message)
-    ]
-    if len(user_indices) < 2:
-        return None
-    cutoff = user_indices[-2]
-    return cutoff if cutoff > 0 else None
-
-
-def model_visible_transcript_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [message for message in messages if _role_text(message.get("role")) != "divider"]
-
-
 def _usage_from_transcript_message(message: dict[str, Any]) -> dict[str, Any]:
+    """从单条 transcript assistant 消息的 metadata 中提取 usage 候选。"""
     metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
     response_metadata = metadata.get("response_metadata") if isinstance(metadata.get("response_metadata"), dict) else {}
     candidates = [
@@ -182,6 +126,7 @@ def _usage_from_transcript_message(message: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_usage(value: Any) -> dict[str, Any]:
+    """把不同 provider 或 LangChain 对象里的 usage 规整成统一 token 字段。"""
     if value is None:
         return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "available": False}
     if is_dataclass(value) and not isinstance(value, type):
@@ -223,6 +168,7 @@ def _normalize_usage(value: Any) -> dict[str, Any]:
 
 
 def _first_int(mapping: dict[str, Any], *keys: str) -> int:
+    """按候选 key 顺序读取第一个正整数 token 数。"""
     for key in keys:
         value = mapping.get(key)
         try:
@@ -234,14 +180,83 @@ def _first_int(mapping: dict[str, Any], *keys: str) -> int:
     return 0
 
 
+# 压缩阈值配置
+def context_reserve_tokens(config: AppConfig) -> int:
+    """读取上下文压缩预留 token 数，配置缺失时使用 middleware 默认值。"""
+    for key in ("context_compaction.reserve_tokens", "contextCompaction.reserveTokens"):
+        value = config.get(key, None)
+        if value is None:
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return DEFAULT_COMPACTION_RESERVE_TOKENS
+
+
+def context_collapse_trigger_messages(config: AppConfig) -> int:
+    """读取触发 collapse 提醒的消息数量阈值。"""
+    for key in ("context_collapse.trigger_messages", "contextCollapse.triggerMessages"):
+        value = config.get(key, None)
+        if value is None:
+            continue
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 40
+
+
+def context_collapse_trigger_tokens(config: AppConfig) -> int:
+    """读取触发 collapse 提醒的 token 阈值。"""
+    for key in ("context_collapse.trigger_tokens", "contextCollapse.triggerTokens"):
+        value = config.get(key, None)
+        if value is None:
+            continue
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 40_000
+
+
+# 压缩候选消息
+def has_compactable_history(messages: list[BaseMessage]) -> bool:
+    """判断 LangChain 消息历史里是否有足够旧的用户轮次可以压缩。"""
+    user_indices = [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message, HumanMessage)
+        and not (isinstance(message.content, str) and message.content.strip().startswith(SUMMARY_MESSAGE_PREFIX))
+    ]
+    return len(user_indices) >= 2 and user_indices[-2] > 0
+
+
+def manual_compaction_cutoff_index(messages: list[dict[str, Any]]) -> int | None:
+    """返回手动压缩时应截断到的 transcript 下标，保留最近两个用户轮次。"""
+    user_indices = [
+        index
+        for index, message in enumerate(messages)
+        if _role_text(message.get("role"))
+        == "user"
+        and not _is_summary_transcript_message(message)
+    ]
+    if len(user_indices) < 2:
+        return None
+    cutoff = user_indices[-2]
+    return cutoff if cutoff > 0 else None
+
+
+# Transcript 判断
 def _role_text(value: Any) -> str:
+    """把 transcript role 规整成小写文本。"""
     return str(value or "").strip().lower()
 
 
 def _is_summary_transcript_message(message: dict[str, Any]) -> bool:
+    """判断 transcript 消息是否是上下文压缩产生的 summary。"""
     role = _role_text(message.get("role"))
     if role == "summary":
         return True
     content = message.get("content", "")
     return isinstance(content, str) and content.strip().startswith(SUMMARY_MESSAGE_PREFIX)
-

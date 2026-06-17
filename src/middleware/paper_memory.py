@@ -10,7 +10,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from app_infra.content import content_text
+from app_infra.formatting import content_text
 from memory import (
     PAPER_MEMORY_DIR,
     paper_memory_path,

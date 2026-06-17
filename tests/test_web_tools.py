@@ -6,7 +6,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 
 from agent_runtime import AgentService, AgentServiceRequest
-from agent_runtime.run_trace import model_response_trace_events
+from agent_runtime.request_config import model_config_for_request
+from agent_runtime.run_trace import build_model_response_trace_events
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from tools import ToolContext, create_tools, tool_name
@@ -179,7 +180,7 @@ def test_agent_service_disabled_web_search_hides_native_and_custom_web_search(tm
         model="gpt-5.5",
         disabled_tools=("web_search",),
     )
-    model_config = service._model_config_for_request(request, session=None)
+    model_config = model_config_for_request(service.app_config, request, session=None)
 
     tools = service._tools_for_request(request, model_config=model_config)
 
@@ -211,7 +212,7 @@ def test_agent_service_layers_context_tools_custom_tools_and_disabled_filter(mon
         model="gpt-5.5",
         disabled_tools=("web_search",),
     )
-    model_config = service._model_config_for_request(request, session=None)
+    model_config = model_config_for_request(service.app_config, request, session=None)
 
     tools = service._tools_for_request(request, model_config=model_config)
     names = {tool_name(tool) for tool in tools}
@@ -230,7 +231,7 @@ def test_agent_service_exposes_native_web_search_for_default_tools(monkeypatch, 
         use_default_tools=True,
     )
     request = AgentServiceRequest(message="search", provider="openai", model="gpt-5.5")
-    model_config = service._model_config_for_request(request, session=None)
+    model_config = model_config_for_request(service.app_config, request, session=None)
 
     tools = service._tools_for_request(request, model_config=model_config, model_supports_tools=True)
 
@@ -257,7 +258,7 @@ def test_model_response_trace_extracts_provider_native_web_search():
         response_metadata={"model_provider": "openai"},
     )
 
-    events = model_response_trace_events([message], at=datetime(2026, 6, 14, tzinfo=timezone.utc))
+    events = build_model_response_trace_events([message], at=datetime(2026, 6, 14, tzinfo=timezone.utc))
 
     assert events == [{
         "type": "model_response",

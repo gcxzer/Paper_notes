@@ -10,9 +10,10 @@ from typing import Any
 from uuid import uuid4
 
 from app_config.secrets import LOCAL_STATE_DIR, default_env_paths, default_secrets_path, parse_env_file, write_env_values
-from app_infra.storage import atomic_write_json
+from app_infra.files import atomic_write_json
 
 __all__ = [
+    "mcp_enabled",
     "mcp_runtime_config",
     "mcp_secrets_path",
     "normalize_mcp_server_config",
@@ -60,6 +61,10 @@ def write_mcp_settings(payload: dict[str, Any], settings_path: str | Path | None
     servers = normalize_mcp_servers(payload.get("servers"))
     atomic_write_json(path, {"servers": _externalize_mcp_secrets(servers, settings_path=settings_path)})
     _secure_settings_path(path)
+
+
+def mcp_enabled(settings_path: str | Path | None = None) -> bool:
+    return any(server.get("enabled") is not False for server in read_mcp_settings(settings_path).get("servers") or [])
 
 
 def normalize_mcp_settings_update(
@@ -541,4 +546,3 @@ def _secure_settings_path(path: Path) -> None:
         os.chmod(path, 0o600)
     except OSError:
         pass
-

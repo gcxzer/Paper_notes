@@ -11,7 +11,6 @@ from media.base64_payload import Base64PayloadErrors, parse_base64_payload as _p
 SUPPORTED_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 DEFAULT_RESIZE_TARGET_BYTES = 5 * 1024 * 1024
-DEFAULT_RETRY_IMAGE_MAX_BYTES = 100 * 1024 * 1024
 _BASE64_IMAGE_ERRORS = Base64PayloadErrors(
     empty="Image data is required.",
     invalid="Image data must be valid base64.",
@@ -61,50 +60,6 @@ def parse_base64_image(value: str, *, max_bytes: int = DEFAULT_MAX_IMAGE_BYTES) 
 
 def data_url_for_bytes(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
-
-
-def shrink_image_data_url(
-    value: str,
-    *,
-    target_bytes: int = DEFAULT_RESIZE_TARGET_BYTES,
-    max_bytes: int = DEFAULT_RETRY_IMAGE_MAX_BYTES,
-) -> str:
-    data, mime_type = parse_base64_image(value, max_bytes=max_bytes)
-    target = max(50_000, int(target_bytes or DEFAULT_RESIZE_TARGET_BYTES))
-    if len(data) <= target:
-        return value
-    shrunk, shrunk_mime = shrink_image_bytes(data, mime_type=mime_type, target_bytes=target)
-    return data_url_for_bytes(shrunk, shrunk_mime)
-
-
-def shrink_image_bytes(data: bytes, *, mime_type: str, target_bytes: int = DEFAULT_RESIZE_TARGET_BYTES) -> tuple[bytes, str]:
-    if mime_type not in SUPPORTED_IMAGE_MIME_TYPES:
-        raise ImageValidationError("Unsupported image type.")
-    if mime_type == "image/gif":
-        return data, mime_type
-
-    try:
-        from PIL import Image, ImageOps
-    except Exception as error:
-        raise ImageValidationError("Pillow is required for image resizing.") from error
-
-    with Image.open(io.BytesIO(data)) as image:
-        image = ImageOps.exif_transpose(image)
-        output_format = "PNG" if mime_type == "image/png" else "JPEG" if mime_type == "image/jpeg" else "WEBP"
-        if image.mode not in {"RGB", "RGBA"}:
-            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-        save_kwargs: dict[str, Any] = {}
-        if output_format in {"JPEG", "WEBP"}:
-            if image.mode == "RGBA":
-                image = image.convert("RGB")
-            save_kwargs["quality"] = 85
-        encoded = _resize_to_target(image, output_format, save_kwargs, target_bytes)
-        final_mime = {
-            "PNG": "image/png",
-            "JPEG": "image/jpeg",
-            "WEBP": "image/webp",
-        }[output_format]
-        return encoded, final_mime
 
 
 def image_dimensions(data: bytes) -> tuple[int, int]:

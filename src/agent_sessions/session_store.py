@@ -24,8 +24,7 @@ from agent_sessions.models import (
     now_iso,
     normalize_session_state,
 )
-from app_infra.paths import PROJECT_ROOT
-from app_infra.storage import atomic_write_json
+from app_infra.files import PROJECT_ROOT, atomic_write_json
 
 
 class AgentSessionStore:

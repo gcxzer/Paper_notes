@@ -7,7 +7,7 @@ from app_infra.artifact_generation import (
     image_generation_request_options,
     request_model_options,
 )
-from app_infra.content import content_text as message_content_text
+from app_infra.formatting import content_text as message_content_text
 from app_infra.formatting import normalize_text
 from middleware import SUMMARY_MESSAGE_PREFIX
 from tools.generated_artifacts.payloads import (
@@ -63,7 +63,7 @@ def chat_result_payload(
         "requestId": request_id,
         "sessionId": result.session_id,
         "session": dict(session_payload or {}),
-        "createdSession": bool(result.created_session),
+        "createdSession": bool(result.is_session_created),
         "completed": bool(result.completed),
         "cancelled": False,
         "response": response_text,
@@ -339,4 +339,3 @@ def public_chat_messages(
     mapper: Callable[[dict[str, Any]], dict[str, Any] | None] = public_chat_message,
 ) -> list[dict[str, Any]]:
     return [message for raw in messages if (message := mapper(raw)) is not None]
-

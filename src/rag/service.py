@@ -10,7 +10,7 @@ from app_config import load_app_config
 from app_config.config import DEFAULT_INDEX_KEY, safe_index_key
 from app_infra.formatting import normalize_text
 from library.store import find_note, read_library
-from app_infra.paths import PAPERS_DIR, PROJECT_ROOT, is_relative_to
+from app_infra.files import PAPERS_DIR, PROJECT_ROOT, is_relative_to
 from rag.bm25_indexing import BM25Index
 from rag.qdrant_indexing import QdrantIndex
 

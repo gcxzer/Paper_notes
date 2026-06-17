@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -10,8 +12,6 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.types import Command
-
-from middleware.tool_output_common import safe_output_segment, tool_output_text, truncate_output_text
 
 __all__ = [
     "ToolOutputTruncationMiddleware",
@@ -56,7 +56,7 @@ class ToolOutputTruncationMiddleware(AgentMiddleware):
         if estimated_tokens <= max_tokens:
             return message
 
-        full_text = tool_output_text(message.content)
+        full_text = _tool_output_text(message.content)
         saved_path = self._write_output(tool_name=tool_name, tool_call_id=message.tool_call_id, text=full_text)
         header = _stored_output_header(
             tool_name=tool_name,
@@ -64,7 +64,7 @@ class ToolOutputTruncationMiddleware(AgentMiddleware):
             estimated_tokens=estimated_tokens,
             max_tokens=max_tokens,
         )
-        preview = truncate_output_text(full_text, max_tokens=max_tokens, chars_per_token=_CHARS_PER_TOKEN)
+        preview = _truncate_output_text(full_text, max_tokens=max_tokens, chars_per_token=_CHARS_PER_TOKEN)
         content = f"{header}{preview}"
         return message.model_copy(update={"content": content})
 
@@ -99,7 +99,7 @@ class ToolOutputTruncationMiddleware(AgentMiddleware):
     def _write_output(self, *, tool_name: str, tool_call_id: str, text: str) -> Path:
         self.root_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-        filename = f"{timestamp}-{safe_output_segment(tool_name)}-{safe_output_segment(tool_call_id)}-{uuid.uuid4().hex[:8]}.txt"
+        filename = f"{timestamp}-{_safe_output_segment(tool_name)}-{_safe_output_segment(tool_call_id)}-{uuid.uuid4().hex[:8]}.txt"
         path = self.root_dir / filename
         path.write_text(text, encoding="utf-8")
         return path
@@ -127,6 +127,26 @@ def _tool_name(request: Any) -> str:
     if isinstance(tool_call, dict):
         return str(tool_call.get("name") or "tool")
     return "tool"
+
+
+def _tool_output_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True)
+    except TypeError:
+        return str(content)
+
+
+def _truncate_output_text(text: str, *, max_tokens: int, chars_per_token: int = 4) -> str:
+    max_chars = max(1, int(max_tokens) * max(1, int(chars_per_token)))
+    return str(text or "")[:max_chars].rstrip()
+
+
+def _safe_output_segment(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip())
+    text = re.sub(r"-{2,}", "-", text).strip(".-")
+    return text[:80] or "tool"
 
 
 def _stored_output_header(

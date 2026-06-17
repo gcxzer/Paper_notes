@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,9 @@ from media.image import (
     parse_base64_image,
     sniff_image_mime,
 )
-from media.types import ImageArtifact
 from app_infra.artifact_generation import generated_text_artifact_kind
+from app_infra.files import LOCAL_STATE_DIR, PROJECT_ROOT, atomic_write_json, is_relative_to
 from app_infra.formatting import normalize_text
-from app_infra.paths import LOCAL_STATE_DIR, PROJECT_ROOT, is_relative_to
-from app_infra.storage import atomic_write_json
 
 __all__ = [
     "MediaStore",
@@ -39,6 +38,63 @@ __all__ = [
 class MediaStoreError(ValueError):
     pass
 
+
+@dataclass(slots=True)
+class MediaArtifact:
+    id: str
+    source: str
+    mime_type: str
+    file_name: str
+    path: str
+    url: str
+    download_url: str
+    width: int = 0
+    height: int = 0
+    size: int = 0
+    provider: str = ""
+    model: str = ""
+    created_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    kind: str = "image"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "source": self.source,
+            "mimeType": self.mime_type,
+            "fileName": self.file_name,
+            "path": self.path,
+            "url": self.url,
+            "downloadUrl": self.download_url,
+            "width": self.width,
+            "height": self.height,
+            "size": self.size,
+            "provider": self.provider,
+            "model": self.model,
+            "createdAt": self.created_at,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> MediaArtifact:
+        return cls(
+            id=str(payload.get("id") or ""),
+            kind=str(payload.get("kind") or "image"),
+            source=str(payload.get("source") or ""),
+            mime_type=str(payload.get("mimeType") or payload.get("mime_type") or ""),
+            file_name=str(payload.get("fileName") or payload.get("file_name") or ""),
+            path=str(payload.get("path") or ""),
+            url=str(payload.get("url") or ""),
+            download_url=str(payload.get("downloadUrl") or payload.get("download_url") or ""),
+            width=int(payload.get("width") or 0),
+            height=int(payload.get("height") or 0),
+            size=int(payload.get("size") or 0),
+            provider=str(payload.get("provider") or ""),
+            model=str(payload.get("model") or ""),
+            created_at=str(payload.get("createdAt") or payload.get("created_at") or ""),
+            metadata=dict(payload.get("metadata") or {}),
+        )
 
 DEFAULT_MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024
 _BASE64_ATTACHMENT_ERRORS = Base64PayloadErrors(
@@ -75,7 +131,7 @@ class MediaStore:
         scope: str = "",
         mime_type: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         raw, declared_mime = _parse_base64_payload(data)
         sniffed_image_mime = sniff_image_mime(raw)
         requested_mime = normalize_text(mime_type or declared_mime or sniffed_image_mime or attachment_mime_for_name(file_name)).lower()
@@ -136,7 +192,7 @@ class MediaStore:
         model: str = "",
         metadata: dict[str, Any] | None = None,
         file_format: str = "png",
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         raw, mime_type = parse_base64_image(image_data)
         if file_format:
             requested_mime = _mime_for_format(file_format)
@@ -173,7 +229,7 @@ class MediaStore:
         tool_name: str = "",
         resource_uri: str = "",
         file_name: str = "",
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         requested_mime = normalize_text(mime_type).lower()
         if requested_mime and not requested_mime.startswith("image/"):
             raise MediaStoreError(f"Unsupported MCP image MIME type: {mime_type}")
@@ -226,7 +282,7 @@ class MediaStore:
         tool_name: str = "",
         resource_uri: str = "",
         file_name: str = "",
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         normalized_mime = normalize_text(mime_type).lower()
         kind, extension = generated_text_artifact_kind(normalized_mime)
         if not kind:
@@ -281,7 +337,7 @@ class MediaStore:
         tool_name: str = "",
         resource_uri: str = "",
         file_name: str = "",
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         normalized_mime = normalize_text(mime_type).lower()
         if normalized_mime != "application/pdf":
             raise MediaStoreError(f"Unsupported MCP PDF MIME type: {mime_type}")
@@ -349,7 +405,7 @@ class MediaStore:
         provider: str = "",
         model: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         normalized_mime = normalize_text(mime_type).lower()
         kind, extension = generated_text_artifact_kind(normalized_mime)
         if not kind:
@@ -397,7 +453,7 @@ class MediaStore:
         provider: str = "",
         model: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         source_path = Path(path).resolve()
         media_root = self.root.resolve()
         if source not in {"pdf_page", "pdf_image"} and not is_relative_to(source_path, media_root):
@@ -437,7 +493,7 @@ class MediaStore:
         source: str,
         scope: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         source_path = Path(path).resolve()
         data = source_path.read_bytes()
         mime_type = sniff_image_mime(data)
@@ -462,16 +518,16 @@ class MediaStore:
             metadata=metadata,
         )
 
-    def get_artifact(self, artifact_id: str) -> ImageArtifact | None:
+    def get_artifact(self, artifact_id: str) -> MediaArtifact | None:
         return self._load_manifest().get(str(artifact_id or ""))
 
-    def require_artifact(self, artifact_id: str) -> ImageArtifact:
+    def require_artifact(self, artifact_id: str) -> MediaArtifact:
         artifact = self.get_artifact(artifact_id)
         if artifact is None:
             raise MediaStoreError(f"Media artifact not found: {artifact_id}")
         return artifact
 
-    def find_by_path(self, path: str | Path) -> ImageArtifact | None:
+    def find_by_path(self, path: str | Path) -> MediaArtifact | None:
         resolved = str(Path(path).resolve())
         for artifact in self._load_manifest().values():
             try:
@@ -529,9 +585,9 @@ class MediaStore:
         provider: str = "",
         model: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> ImageArtifact:
+    ) -> MediaArtifact:
         path = path.resolve()
-        artifact = ImageArtifact(
+        artifact = MediaArtifact(
             id=artifact_id,
             source=source,
             mime_type=mime_type,
@@ -553,7 +609,7 @@ class MediaStore:
         self._save_manifest(manifest)
         return artifact
 
-    def _load_manifest(self) -> dict[str, ImageArtifact]:
+    def _load_manifest(self) -> dict[str, MediaArtifact]:
         if not self.manifest_path.exists():
             return {}
         try:
@@ -564,12 +620,12 @@ class MediaStore:
         if not isinstance(artifacts, dict):
             return {}
         return {
-            artifact_id: ImageArtifact.from_dict(artifact)
+            artifact_id: MediaArtifact.from_dict(artifact)
             for artifact_id, artifact in artifacts.items()
             if isinstance(artifact, dict)
         }
 
-    def _save_manifest(self, manifest: dict[str, ImageArtifact]) -> None:
+    def _save_manifest(self, manifest: dict[str, MediaArtifact]) -> None:
         atomic_write_json(
             self.manifest_path,
             {"artifacts": {artifact_id: artifact.to_dict() for artifact_id, artifact in manifest.items()}},
@@ -638,4 +694,3 @@ def _path_size(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
-

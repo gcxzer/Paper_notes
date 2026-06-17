@@ -45,8 +45,10 @@ RECOVERABLE_REQUEST_OPTION_KEYS = {
 }
 
 
+# 可恢复错误识别
 def is_recoverable_model_request_error(error: Exception) -> bool:
-    text = exception_text(error).lower()
+    """判断 provider 错误是否适合移除可选能力后重试。"""
+    text = " ".join(str(error or "").split()).lower()
     if not text:
         return False
     has_request_failure = any(
@@ -79,7 +81,9 @@ def is_recoverable_model_request_error(error: Exception) -> bool:
     )
 
 
+# 恢复用模型配置和提示
 def model_config_for_recovery(config: AppConfig) -> AppConfig:
+    """复制模型配置，并移除容易触发 provider 400 的可选参数。"""
     data = copy.deepcopy(config.data)
     models = data.get("models") if isinstance(data.get("models"), dict) else {}
     default_key = str(models.get("default") or "main")
@@ -100,6 +104,7 @@ def messages_with_recovery_instruction(
     provider: str,
     model: str,
 ) -> list[BaseMessage]:
+    """在原输入后追加一条恢复说明，让模型用纯文本回答用户请求。"""
     return [
         *input_messages,
         HumanMessage(
@@ -110,6 +115,7 @@ def messages_with_recovery_instruction(
 
 
 def model_request_recovery_instruction(error: Exception, *, provider: str, model: str) -> str:
+    """生成恢复重试时给模型看的系统化说明。"""
     label = " / ".join(part for part in (provider, model) if part)
     detail = short_exception_text(error)
     return (
@@ -123,12 +129,14 @@ def model_request_recovery_instruction(error: Exception, *, provider: str, model
     )
 
 
+# 恢复结果整理
 def recovered_final_messages(
     chunks: list[object],
     recovery_messages: list[BaseMessage],
     original_input_messages: list[BaseMessage],
     error: Exception,
 ) -> list[BaseMessage]:
+    """从恢复重试 chunk 中提取最终消息，并标记 assistant 已从错误恢复。"""
     final_messages = messages_from_final_chunk(chunks) or recovery_messages
     stripped = without_recovery_messages(final_messages)
     if last_assistant_text(stripped) is not None:
@@ -142,6 +150,38 @@ def recovered_final_messages(
     ]
 
 
+def without_recovery_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """去掉内部恢复提示消息，避免它进入最终 transcript。"""
+    return [
+        message
+        for message in messages
+        if not (isinstance(message, HumanMessage) and str(getattr(message, "name", "") or "") == RECOVERY_MESSAGE_NAME)
+    ]
+
+
+def mark_latest_assistant_recovered(messages: list[BaseMessage], error: Exception) -> list[BaseMessage]:
+    """给最近一条 assistant 消息加 recovered_from_error metadata。"""
+    updated = list(messages)
+    for index in range(len(updated) - 1, -1, -1):
+        message = updated[index]
+        if not isinstance(message, AIMessage):
+            continue
+        metadata = dict(getattr(message, "response_metadata", None) or {})
+        metadata.setdefault("recovered_from_error", short_exception_text(error))
+        updated[index] = message.model_copy(update={"response_metadata": metadata})
+        break
+    return updated
+
+
+def generic_recovery_response(error: Exception) -> str:
+    """当恢复重试没有 assistant 回复时生成兜底文本。"""
+    return (
+        "The current model could not use one of the requested capabilities for this turn. "
+        f"Provider detail: {short_exception_text(error)}"
+    )
+
+
+# 执行带恢复的 agent loop
 def run_agent_loop_with_recovery(
     run_loop: Any,
     chat_model_for_config: Any,
@@ -159,6 +199,7 @@ def run_agent_loop_with_recovery(
     middleware: list[Any] | None = None,
     paper_memory_context: dict[str, Any] | None = None,
 ) -> tuple[list[Any], list[BaseMessage]]:
+    """执行 agent loop；遇到可恢复 provider 请求错误时降级配置并重试一次。"""
     try:
         chunks = list(
             run_loop(
@@ -202,39 +243,8 @@ def run_agent_loop_with_recovery(
         return chunks, recovered_final_messages(chunks, recovery_messages, input_messages, error)
 
 
-def without_recovery_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
-    return [
-        message
-        for message in messages
-        if not (isinstance(message, HumanMessage) and str(getattr(message, "name", "") or "") == RECOVERY_MESSAGE_NAME)
-    ]
-
-
-def mark_latest_assistant_recovered(messages: list[BaseMessage], error: Exception) -> list[BaseMessage]:
-    updated = list(messages)
-    for index in range(len(updated) - 1, -1, -1):
-        message = updated[index]
-        if not isinstance(message, AIMessage):
-            continue
-        metadata = dict(getattr(message, "response_metadata", None) or {})
-        metadata.setdefault("recovered_from_error", short_exception_text(error))
-        updated[index] = message.model_copy(update={"response_metadata": metadata})
-        break
-    return updated
-
-
-def generic_recovery_response(error: Exception) -> str:
-    return (
-        "The current model could not use one of the requested capabilities for this turn. "
-        f"Provider detail: {short_exception_text(error)}"
-    )
-
-
+# 错误文本
 def short_exception_text(error: BaseException, *, limit: int = 500) -> str:
-    text = exception_text(error)
+    """返回适合保存和展示的短错误文本。"""
+    text = " ".join(str(error or "").split())
     return text if len(text) <= limit else f"{text[:limit - 3]}..."
-
-
-def exception_text(error: BaseException) -> str:
-    return " ".join(str(error or "").split())
-

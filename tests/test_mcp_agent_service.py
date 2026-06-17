@@ -24,11 +24,13 @@ def test_agent_service_wires_mcp_manager_into_tool_context(monkeypatch, tmp_path
     import tools.mcp as mcp_package
 
     monkeypatch.setattr(mcp_package, "MCPManager", FakeMCPManager)
+    monkeypatch.setattr(mcp_package, "mcp_enabled", lambda: True)
     media_store = object()
 
     service = AgentService(
         app_config=AppConfig(data={}, path=tmp_path / "config.json"),
         media_store=media_store,
+        use_default_tools=False,
     )
 
     assert created == [service.mcp_manager]
@@ -41,3 +43,24 @@ def test_agent_service_wires_mcp_manager_into_tool_context(monkeypatch, tmp_path
 
     assert service.mcp_manager is None
     assert manager.closed is True
+
+
+def test_agent_service_skips_mcp_manager_when_mcp_is_disabled(monkeypatch, tmp_path):
+    created = []
+
+    class FakeMCPManager:
+        def __init__(self, *, media_store=None):
+            created.append(self)
+
+    import tools.mcp as mcp_package
+
+    monkeypatch.setattr(mcp_package, "MCPManager", FakeMCPManager)
+    monkeypatch.setattr(mcp_package, "mcp_enabled", lambda: False)
+
+    service = AgentService(
+        app_config=AppConfig(data={}, path=tmp_path / "config.json"),
+    )
+
+    assert created == []
+    assert service.mcp_manager is None
+    assert service._tool_context.mcp_manager is None

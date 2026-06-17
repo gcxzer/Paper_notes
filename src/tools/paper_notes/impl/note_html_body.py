@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from app_infra.files import HTML_DIR, PROJECT_ROOT, atomic_write_text, is_relative_to
 from app_infra.formatting import normalize_text
-from app_infra.paths import HTML_DIR, PROJECT_ROOT, is_relative_to
-from app_infra.storage import atomic_write_text
 from tools.paper_notes.impl.artifacts import _artifact_to_payload
 from tools.paper_notes.impl.common import (
     positive_int,

@@ -6,6 +6,7 @@ from typing import Any
 
 from agent_prompts import AgentPromptContext, build_agent_instructions, extract_tool_names
 from agent_runtime import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
+from agent_runtime.request_config import model_config_for_request
 from media import MediaStore, MediaStoreError
 from ui.backend.agent_api import get_agent_service
 from ui.backend.api_errors import ChatAPIError
@@ -86,7 +87,12 @@ def prepare_chat_run(
         stream_mode=optional_text(body.get("streamMode")) or "values",
     )
     prompt_session = agent_service.session_store.get_session(session_id) if session_id else None
-    prompt_model_config = agent_service._model_config_for_request(request, session=prompt_session)
+    prompt_model_config = model_config_for_request(
+        agent_service.app_config,
+        request,
+        session=prompt_session,
+        media_store=media_store,
+    )
     request.system_prompt = system_prompt(
         body,
         tools=agent_service._tools_for_request(request, model_config=prompt_model_config, session=prompt_session),
@@ -338,4 +344,3 @@ def agent_prompt_context(body: dict[str, Any]) -> AgentPromptContext | None:
         visible_annotations=annotations,
         session_title=optional_text(body.get("sessionTitle") or body.get("title")),
     )
-

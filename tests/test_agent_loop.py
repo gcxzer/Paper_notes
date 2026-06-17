@@ -8,7 +8,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 
 from agent_runtime import run_agent_loop
-from agent_runtime.agent_loop import with_context_management
+from middleware import with_configured_middleware
 from agent_runtime.messages import messages_from_transcript
 from app_config import AppConfig
 from middleware import (
@@ -113,7 +113,7 @@ def test_context_management_inserts_message_based_collapse_middleware() -> None:
         path=None,
     )
 
-    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_configured_middleware(model=model, middleware=None, app_config=app_config)
 
     collapse = next(item for item in middleware if isinstance(item, ContextCollapseMiddleware))
     assert collapse.trigger == [("messages", 12), ("tokens", 40_000)]
@@ -136,7 +136,7 @@ def test_context_management_inserts_tool_output_middleware(tmp_path) -> None:
         path=None,
     )
 
-    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_configured_middleware(model=model, middleware=None, app_config=app_config)
 
     truncation = next(item for item in middleware if isinstance(item, ToolOutputTruncationMiddleware))
     placeholder = next(item for item in middleware if isinstance(item, ToolOutputPlaceholderMiddleware))
@@ -166,7 +166,7 @@ def test_context_management_inserts_tool_call_limit_middleware() -> None:
         path=None,
     )
 
-    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_configured_middleware(model=model, middleware=None, app_config=app_config)
 
     limiter = next(item for item in middleware if isinstance(item, ToolCallLimitMiddleware))
     assert limiter.tool_name == "query_paper_content"
@@ -189,7 +189,7 @@ def test_context_management_inserts_paper_memory_middleware(tmp_path) -> None:
         path=None,
     )
 
-    middleware = with_context_management(
+    middleware = with_configured_middleware(
         model=model,
         middleware=None,
         app_config=app_config,
@@ -218,7 +218,7 @@ def test_context_management_inserts_rag_tool_serialization_middleware() -> None:
         path=None,
     )
 
-    middleware = with_context_management(model=model, middleware=None, app_config=app_config)
+    middleware = with_configured_middleware(model=model, middleware=None, app_config=app_config)
 
     serializer = next(item for item in middleware if isinstance(item, RagToolSerializationMiddleware))
     assert serializer.tool_names == ("query_paper_content",)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app_infra.paths import LOCAL_STATE_DIR
+from app_infra.files import LOCAL_STATE_DIR
 
 
 MEMORY_DIR = LOCAL_STATE_DIR / "memory"

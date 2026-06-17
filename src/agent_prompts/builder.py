@@ -28,6 +28,12 @@ def build_agent_instructions(
 ) -> str:
     tool_names = extract_tool_names(tools or [])
     normalized_context = normalize_prompt_context(context)
+    current_note = (
+        normalized_context.current_note
+        if normalized_context and isinstance(normalized_context.current_note, dict)
+        else {}
+    )
+    current_note_id = str(current_note.get("id") or "").strip()
     parts = [
         PAPER_NOTES_AGENT_IDENTITY,
         PAPER_NOTES_RESPONSE_GUIDANCE,
@@ -36,8 +42,8 @@ def build_agent_instructions(
     if extra_instructions and extra_instructions.strip():
         parts.append(extra_instructions.strip())
     parts.append(build_memory_section())
+    parts.append(build_paper_memory_section(current_note_id))
     parts.append(build_context_section(normalized_context))
-    parts.append(build_paper_memory_section(_context_note_id(normalized_context)))
 
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
@@ -45,25 +51,17 @@ def build_agent_instructions(
 def extract_tool_names(tools: Sequence[Any]) -> set[str]:
     names: set[str] = set()
     for tool in tools:
-        name = _extract_tool_name(tool)
-        if name:
-            names.add(name)
+        if isinstance(tool, dict):
+            function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+            name = function.get("name") or tool.get("name") or tool.get("type")
+        else:
+            name = getattr(tool, "name", "")
+        text = str(name).strip() if isinstance(name, str) else ""
+        if text.startswith("web_search_"):
+            text = "web_search"
+        if text:
+            names.add(text)
     return names
-
-
-def _extract_tool_name(tool: Any) -> str:
-    if isinstance(tool, dict):
-        function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
-        name = function.get("name") or tool.get("name") or tool.get("type")
-    else:
-        name = getattr(tool, "name", "")
-    text = str(name).strip() if isinstance(name, str) else ""
-    return "web_search" if text.startswith("web_search_") else text
-
-
-def _context_note_id(context: AgentPromptContext | None) -> str:
-    note = context.current_note if context and isinstance(context.current_note, dict) else {}
-    return str(note.get("id") or note.get("noteId") or note.get("note_id") or "").strip()
 
 
 def _build_tool_guidance(tool_names: set[str]) -> str:

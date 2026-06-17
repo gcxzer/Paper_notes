@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app_infra.formatting import normalize_text
-from app_infra.storage import atomic_write_json, atomic_write_text
+from app_infra.files import atomic_write_json, atomic_write_text
 from tools.skills import SkillStore, default_skill_roots
 from tools.skills.settings import normalize_disabled_skills, normalize_external_directories, skill_settings_path
 from ui.backend.agent_api import reset_agent_service

@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from agent_runtime import ATTACHMENT_ONLY_MESSAGE, AgentService, AgentServiceRequest
-from agent_runtime.streaming import events_from_langchain_chunk
+from agent_runtime.run_trace import stream_events_from_langchain_chunk
 from agent_sessions import AgentSessionStore
 from app_config import AppConfig
 from model_providers import ModelProviderConfig
@@ -44,7 +44,7 @@ def test_agent_service_creates_session_and_persists_transcript(tmp_path):
 
     result = service.run(AgentServiceRequest(message="Hello", title="Paper chat", enable_tools=False))
 
-    assert result.created_session is True
+    assert result.is_session_created is True
     assert result.response == "Hello from LangChain."
     assert result.session.metadata.title == "Paper chat"
     assert result.session.metadata.provider == "openai"
@@ -392,7 +392,7 @@ def test_streaming_model_trace_metadata_becomes_work_trace_delta():
         },
     )
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert len(events) == 1
     assert events[0].event == "work_trace_delta"
@@ -407,8 +407,8 @@ def test_streaming_tool_events_mark_call_incomplete_until_result():
     )
     tool_result = ToolMessage(content="created image", name="create_image_artifact", tool_call_id="call-image-1")
 
-    call_events = events_from_langchain_chunk({"type": "updates", "data": {"agent": {"messages": [tool_call]}}})
-    result_events = events_from_langchain_chunk({"type": "updates", "data": {"tools": {"messages": [tool_result]}}})
+    call_events = stream_events_from_langchain_chunk({"type": "updates", "data": {"agent": {"messages": [tool_call]}}})
+    result_events = stream_events_from_langchain_chunk({"type": "updates", "data": {"tools": {"messages": [tool_result]}}})
 
     assert len(call_events) == 1
     assert call_events[0].event == "work_trace_item"
@@ -423,7 +423,7 @@ def test_streaming_tool_events_mark_call_incomplete_until_result():
 def test_streaming_raw_reasoning_content_block_is_hidden():
     token = AIMessageChunk(content=[{"type": "reasoning", "reasoning": "Checking page context."}])
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert events == []
 
@@ -431,7 +431,7 @@ def test_streaming_raw_reasoning_content_block_is_hidden():
 def test_streaming_raw_thinking_content_block_is_hidden():
     token = AIMessageChunk(content=[{"type": "thinking", "thinking": "Reviewing provider context."}])
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert events == []
 
@@ -439,7 +439,7 @@ def test_streaming_raw_thinking_content_block_is_hidden():
 def test_streaming_reasoning_summary_content_block_becomes_work_trace_item():
     token = AIMessageChunk(content=[{"type": "reasoning", "summary": "Checking page context."}])
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert len(events) == 1
     assert events[0].event == "work_trace_item"
@@ -454,7 +454,7 @@ def test_streaming_reasoning_summary_list_block_becomes_work_trace_item():
         "summary": [{"type": "summary_text", "text": "Checking page context."}],
     }])
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert len(events) == 1
     assert events[0].event == "work_trace_item"
@@ -473,7 +473,7 @@ def test_streaming_openai_reasoning_block_text_becomes_summary_work_trace_item()
     )
     assert token.content_blocks == [{"type": "reasoning", "reasoning": "Checking page context."}]
 
-    events = events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
+    events = stream_events_from_langchain_chunk({"type": "messages", "data": (token, {"langgraph_node": "model"})})
 
     assert len(events) == 1
     assert events[0].event == "work_trace_item"
@@ -492,7 +492,7 @@ def test_streaming_tool_call_event_includes_tool_args():
         }],
     )
 
-    events = events_from_langchain_chunk({"type": "updates", "data": {"model": {"messages": [message]}}})
+    events = stream_events_from_langchain_chunk({"type": "updates", "data": {"model": {"messages": [message]}}})
 
     assert len(events) == 1
     assert events[0].event == "work_trace_item"
@@ -514,7 +514,7 @@ def test_streaming_update_emits_provider_reasoning_before_tool_call():
         }],
     )
 
-    events = events_from_langchain_chunk({"type": "updates", "data": {"model": {"messages": [message]}}})
+    events = stream_events_from_langchain_chunk({"type": "updates", "data": {"model": {"messages": [message]}}})
 
     assert [event.data["traceType"] for event in events] == ["reasoning", "tool"]
     assert events[0].data["text"] == "Need note context first."
@@ -534,7 +534,7 @@ def test_agent_service_continues_existing_session(tmp_path):
     first = service.run(AgentServiceRequest(message="First question", title="Continuity", enable_tools=False))
     second = service.run(AgentServiceRequest(message="Second question", session_id=first.session_id, enable_tools=False))
 
-    assert second.created_session is False
+    assert second.is_session_created is False
     assert [message["content"] for message in second.messages] == [
         "First question",
         "First answer.",

@@ -6,9 +6,8 @@ import sys
 from typing import Any
 from urllib.parse import unquote
 
+from app_infra.files import HTML_DIR, PROJECT_ROOT, atomic_write_text, is_relative_to
 from app_infra.formatting import normalize_text
-from app_infra.paths import HTML_DIR, PROJECT_ROOT, is_relative_to
-from app_infra.storage import atomic_write_text
 
 
 def create_paper_note_html(

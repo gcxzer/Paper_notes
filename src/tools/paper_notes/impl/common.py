@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from app_infra.formatting import normalize_text
-from app_infra.paths import PROJECT_ROOT, is_relative_to
+from app_infra.files import PROJECT_ROOT, is_relative_to
 from library.store import find_note, read_library
 
 __all__ = [

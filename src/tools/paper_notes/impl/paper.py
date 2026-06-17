@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from app_infra.formatting import normalize_text
-from app_infra.paths import PAPERS_DIR, PROJECT_ROOT, is_relative_to
+from app_infra.files import PAPERS_DIR, PROJECT_ROOT, is_relative_to
 from tools.paper_notes.impl.artifacts import _attach_artifact
 from tools.paper_notes.impl.common import (
     positive_float,

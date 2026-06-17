@@ -99,10 +99,10 @@ def normalize_prompt_context(context: AgentPromptContext | dict[str, Any] | None
     if not isinstance(context, dict):
         return None
     return AgentPromptContext(
-        current_note=context.get("current_note") or context.get("note"),
-        current_page=context.get("current_page") or context.get("page"),
-        selection_text=_text(context.get("selection_text") or context.get("selection")),
-        visible_annotations=list(context.get("visible_annotations") or context.get("annotations") or []),
+        current_note=context.get("current_note"),
+        current_page=context.get("current_page"),
+        selection_text=_text(context.get("selection_text")),
+        visible_annotations=list(context.get("visible_annotations") or []),
         session_title=_text(context.get("session_title")),
     )
 

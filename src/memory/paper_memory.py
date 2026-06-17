@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app_infra.paths import LOCAL_STATE_DIR
+from app_infra.files import LOCAL_STATE_DIR
 
 
 PAPER_MEMORY_DIR = LOCAL_STATE_DIR / "memory" / "paper-memory"

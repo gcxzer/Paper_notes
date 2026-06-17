@@ -26,7 +26,7 @@ def test_agent_service_smoke_creates_session(tmp_path):
 
     result = service.run(AgentServiceRequest(message="hello", enable_tools=False))
 
-    assert result.created_session is True
+    assert result.is_session_created is True
     assert result.response == "ok"
     assert store.require_session(result.session_id).metadata.message_count == 2
 

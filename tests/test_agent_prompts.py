@@ -90,7 +90,7 @@ def test_prompt_includes_extra_instructions():
 def test_prompt_places_context_after_extra_instructions():
     prompt = build_agent_instructions(
         extra_instructions="Use the current selection first.",
-        context={"note": {"id": "note-1", "title": "Graph RAG"}},
+        context={"current_note": {"id": "note-1", "title": "Graph RAG"}},
     )
 
     assert prompt.index("Use the current selection first.") < prompt.index("# Current Reading Context")
@@ -100,7 +100,7 @@ def test_prompt_places_memory_before_context(monkeypatch):
     monkeypatch.setattr(prompt_builder, "build_memory_section", lambda: "# Memory\n\n## System Memory\n\n- Use local rules.")
     monkeypatch.setattr(prompt_builder, "build_paper_memory_section", lambda _note_id: "")
     prompt = build_agent_instructions(
-        context={"note": {"id": "note-1", "title": "Graph RAG"}},
+        context={"current_note": {"id": "note-1", "title": "Graph RAG"}},
     )
 
     assert "# Memory" in prompt
@@ -125,19 +125,21 @@ def test_memory_section_reads_system_then_user_files(tmp_path):
     assert "Do not load me" not in section
 
 
-def test_prompt_places_current_paper_memory_after_context(monkeypatch):
-    monkeypatch.setattr(prompt_builder, "build_memory_section", lambda: "")
+def test_prompt_places_current_paper_memory_between_memory_and_context(monkeypatch):
+    monkeypatch.setattr(prompt_builder, "build_memory_section", lambda: "# Memory\n\n## System Memory\n\n- Use local rules.")
     monkeypatch.setattr(
         prompt_builder,
         "build_paper_memory_section",
         lambda note_id: "# Current Paper Memory\n\n- Loaded note-1 memory." if note_id == "note-1" else "",
     )
     prompt = build_agent_instructions(
-        context={"note": {"id": "note-1", "title": "Graph RAG"}},
+        context={"current_note": {"id": "note-1", "title": "Graph RAG"}},
     )
 
+    assert "# Memory" in prompt
     assert "# Current Paper Memory" in prompt
-    assert prompt.index("# Current Reading Context") < prompt.index("# Current Paper Memory")
+    assert prompt.index("# Memory") < prompt.index("# Current Paper Memory")
+    assert prompt.index("# Current Paper Memory") < prompt.index("# Current Reading Context")
 
 
 def test_paper_memory_section_reads_only_current_paper(tmp_path):
@@ -191,12 +193,12 @@ def test_context_section_includes_current_note_selection_and_annotations():
     assert "id=a1; page=3: Important equation" in section
 
 
-def test_prompt_accepts_context_dict():
+def test_prompt_accepts_canonical_context_dict():
     prompt = build_agent_instructions(
         context={
-            "note": {"id": "note-1", "title": "Graph RAG"},
-            "page": 7,
-            "selection": "retrieval graph",
+            "current_note": {"id": "note-1", "title": "Graph RAG"},
+            "current_page": 7,
+            "selection_text": "retrieval graph",
         }
     )
 
