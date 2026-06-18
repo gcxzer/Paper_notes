@@ -278,6 +278,7 @@ const readerState = {
   chatAbortController: null,
   chatAbortControllersBySession: {},
   chatStreamRenderTimer: 0,
+  chatProgressRenderTimer: 0,
   htmlNoteWriteRunsBySession: {},
   noteRefreshTimer: 0,
   noteRefreshInFlight: false,

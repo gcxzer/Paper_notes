@@ -4,11 +4,11 @@
 @import "../shared/workspace-theme.css";
 @import "./layout.css";
 @import "./pdf.css";
-@import "./ask.css?v=project-flyout-list-only-v1";
-@import "./chat.css?v=chat-mermaid-v1";
+@import "./ask.css?v=ask-scroll-flicker-v1";
+@import "./chat.css?v=ask-scroll-flicker-v1";
 @import "./prompts.css";
 @import "./slash-commands.css";
 @import "./artifacts.css?v=project-flyout-list-only-v1";
 @import "./note.css";
 @import "./responsive.css";
-@import "./workbench.css?v=project-flyout-list-only-v1";
+@import "./workbench.css?v=ask-scroll-flicker-v1";

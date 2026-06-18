@@ -313,7 +313,7 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
         ? `<div class="ask-bubble">${rawMessage.streaming ? renderStreamingChatText(message.text) : renderChatMarkdown(message.text)}</div>`
         : "";
     return `${progressBeforeMessage}${nextCompactionMarkerHtml}${compactionMarkerHtml}
-    <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}">
+    <div class="ask-message ask-message-${message.role}${message.error ? " ask-message-error" : ""}" data-chat-message-index="${index}">
       <div class="ask-message-stack">
         ${traceHtml}
         ${bubbleHtml}
@@ -337,6 +337,43 @@ function renderReaderChatMessages({ scrollToBottom = false, forceScrollToBottom 
     });
   }
   scheduleChatMermaidRender(elements.readerChatMessages, { keepScrolledToBottom });
+}
+
+function latestReaderStreamingAssistantMessageIndex() {
+  for (let index = readerState.chatMessages.length - 1; index >= 0; index -= 1) {
+    const message = readerState.chatMessages[index];
+    if (message?.role === "user") return -1;
+    if (message?.role === "assistant" && message.streaming) return index;
+  }
+  return -1;
+}
+
+function renderReaderStreamingAssistantMessage({ scrollToBottom = false } = {}) {
+  const container = elements.readerChatMessages;
+  if (!container) return false;
+  const index = latestReaderStreamingAssistantMessageIndex();
+  if (index < 0) return false;
+  const rawMessage = readerState.chatMessages[index];
+  const message = normalizeChatMessage(rawMessage);
+  const messageElement = container.querySelector(`.ask-message[data-chat-message-index="${index}"]`);
+  const bubble = messageElement?.querySelector(".ask-message-stack > .ask-bubble");
+  if (!messageElement || !bubble) return false;
+
+  const previousScrollTop = container.scrollTop;
+  const wasNearBottom = readerChatIsNearBottom(container);
+  bubble.innerHTML = renderStreamingChatText(message.text);
+
+  const keepScrolledToBottom = scrollToBottom && wasNearBottom;
+  if (keepScrolledToBottom) {
+    container.scrollTop = container.scrollHeight;
+  } else {
+    container.scrollTop = previousScrollTop;
+    requestAnimationFrame(() => {
+      if (container.isConnected) container.scrollTop = previousScrollTop;
+    });
+  }
+  scheduleChatMermaidRender(bubble, { keepScrolledToBottom });
+  return true;
 }
 
 function renderUserGenerationBadge(generation, attachments = []) {

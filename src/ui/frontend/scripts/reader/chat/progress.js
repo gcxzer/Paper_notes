@@ -257,8 +257,22 @@ function setReaderChatProgress(progress, sessionId = getChatSessionId()) {
   }
   if (isCurrentChatSessionRunKey(runKey)) {
     syncCurrentChatRunState();
-    renderReaderChatMessages({ scrollToBottom: Boolean(readerState.chatPending) });
+    scheduleReaderChatProgressRender();
   }
+}
+
+function scheduleReaderChatProgressRender() {
+  if (readerState.chatProgressRenderTimer) return;
+  readerState.chatProgressRenderTimer = window.setTimeout(() => {
+    readerState.chatProgressRenderTimer = 0;
+    renderReaderChatMessages({ scrollToBottom: Boolean(readerState.chatPending) });
+  }, 90);
+}
+
+function cancelReaderChatProgressRender() {
+  if (!readerState.chatProgressRenderTimer) return;
+  window.clearTimeout(readerState.chatProgressRenderTimer);
+  readerState.chatProgressRenderTimer = 0;
 }
 
 function mergeReaderChatProgress(previousProgress, nextProgress) {
@@ -410,7 +424,10 @@ function clearReaderChatProgress(sessionId = getChatSessionId()) {
   clearReaderChatRecoveryPoll(runKey);
   delete readerState.chatProgressBySession[runKey];
   delete readerState.chatProgressRequestIdsBySession[runKey];
-  if (isCurrentChatSessionRunKey(runKey)) syncCurrentChatRunState();
+  if (isCurrentChatSessionRunKey(runKey)) {
+    cancelReaderChatProgressRender();
+    syncCurrentChatRunState();
+  }
 }
 
 function startReaderChatProgress(requestId, sessionId = getChatSessionId()) {

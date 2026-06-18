@@ -705,7 +705,9 @@ function scheduleReaderStreamingRender() {
   if (readerState.chatStreamRenderTimer) return;
   readerState.chatStreamRenderTimer = window.setTimeout(() => {
     readerState.chatStreamRenderTimer = 0;
-    renderReaderChatMessages({ scrollToBottom: true });
+    if (!renderReaderStreamingAssistantMessage({ scrollToBottom: true })) {
+      renderReaderChatMessages({ scrollToBottom: true });
+    }
   }, 50);
 }
 
@@ -714,7 +716,9 @@ function flushReaderStreamingRender() {
     window.clearTimeout(readerState.chatStreamRenderTimer);
     readerState.chatStreamRenderTimer = 0;
   }
-  renderReaderChatMessages({ scrollToBottom: true });
+  if (!renderReaderStreamingAssistantMessage({ scrollToBottom: true })) {
+    renderReaderChatMessages({ scrollToBottom: true });
+  }
 }
 
 function latestReaderStreamingAssistantMessage() {

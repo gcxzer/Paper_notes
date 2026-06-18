@@ -191,6 +191,11 @@ html[data-theme="dark"] .pdf-viewer {
   backdrop-filter: blur(16px);
 }
 
+.ask-pane-header {
+  background: var(--panel-alt);
+  backdrop-filter: none;
+}
+
 .annotation-list {
   gap: 9px;
 }
@@ -332,7 +337,7 @@ html[data-theme="dark"] .note-page {
   padding: 18px 22px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--panel-alt) 86%, transparent), var(--panel-alt)),
-    var(--bg);
+    var(--panel-alt);
 }
 
 .ask-empty-chat {
@@ -370,9 +375,9 @@ html[data-theme="dark"] .note-page {
 .ask-tool-popover {
   border-color: color-mix(in srgb, var(--line-strong) 72%, var(--line));
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--modal-bg) 94%, transparent);
+  background: var(--modal-bg);
   box-shadow: var(--shadow-popover);
-  backdrop-filter: blur(18px);
+  backdrop-filter: none;
 }
 
 .ask-tool-menu-option,

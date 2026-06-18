@@ -1974,6 +1974,54 @@ test("reader ask shows running progress as inline messages", async ({ page }) =>
   await expect(askPane.getByText("Reading note context...")).toBeVisible();
 });
 
+test("reader ask streaming answer updates without rebuilding the message list", async ({ page }) => {
+  await openFixtureReader(page);
+  await showAskPane(page);
+  await page.evaluate(() => {
+    const longAnswer = Array.from({ length: 64 }, (_, index) => (
+      `Paragraph ${index + 1}: this existing streamed answer is long enough to make the Ask pane scroll.`
+    )).join("\n\n");
+    readerState.chatMessages = [
+      { role: "user", text: "Give me a long answer." },
+      { role: "assistant", text: longAnswer, streaming: true },
+    ];
+    const runKey = chatSessionRunKey();
+    readerState.chatPendingBySession[runKey] = true;
+    syncCurrentChatRunState();
+    renderReaderChatMessages({ forceScrollToBottom: true });
+
+    const container = document.querySelector("#readerChatMessages");
+    container.scrollTop = Math.floor(container.scrollHeight / 3);
+    window.__streamingAssistantNode = container.querySelector(".ask-message-assistant");
+    window.__streamingContainerMutations = 0;
+    window.__streamingObserver?.disconnect?.();
+    window.__streamingObserver = new MutationObserver((mutations) => {
+      window.__streamingContainerMutations += mutations
+        .filter((mutation) => mutation.type === "childList" && mutation.target === container)
+        .length;
+    });
+    window.__streamingObserver.observe(container, { childList: true });
+  });
+
+  await page.evaluate(() => appendReaderStreamingDelta("\n\nAdditional streamed text."));
+  await expect(page.locator("#readerChatMessages")).toContainText("Additional streamed text.");
+  const result = await page.evaluate(() => {
+    const container = document.querySelector("#readerChatMessages");
+    const currentNode = container.querySelector(".ask-message-assistant");
+    const output = {
+      sameNode: currentNode === window.__streamingAssistantNode,
+      containerMutations: window.__streamingContainerMutations,
+      scrollTop: container.scrollTop,
+    };
+    window.__streamingObserver?.disconnect?.();
+    return output;
+  });
+
+  expect(result.sameNode).toBe(true);
+  expect(result.containerMutations).toBe(0);
+  expect(result.scrollTop).toBeGreaterThan(0);
+});
+
 test("reader resumes an active chat run from session metadata", async ({ page }) => {
   await ignoreMissingFavicon(page);
   await installReaderFixtures(page);
