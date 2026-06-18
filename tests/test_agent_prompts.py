@@ -26,7 +26,10 @@ CURRENT_PAPER_NOTES_TOOLS = {
 }
 
 
-def test_prompt_includes_only_current_paper_notes_tool_guidance():
+def test_prompt_includes_only_current_paper_notes_tool_guidance(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"rag": {"enabled": true}}', encoding="utf-8")
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
     tools = create_tools(ToolContext(provider_name="openai", model="gpt-5.5"))
     names = extract_tool_names(tools)
 
@@ -42,7 +45,10 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance():
         assert tool_name in prompt
     assert "# Tool use and grounding" in prompt
     assert "use the available paper-reading tool" in prompt
-    assert "query_paper_content and read_paper are mutually exclusive" in prompt
+    assert "query_paper_content and read_paper are mutually exclusive" not in prompt
+    assert "only query_paper_content should be exposed" not in prompt
+    assert "only read_paper should be exposed" not in prompt
+    assert "switch off RAG querying" not in prompt
     assert "- read_paper:" not in prompt
     assert "user 'what does Figure 3 show?' -> query 'Figure 3'" in prompt
     assert "user 'what is picture 8 in the paper?' -> query 'Figure 8'" in prompt
