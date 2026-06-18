@@ -26,7 +26,7 @@ from ui.backend.library_api import register_library_routes
 from ui.backend.mcp_api import register_mcp_routes
 from ui.backend.model_providers_api import register_model_provider_routes
 from ui.backend.rag_api import register_rag_routes
-from ui.backend.scratchpads_api import read_scratchpads, write_scratchpads
+from ui.backend.scratchpads_api import register_scratchpad_routes
 from ui.backend.settings_api import register_settings_routes
 from ui.backend.skills_api import register_skills_routes
 
@@ -59,14 +59,7 @@ def create_app() -> FastAPI:
     register_settings_routes(app)
     register_model_provider_routes(app)
     register_skills_routes(app)
-
-    @app.get("/api/scratchpads")
-    async def api_read_scratchpads() -> JSONResponse:
-        return JSONResponse(read_scratchpads())
-
-    @app.post("/api/scratchpads")
-    async def api_write_scratchpads(request: Request) -> JSONResponse:
-        return JSONResponse(write_scratchpads(await _read_json_body(request)))
+    register_scratchpad_routes(app)
 
     @app.get("/api/annotations")
     async def api_read_annotations(noteId: str = "") -> JSONResponse:

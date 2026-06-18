@@ -4,12 +4,25 @@ import json
 from pathlib import Path
 from typing import Any
 
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
 from app_config.secrets import LOCAL_STATE_DIR
 from app_infra.formatting import normalize_text
 from app_infra.files import atomic_write_json
 
 
 DEFAULT_SCRATCHPADS_PATH = LOCAL_STATE_DIR / "scratchpads.json"
+
+
+def register_scratchpad_routes(app: FastAPI) -> None:
+    @app.get("/api/scratchpads")
+    async def api_read_scratchpads() -> JSONResponse:
+        return JSONResponse(read_scratchpads())
+
+    @app.post("/api/scratchpads")
+    async def api_write_scratchpads(request: Request) -> JSONResponse:
+        return JSONResponse(write_scratchpads(await _read_json_body(request)))
 
 
 def read_scratchpads(*, path: str | Path | None = None) -> dict[str, Any]:
@@ -55,3 +68,10 @@ def normalize_scratchpads(payload: Any) -> dict[str, Any]:
     if active_id not in seen:
         active_id = pads[0]["id"] if pads else ""
     return {"activeId": active_id, "pads": pads}
+
+
+async def _read_json_body(request: Request) -> Any:
+    try:
+        return await request.json()
+    except Exception:
+        return {}
