@@ -90,8 +90,25 @@ function saveLibraryToStorage() {
 }
 
 function syncLibraryToServer(library = state.library) {
-  librarySyncVersion += 1;
-  librarySyncQueue = Promise.resolve(sanitizeLibrary(library));
+  const syncVersion = librarySyncVersion + 1;
+  librarySyncVersion = syncVersion;
+  const snapshot = sanitizeLibrary(cloneLibrary(library || DEFAULT_LIBRARY));
+  librarySyncQueue = librarySyncQueue
+    .catch(() => null)
+    .then(async () => {
+      try {
+        const payload = await fetchJson("/api/library", {
+          method: "POST",
+          body: { library: snapshot }
+        });
+        return sanitizeLibrary(payload.library || snapshot);
+      } catch (error) {
+        if (syncVersion === librarySyncVersion) {
+          console.warn("Failed to save library to the backend.", error);
+        }
+        return snapshot;
+      }
+    });
   return librarySyncQueue;
 }
 
@@ -104,6 +121,42 @@ function readLibraryFromStorage() {
     console.warn("Failed to read local library cache.", error);
     return null;
   }
+}
+
+function restoreUnsyncedLibraryCache(serverLibrary) {
+  const cleanServerLibrary = sanitizeLibrary(serverLibrary);
+  const cachedLibrary = readLibraryFromStorage();
+  if (!cachedLibrary) return { library: cleanServerLibrary, restored: false };
+
+  const serverCategoryIds = new Set(cleanServerLibrary.categories.map((category) => category.id));
+  const recoveredCategories = cachedLibrary.categories.filter((category) => (
+    !category.system && !serverCategoryIds.has(category.id)
+  ));
+  if (!recoveredCategories.length) return { library: cleanServerLibrary, restored: false };
+
+  const recoveredCategoryIds = new Set(recoveredCategories.map((category) => category.id));
+  const cachedNotesById = new Map(cachedLibrary.notes.map((note) => [note.id, note]));
+  const mergedNotes = cleanServerLibrary.notes.map((note) => {
+    const cachedNote = cachedNotesById.get(note.id);
+    if (cachedNote && recoveredCategoryIds.has(cachedNote.categoryId)) {
+      return { ...note, categoryId: cachedNote.categoryId, order: cachedNote.order };
+    }
+    return note;
+  });
+  const serverNoteIds = new Set(mergedNotes.map((note) => note.id));
+  cachedLibrary.notes.forEach((cachedNote) => {
+    if (!serverNoteIds.has(cachedNote.id) && recoveredCategoryIds.has(cachedNote.categoryId)) {
+      mergedNotes.push(cachedNote);
+    }
+  });
+
+  return {
+    library: sanitizeLibrary({
+      categories: [...cleanServerLibrary.categories, ...recoveredCategories],
+      notes: mergedNotes
+    }),
+    restored: true
+  };
 }
 
 async function fetchDefaultLibrary() {

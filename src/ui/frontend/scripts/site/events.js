@@ -2,8 +2,13 @@ async function initialize() {
   state.expandedCategoryIds = readExpandedState();
 
   try {
-    state.library = await fetchDefaultLibrary();
-    state.dataSource = "default";
+    const restoredLibrary = restoreUnsyncedLibraryCache(await fetchDefaultLibrary());
+    state.library = restoredLibrary.library;
+    state.dataSource = restoredLibrary.restored ? "storage" : "default";
+    if (restoredLibrary.restored) {
+      saveLibraryToStorage();
+      syncLibraryToServer(state.library);
+    }
   } catch (error) {
     const cached = readLibraryFromStorage();
     if (cached) {

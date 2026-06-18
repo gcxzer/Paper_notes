@@ -30,6 +30,34 @@ def test_library_delete_endpoint_removes_note_from_persisted_library(tmp_path, m
     assert [note["id"] for note in read_library(notes_path)["notes"]] == ["note-2"]
 
 
+def test_library_write_endpoint_persists_collections(tmp_path, monkeypatch):
+    notes_path = tmp_path / "notes.json"
+    monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/library",
+        json={
+            "library": {
+                "categories": [
+                    {"id": "paper-rag", "name": "Paper RAG", "parentId": None, "order": 2},
+                ],
+                "notes": [
+                    {"id": "note-1", "title": "Indexed Paper", "categoryId": "paper-rag"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert {category["id"] for category in response.json()["library"]["categories"]} >= {"paper-rag"}
+    persisted = read_library(notes_path)
+    assert {category["id"] for category in persisted["categories"]} >= {"paper-rag"}
+    assert persisted["notes"][0]["categoryId"] == "paper-rag"
+    assert client.get("/api/library").json()["library"] == persisted
+
+
 def test_library_delete_endpoint_returns_404_for_missing_note(tmp_path, monkeypatch):
     notes_path = tmp_path / "notes.json"
     monkeypatch.setattr(library_module, "NOTES_PATH", notes_path)

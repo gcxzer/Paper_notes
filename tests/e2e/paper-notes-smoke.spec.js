@@ -62,6 +62,24 @@ async function installLibraryFixture(page, library = E2E_LIBRARY) {
   });
 }
 
+async function installPersistedLibraryFixture(page, library = E2E_LIBRARY) {
+  let storedLibrary = JSON.parse(JSON.stringify(library));
+  await page.route("**/api/library", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      storedLibrary = JSON.parse(JSON.stringify(payload.library || payload));
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(libraryResponse(storedLibrary)),
+    });
+  });
+  return {
+    getStoredLibrary: () => storedLibrary,
+  };
+}
+
 async function readStoredLibrary(page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem("paper-notes-library-v14") || "{}"));
 }
@@ -281,6 +299,43 @@ test("library workbench row exposes note actions without leading document icon",
   await expect(page.locator("#confirmDialog")).toBeVisible();
   await page.locator("#cancelConfirmDialog").click();
   await expect(page.locator("#confirmDialog")).not.toBeVisible();
+});
+
+test("library collections persist through backend sync after reload", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  const persistedLibrary = await installPersistedLibraryFixture(page);
+  await page.goto("/index.html");
+  await expect(page).toHaveTitle("Paper Notes");
+
+  await page.getByRole("button", { name: "New collection" }).click();
+  await page.locator("#categoryNameInput").fill("Paper RAG");
+  await page.locator("#categoryDialog button[type='submit']").click();
+  await expect(page.locator("#categoryDialog")).not.toBeVisible();
+  await expect(page.locator(".category-button", { hasText: "Paper RAG" })).toBeVisible();
+  await expect.poll(() => (
+    persistedLibrary.getStoredLibrary().categories?.some((category) => category.name === "Paper RAG")
+  )).toBe(true);
+
+  await page.reload();
+  await expect(page.locator(".category-button", { hasText: "Paper RAG" })).toBeVisible();
+});
+
+test("library restores unsynced cached collections and saves them", async ({ page }) => {
+  const cachedLibrary = JSON.parse(JSON.stringify(E2E_LIBRARY));
+  cachedLibrary.categories.push({ id: "cached-paper-rag", name: "Paper RAG", parentId: null, order: 3, system: false });
+  cachedLibrary.notes = cachedLibrary.notes.map((note) => ({ ...note, categoryId: "cached-paper-rag" }));
+  await page.addInitScript((library) => {
+    localStorage.setItem("paper-notes-library-v14", JSON.stringify(library));
+  }, cachedLibrary);
+
+  await ignoreMissingFavicon(page);
+  const persistedLibrary = await installPersistedLibraryFixture(page, E2E_LIBRARY);
+  await page.goto("/index.html");
+  await expect(page.locator(".category-button", { hasText: "Paper RAG" })).toBeVisible();
+  await expect.poll(() => (
+    persistedLibrary.getStoredLibrary().categories?.some((category) => category.id === "cached-paper-rag")
+  )).toBe(true);
+  expect(persistedLibrary.getStoredLibrary().notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("cached-paper-rag");
 });
 
 test("reader workbench toolbar toggles panes and keeps ask composer visible", async ({ page }) => {
