@@ -9,7 +9,7 @@
     "enabled": true,
     "root_dir": ".paper-notes/tool-outputs",
     "default_max_tokens": 8000,
-    "placeholder_keep_recent": 8,
+    "placeholder_keep_recent": 20,
     "tool_limits": {
       "get_paper_context": 10000,
       "read_paper": 12000,
@@ -38,7 +38,7 @@
     ]
   },
   "rag": {
-    "enabled": true,
+    "enabled": false,
     "root_dir": ".paper-notes/rag",
     "index_root": ".paper-notes/rag/indexes",
     "image_root": ".paper-notes/rag/images",
