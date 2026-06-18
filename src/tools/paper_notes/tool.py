@@ -10,12 +10,14 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from app_config import load_app_config
 import tools.paper_notes.impl.facade as facade
 from tools.paper_notes.schemas import (
     get_paper_context_parameters,
     inspect_paper_visuals_parameters,
     manage_annotations_parameters,
     query_paper_content_parameters,
+    read_paper_parameters,
     review_note_parameters,
     write_note_media_parameters,
     write_note_parameters,
@@ -36,11 +38,46 @@ def create_tools(
     visual_inspection_available: bool = True,
 ) -> list[StructuredTool]:
     can_inspect_visuals = bool(visual_inspection_available)
+    rag_query_enabled = _rag_query_enabled()
     visual_actions = "render_page for a page image or extract_images for figures"
     query_visual_guidance = (
         "Use inspect_paper_visuals only for page rendering or figure extraction. "
         if can_inspect_visuals
         else "This model cannot inspect paper images, so answer figure/table questions from retrieved text and captions. "
+    )
+    content_tool = (
+        StructuredTool(
+            name="query_paper_content",
+            description=(
+                "Semantic RAG tool for reading and answering questions about a paper's actual PDF content "
+                "when RAG querying is enabled and the paper index is ready. Use it for semantic questions "
+                "about claims, methods, equations, experiments, results, figures/tables in context, related "
+                "work, limitations, conclusions, or what any section says. Use get_paper_context instead only "
+                "when the user explicitly asks about library metadata, note HTML/sections, annotations, tags, "
+                f"or index status. {query_visual_guidance}Send one short retrieval query using exact paper "
+                "labels and keywords. Preserve numbered references such as Figure 3, Table 2, Equation 4, "
+                "Algorithm 1, Appendix C, or Section 5.2 instead of expanding them into broad explanatory "
+                "questions. In paper context, generic picture/image/visual N phrasing should usually be "
+                "queried as Figure N, not extracted image index N."
+            ),
+            args_schema=query_paper_content_parameters(),
+            func=lambda **kwargs: facade.query_paper_content(dict(kwargs), library_path=library_path),
+        )
+        if rag_query_enabled
+        else StructuredTool(
+            name="read_paper",
+            description=(
+                "Directly read local PDF text without RAG. Use action=search_text for exact text snippets, "
+                "or action=read_pages for page text. Use this when RAG querying is disabled or when the user "
+                "asks for specific pages or raw/local PDF text."
+            ),
+            args_schema=read_paper_parameters(),
+            func=lambda **kwargs: facade.read_paper(
+                dict(kwargs),
+                library_path=library_path,
+                papers_dir=papers_dir,
+            ),
+        )
     )
     tools = [
         StructuredTool(
@@ -58,22 +95,7 @@ def create_tools(
                 html_dir=html_dir,
             ),
         ),
-        StructuredTool(
-            name="query_paper_content",
-            description=(
-                "Primary tool for reading and answering questions about a paper's actual PDF content. Use it by "
-                "default for questions about the paper's claims, methods, equations, experiments, results, "
-                "figures/tables in context, related work, limitations, conclusions, or what any section says. "
-                "Use get_paper_context instead only when the user explicitly asks about library metadata, note "
-                f"HTML/sections, annotations, tags, or index status. {query_visual_guidance}Send one short "
-                "retrieval query using exact paper labels and keywords. Preserve numbered references such as "
-                "Figure 3, Table 2, Equation 4, Algorithm 1, Appendix C, or Section 5.2 instead of expanding "
-                "them into broad explanatory questions. In paper context, generic picture/image/visual N "
-                "phrasing should usually be queried as Figure N, not extracted image index N."
-            ),
-            args_schema=query_paper_content_parameters(),
-            func=lambda **kwargs: facade.query_paper_content(dict(kwargs), library_path=library_path),
-        ),
+        content_tool,
         StructuredTool(
             name="manage_annotations",
             description=(
@@ -146,3 +168,10 @@ def create_tools(
             ),
         )
     return tools
+
+
+def _rag_query_enabled() -> bool:
+    try:
+        return bool(load_app_config().rag.query_enabled())
+    except Exception:
+        return True

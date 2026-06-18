@@ -29,13 +29,14 @@ from tools.paper_notes.impl.notes import (
     validate_note_html,
     write_note_section,
 )
-from tools.paper_notes.impl.paper import extract_paper_images, render_paper_page
+from tools.paper_notes.impl.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
 
 __all__ = [
     "get_paper_context",
     "inspect_paper_visuals",
     "manage_annotations",
     "query_paper_content",
+    "read_paper",
     "review_note",
     "write_note",
     "write_note_media",
@@ -123,6 +124,13 @@ def query_paper_content(
     *,
     library_path: Path | None = None,
 ) -> dict[str, Any]:
+    if not _rag_query_enabled():
+        return tool_error(
+            "rag_disabled",
+            "RAG paper querying is disabled in config. Use read_paper for direct PDF text reading.",
+            note_id=normalize_text(args.get("note_id")),
+        )
+
     note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
     if "error" in note_result:
         return note_result
@@ -161,6 +169,52 @@ def query_paper_content(
     return payload
 
 
+def _rag_query_enabled() -> bool:
+    try:
+        rag_config = load_app_config().rag
+        return bool(rag_config.query_enabled())
+    except Exception:
+        return True
+
+
+def read_paper(
+    args: dict[str, Any],
+    *,
+    library_path: Path | None = None,
+    papers_dir: Path | None = None,
+    paper_text_cache_dir: Path | None = None,
+) -> dict[str, Any]:
+    action = normalize_text(args.get("action")).lower()
+    if not action:
+        action = "search_text" if normalize_text(args.get("query")) else "read_pages"
+    args, correction = _read_paper_args_with_note_id_correction(args, action=action, library_path=library_path)
+    if action == "search_text":
+        return _with_note_id_correction(
+            search_paper_text(
+                args,
+                library_path=library_path,
+                papers_dir=papers_dir,
+                paper_text_cache_dir=paper_text_cache_dir,
+            ),
+            correction,
+        )
+    if action == "read_pages":
+        return _with_note_id_correction(
+            read_paper_text(
+                args,
+                library_path=library_path,
+                papers_dir=papers_dir,
+                paper_text_cache_dir=paper_text_cache_dir,
+            ),
+            correction,
+        )
+    return tool_error(
+        "invalid_action",
+        "action must be search_text or read_pages.",
+        note_id=normalize_text(args.get("note_id")),
+    )
+
+
 def _inspect_paper_visuals_args_with_note_id_correction(
     args: dict[str, Any],
     *,
@@ -168,6 +222,30 @@ def _inspect_paper_visuals_args_with_note_id_correction(
     library_path: Path | None,
 ) -> tuple[dict[str, Any], dict[str, str] | None]:
     if action not in {"render_page", "extract_images"}:
+        return args, None
+    note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
+    if "error" in note_result:
+        return args, None
+    if not note_result.get("note_id_corrected"):
+        return args, None
+    note = note_result.get("note") if isinstance(note_result.get("note"), dict) else {}
+    corrected_note_id = normalize_text(note.get("id"))
+    requested_note_id = normalize_text(note_result.get("requested_note_id"))
+    if not corrected_note_id or corrected_note_id == requested_note_id:
+        return args, None
+    return {**args, "note_id": corrected_note_id}, {
+        "requested_note_id": requested_note_id,
+        "corrected_note_id": corrected_note_id,
+    }
+
+
+def _read_paper_args_with_note_id_correction(
+    args: dict[str, Any],
+    *,
+    action: str,
+    library_path: Path | None,
+) -> tuple[dict[str, Any], dict[str, str] | None]:
+    if action not in {"search_text", "read_pages"}:
         return args, None
     note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
     if "error" in note_result:

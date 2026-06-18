@@ -356,17 +356,26 @@ def build_note_context(
 
 
 def _rag_status_for_note(note_id: str, *, library_path: Path | None = None) -> dict[str, Any]:
+    enabled = False
+    try:
+        from app_config import load_app_config
+
+        enabled = bool(load_app_config().rag.query_enabled())
+    except Exception:
+        enabled = False
     try:
         from rag.service import get_rag_service
 
         status = get_rag_service().status(note_id=note_id, library_path=library_path)
     except Exception as error:
         return {
+            "enabled": enabled,
             "ready": False,
             "code": getattr(error, "code", "rag_status_failed"),
             "error": str(error),
         }
     return {
+        "enabled": enabled,
         "ready": bool(status.get("ready")),
         "indexKey": status.get("indexKey", ""),
         "indexes": status.get("indexes", {}),

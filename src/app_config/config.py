@@ -22,6 +22,7 @@ DEFAULT_REMOTE_FETCH_ACCEPT = "application/pdf,text/html;q=0.8,*/*;q=0.5"
 DEFAULT_RAG_ROOT = PROJECT_ROOT / ".paper-notes" / "rag"
 DEFAULT_RAG_INDEX_ROOT = DEFAULT_RAG_ROOT / "indexes"
 DEFAULT_RAG_IMAGE_ROOT = DEFAULT_RAG_ROOT / "images"
+DEFAULT_RAG_ENABLED = True
 DEFAULT_TEXT_COLLECTION = "paper_notes"
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 120
@@ -479,6 +480,7 @@ class RagImageCaptioningConfig:
 
 @dataclass(frozen=True, slots=True)
 class RagRetrievalConfig:
+    enabled: bool = True
     vector_top_k: int = DEFAULT_VECTOR_TOP_K
     bm25_top_k: int = DEFAULT_BM25_TOP_K
     retriever_result_top_k: int = DEFAULT_RETRIEVER_RESULT_TOP_K
@@ -487,6 +489,7 @@ class RagRetrievalConfig:
     def from_mapping(cls, value: object) -> RagRetrievalConfig:
         data = _mapping(value)
         return cls(
+            enabled=_bool(data, "enabled", default=True),
             vector_top_k=_int(
                 data,
                 "vector_top_k",
@@ -607,6 +610,7 @@ class RagLlamaParseConfig:
 
 @dataclass(frozen=True, slots=True)
 class RagConfig:
+    enabled: bool = DEFAULT_RAG_ENABLED
     root_dir: Path = DEFAULT_RAG_ROOT
     index_root: Path = DEFAULT_RAG_INDEX_ROOT
     image_root: Path = DEFAULT_RAG_IMAGE_ROOT
@@ -624,6 +628,7 @@ class RagConfig:
         data = _mapping(value)
         root_dir = _path(data, "root_dir", "rootDir", default=DEFAULT_RAG_ROOT)
         return cls(
+            enabled=_bool(data, "enabled", "query_enabled", "queryEnabled", default=DEFAULT_RAG_ENABLED),
             root_dir=root_dir,
             index_root=_path(data, "index_root", "indexRoot", default=root_dir / "indexes"),
             image_root=_path(data, "image_root", "imageRoot", default=root_dir / "images"),
@@ -638,6 +643,9 @@ class RagConfig:
             reranking=RagRerankingConfig.from_mapping(data.get("reranking", data.get("rerank"))),
             llamaparse=RagLlamaParseConfig.from_mapping(data.get("llamaparse")),
         )
+
+    def query_enabled(self) -> bool:
+        return bool(self.enabled and self.retrieval.enabled)
 
     def safe_index_key(self, value: object = "") -> str:
         return safe_index_key(value)

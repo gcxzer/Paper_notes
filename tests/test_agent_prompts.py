@@ -41,7 +41,9 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance():
     for tool_name in CURRENT_PAPER_NOTES_TOOLS:
         assert tool_name in prompt
     assert "# Tool use and grounding" in prompt
-    assert "default and primary tool for questions about a paper's actual PDF content" in prompt
+    assert "use the available paper-reading tool" in prompt
+    assert "query_paper_content and read_paper are mutually exclusive" in prompt
+    assert "- read_paper:" not in prompt
     assert "user 'what does Figure 3 show?' -> query 'Figure 3'" in prompt
     assert "user 'what is picture 8 in the paper?' -> query 'Figure 8'" in prompt
     assert "not extracted image index N" in prompt

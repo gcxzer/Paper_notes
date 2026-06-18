@@ -236,6 +236,7 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
         json.dumps(
             {
                 "rag": {
+                    "enabled": False,
                     "root_dir": str(rag_root),
                     "index_root": str(rag_root / "custom-indexes"),
                     "image_root": str(rag_root / "custom-images"),
@@ -267,6 +268,7 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
                         "prompt": "Caption for retrieval.",
                     },
                     "retrieval": {
+                        "enabled": True,
                         "vector_top_k": 9,
                         "bm25_top_k": 6,
                         "retriever_result_top_k": 12,
@@ -311,6 +313,8 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
         rag_root / "custom-images" / "paper-one" / "pymupdf"
     ).resolve()
     assert rag_config.text_collection_name("Paper One") == "custom_text_paper_one"
+    assert rag_config.enabled is False
+    assert rag_config.query_enabled() is False
     assert rag_config.build.loader == "llamaparse"
     assert rag_config.build.include_images is True
     assert rag_config.build.qdrant is False
@@ -334,6 +338,7 @@ def test_config_json_controls_rag_and_import_defaults(monkeypatch, tmp_path):
     assert rag_config.image_captioning.concurrency == 3
     assert rag_config.image_captioning.prompt == "Caption for retrieval."
     assert rag_config.retrieval.vector_top_k == 9
+    assert rag_config.retrieval.enabled is True
     assert rag_config.retrieval.bm25_top_k == 6
     assert rag_config.retrieval.retriever_result_top_k == 12
     assert rag_config.reranking.enabled is True
@@ -1095,6 +1100,7 @@ def test_llamaparse_loader_accepts_image_items_without_type(monkeypatch, tmp_pat
 def test_query_paper_content_tool_is_registered():
     tool_names = {tool_name(tool) for tool in create_tools(ToolContext(provider_name="openai", model="gpt-5.5"))}
 
+    assert "read_paper" not in tool_names
     assert "query_paper_content" in tool_names
     assert "search_paper_rag" not in tool_names
 
@@ -1283,6 +1289,42 @@ def test_query_paper_content_facade_requires_query(tmp_path):
     assert payload["success"] is False
     assert payload["code"] == "query_required"
     assert "query" in payload["error"]
+
+
+def test_query_paper_content_facade_respects_rag_disabled_config(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"rag": {"enabled": False}}), encoding="utf-8")
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    library_path = tmp_path / "notes.json"
+    write_library(
+        {
+            "notes": [
+                {
+                    "id": "note-1",
+                    "title": "Paper",
+                    "href": "resources/Papers/paper.pdf",
+                }
+            ]
+        },
+        library_path,
+    )
+
+    def fail_service():
+        raise AssertionError("RAG service should not be called when RAG querying is disabled")
+
+    monkeypatch.setattr(facade, "get_rag_service", fail_service)
+
+    payload = facade.query_paper_content(
+        {
+            "note_id": "note-1",
+            "query": "main contribution",
+        },
+        library_path=library_path,
+    )
+
+    assert payload["success"] is False
+    assert payload["code"] == "rag_disabled"
+    assert "read_paper" in payload["error"]
 
 
 def test_query_paper_content_facade_uses_configured_rag_defaults(monkeypatch, tmp_path):

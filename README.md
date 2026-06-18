@@ -88,7 +88,7 @@ Click a paper card or `Open Note` to open the split reader.
 - Left pane: PDF.js paper reader.
 - Middle pane: rendered HTML note.
 - Right pane: agent chat.
-- HTML notes include an automatic contents menu from `h2`, `h3`, and `h4`headings inside `.note-body`.
+- HTML notes include an automatic contents menu from `h2`, `h3`, and `h4` headings inside `.note-body`.
 
 
 ## PDF Annotations
@@ -109,9 +109,20 @@ Configuration lives in Settings:
 
 - `AI Provider`: choose the model provider and local auth/secrets.
 - `Tools`: change built-in tools between ask, read-only, block, or disabled.
-- `MCP`: connect external stdio or Streamable HTTP MCP servers. Enabled servers appear under the `MCP` tool group, and secrets stay local inm`.paper-notes/secrets.env`.
+- `MCP`: connect external stdio or Streamable HTTP MCP servers. Enabled servers appear under the `MCP` tool group, and secrets stay local in `.paper-notes/secrets.env`.
 
 ## Paper RAG
+
+Paper Notes has two mutually exclusive paper-reading modes:
+
+- `query_paper_content`: semantic RAG retrieval over a built paper index.
+- `read_paper`: direct local PDF text reading with page reads and exact text search.
+
+RAG querying is enabled by default. When it is enabled, the agent sees
+`query_paper_content` and does not see `read_paper`. If `rag.enabled` or
+`rag.retrieval.enabled` is set to `false`, the agent sees `read_paper` instead,
+even if a RAG index already exists. Disabling RAG querying does not delete
+existing indexes.
 
 The current default pipeline uses:
 
@@ -121,7 +132,10 @@ The current default pipeline uses:
 - Local Qdrant for vector search and a persisted BM25 index for keyword search.
 - DashScope reranking after hybrid retrieval.
 
-Important RAG settings live in `config.json` under `rag.embedding`, `rag.retrieval`, `rag.reranking`, `rag.llamaparse`, and `rag.image_captioning`. 
+Important RAG settings live in `config.json` under `rag.enabled`,
+`rag.embedding`, `rag.retrieval`, `rag.reranking`, `rag.llamaparse`, and
+`rag.image_captioning`. PDF import does not build indexes automatically; build
+or rebuild indexes from Settings when you want semantic retrieval for a paper.
 
 ## Local Data
 
@@ -136,6 +150,7 @@ Core library data:
 
 Derived paper caches:
 
+- `resources/Paper-text/`: direct PDF text cache used by `read_paper`
 - `resources/Paper-visuals/`: rendered PDF pages and extracted visual cache
 - `.paper-notes/rag/indexes/`: local Qdrant and BM25 paper indexes
 - `.paper-notes/rag/images/`: extracted paper images used by RAG and captioning

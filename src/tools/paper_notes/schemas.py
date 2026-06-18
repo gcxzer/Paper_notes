@@ -93,6 +93,43 @@ def query_paper_content_parameters() -> dict[str, Any]:
     }
 
 
+def read_paper_parameters() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["search_text", "read_pages"],
+                "description": (
+                    "Use search_text for focused exact-text snippets from the local PDF, or read_pages for "
+                    "direct page text. If omitted, query implies search_text; otherwise read_pages is used."
+                ),
+            },
+            "note_id": {"type": "string", "description": "The note id whose local PDF text should be read."},
+            "query": {
+                "type": "string",
+                "description": "Required for search_text. Use concise exact words, labels, or phrases from the paper.",
+            },
+            "page_start": {"type": "integer", "minimum": 1, "description": "First PDF page for read_pages."},
+            "page_end": {"type": "integer", "minimum": 1, "description": "Last PDF page for read_pages."},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "description": "Maximum text matches for search_text.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "minimum": 500,
+                "maximum": 20000,
+                "description": "Maximum characters returned by read_pages.",
+            },
+        },
+        "required": ["note_id"],
+        "additionalProperties": False,
+    }
+
+
 def write_note_parameters() -> dict[str, Any]:
     return {
         "type": "object",

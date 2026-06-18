@@ -12,6 +12,7 @@
     "placeholder_keep_recent": 8,
     "tool_limits": {
       "get_paper_context": 10000,
+      "read_paper": 12000,
       "query_paper_content": 12000,
       "inspect_paper_visuals": 12000,
       "write_note": 6000,
@@ -37,6 +38,7 @@
     ]
   },
   "rag": {
+    "enabled": true,
     "root_dir": ".paper-notes/rag",
     "index_root": ".paper-notes/rag/indexes",
     "image_root": ".paper-notes/rag/images",
@@ -92,6 +94,7 @@
       }
     },
     "retrieval": {
+      "enabled": true,
       "vector_top_k": 20,
       "bm25_top_k": 20,
       "retriever_result_top_k": 10
