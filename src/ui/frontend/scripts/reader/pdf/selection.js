@@ -506,14 +506,14 @@ function rememberTextLayerClick(textLayer, event, detail) {
 function handleTextLayerPointerDown(event) {
   if (event.button !== 0) return;
   const textLayer = event.currentTarget;
-  const targetSpan = event.target.closest("span[role='presentation']");
-  if (!targetSpan || !textLayer.contains(targetSpan)) return;
-  const clickDetail = textLayerClickDetail(textLayer, event);
+  const targetSpan = event.target.closest?.("span[role='presentation']");
+  const clickedTextSpan = targetSpan && textLayer.contains(targetSpan) ? targetSpan : null;
+  const clickDetail = clickedTextSpan ? textLayerClickDetail(textLayer, event) : 1;
 
-  if (clickDetail > 1) {
+  if (clickedTextSpan && clickDetail > 1) {
     event.preventDefault();
-    if (clickDetail === 2) selectTextSpanWordAtPoint(targetSpan, event.clientX);
-    else selectTextLayerLinesAtPoint(textLayer, targetSpan, clickDetail, event);
+    if (clickDetail === 2) selectTextSpanWordAtPoint(clickedTextSpan, event.clientX);
+    else selectTextLayerLinesAtPoint(textLayer, clickedTextSpan, clickDetail, event);
     rememberTextLayerClick(textLayer, event, clickDetail);
     return;
   }

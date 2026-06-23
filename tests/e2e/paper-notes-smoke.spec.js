@@ -4325,6 +4325,48 @@ test("reader PDF drag selection stays on the current line over blank space", asy
   await page.mouse.up();
 });
 
+test("reader PDF drag selection can start from line whitespace", async ({ page }) => {
+  await openFixtureReader(page);
+  const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
+  if ((await htmlToggle.getAttribute("aria-expanded")) === "true") {
+    await htmlToggle.click();
+  }
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) === "true") {
+    await askToggle.click();
+  }
+
+  await installPdfTextFixture(page);
+
+  const points = await page.evaluate(() => {
+    const pageElement = document.querySelector(".pdf-page[data-page='8']");
+    const canvas = pageElement.querySelector(".pdf-page-canvas");
+    const firstSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("fold of doubly"));
+    const lastSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("stochastic"));
+    firstSpan.scrollIntoView({ block: "center", inline: "center" });
+    const firstBox = firstSpan.getBoundingClientRect();
+    const lastBox = lastSpan.getBoundingClientRect();
+    const pageBox = canvas.getBoundingClientRect();
+    return {
+      start: { x: pageBox.left + 14, y: firstBox.top + firstBox.height / 2 },
+      end: { x: lastBox.right - 2, y: lastBox.top + lastBox.height / 2 },
+    };
+  });
+
+  await page.mouse.move(points.start.x, points.start.y);
+  await page.mouse.down();
+  await page.mouse.move(points.end.x, points.end.y, { steps: 8 });
+  await page.waitForFunction(() => getSelection().toString().includes("stochastic"));
+
+  const selected = await page.evaluate(() => getSelection().toString());
+  expect(selected).toContain("fold of doubly");
+  expect(selected).toContain("stochastic");
+  expect(selected).not.toContain("Figure");
+  await page.mouse.up();
+});
+
 test("reader PDF drag selection auto-scrolls and can cross pages", async ({ page }) => {
   await openFixtureReader(page);
   const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
