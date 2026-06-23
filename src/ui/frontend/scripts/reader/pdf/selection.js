@@ -236,6 +236,7 @@ function isPdfWordCharacter(char) {
 }
 
 function selectTextSpanWordAtPoint(span, clientX) {
+  clearPdfVisualSelection();
   const node = span?.firstChild;
   const text = node?.textContent || "";
   if (!node || !text) return false;
@@ -289,7 +290,71 @@ function sliceSpanTextByRect(span, selectionRect) {
   return chars.slice(startIndex, endIndex).join("");
 }
 
+function spanSelectionItemFromClientRange(span, leftClient, rightClient, sourceIndex = -1) {
+  const text = span.textContent || "";
+  const spanRect = span.getBoundingClientRect();
+  if (!text || spanRect.width <= 0) return null;
+  const { chars, positions } = measuredCharacterPositions(span, text);
+  const left = clamp(Math.max(leftClient, spanRect.left) - spanRect.left, 0, spanRect.width);
+  const right = clamp(Math.min(rightClient, spanRect.right) - spanRect.left, 0, spanRect.width);
+  if (right <= left) return null;
+
+  let start = 0;
+  let end = chars.length;
+  for (let index = 0; index < chars.length; index += 1) {
+    const center = (positions[index] + positions[index + 1]) / 2;
+    if (center >= left) {
+      start = index;
+      break;
+    }
+  }
+  for (let index = chars.length - 1; index >= 0; index -= 1) {
+    const center = (positions[index] + positions[index + 1]) / 2;
+    if (center <= right) {
+      end = index + 1;
+      break;
+    }
+  }
+  if (end <= start) return null;
+  return { span, start, end, sourceIndex, text: chars.slice(start, end).join("") };
+}
+
+function rectForPdfVisualSelectionItem(item) {
+  const span = item?.span;
+  const text = span?.textContent || "";
+  if (!span?.isConnected || !text) return null;
+  const spanRect = span.getBoundingClientRect();
+  const { positions } = measuredCharacterPositions(span, text);
+  const left = spanRect.left + positions[item.start];
+  const right = spanRect.left + positions[item.end];
+  if (right <= left) return null;
+  return {
+    left,
+    right,
+    top: spanRect.top,
+    bottom: spanRect.bottom,
+    width: right - left,
+    height: spanRect.height
+  };
+}
+
+function pdfVisualSelectionItemsForPage(pageElement) {
+  if (!pdfVisualSelection?.items?.length || !pageElement) return [];
+  return pdfVisualSelection.items
+    .map((item) => ({ ...item, rect: rectForPdfVisualSelectionItem(item) }))
+    .filter((item) => item.rect && item.span.closest(".pdf-page") === pageElement);
+}
+
+function textFromPdfVisualSelectionForPage(pageElement) {
+  const items = pdfVisualSelectionItemsForPage(pageElement)
+    .map((item) => ({ text: item.text, rect: item.rect }));
+  return copiedTextFromSelectedItems(items);
+}
+
 function textFromSelectionForPage(pageElement, options = {}) {
+  if (pdfVisualSelection?.items?.length) {
+    return textFromPdfVisualSelectionForPage(pageElement);
+  }
   const preferNative = options.preferNative !== false;
   const nativeText = window.getSelection()?.toString() || "";
   if (preferNative && nativeText && !nativeText.includes("\uFFFD")) return nativeText;
@@ -319,6 +384,16 @@ function textFromSelectionForPage(pageElement, options = {}) {
 }
 
 function selectedPdfPages() {
+  if (pdfVisualSelection?.items?.length && elements.pdfViewer) {
+    const pages = [];
+    pdfVisualSelection.items.forEach((item) => {
+      const pageElement = item.span?.isConnected ? item.span.closest(".pdf-page") : null;
+      if (pageElement && elements.pdfViewer.contains(pageElement) && !pages.includes(pageElement)) {
+        pages.push(pageElement);
+      }
+    });
+    return pages;
+  }
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !elements.pdfViewer) return [];
   return Array.from(elements.pdfViewer.querySelectorAll(".pdf-page")).filter((pageElement) => {
@@ -337,6 +412,12 @@ function selectedPdfPages() {
 }
 
 function textFromPdfSelection() {
+  if (pdfVisualSelection?.items?.length) {
+    const chunks = selectedPdfPages()
+      .map((pageElement) => textFromPdfVisualSelectionForPage(pageElement))
+      .filter((text) => normalizeText(text));
+    return normalizeCopiedPdfText(chunks.join("\n"));
+  }
   const nativeText = window.getSelection()?.toString() || "";
   if (nativeText && !nativeText.includes("\uFFFD")) return nativeText;
   const chunks = selectedPdfPages()
@@ -353,6 +434,11 @@ function pdfSelectionSpansForPage(pageElement) {
 
 let pdfTextDragSelection = null;
 let pdfTextLastClick = null;
+let pdfVisualSelection = null;
+
+function clearPdfVisualSelection() {
+  pdfVisualSelection = null;
+}
 
 function textNodePositionForSpan(span, clientX, lineIndex = 0, itemIndex = 0) {
   const node = span?.firstChild;
@@ -367,8 +453,15 @@ function textNodePositionForSpan(span, clientX, lineIndex = 0, itemIndex = 0) {
     lineIndex,
     itemIndex,
     charIndex,
+    sourceIndex: textLayerSpanIndex(span),
     offset: codeUnitOffsetForCharacterIndex(chars, charIndex)
   };
+}
+
+function textLayerSpanIndex(span) {
+  const textLayer = span?.closest?.(".textLayer");
+  if (!textLayer) return -1;
+  return Array.from(textLayer.querySelectorAll("span[role='presentation']")).indexOf(span);
 }
 
 function textLayerForDragPoint(clientX, clientY, fallbackTextLayer = null) {
@@ -505,6 +598,7 @@ function rememberTextLayerClick(textLayer, event, detail) {
 
 function handleTextLayerPointerDown(event) {
   if (event.button !== 0) return;
+  clearPdfVisualSelection();
   const textLayer = event.currentTarget;
   const targetSpan = event.target.closest?.("span[role='presentation']");
   const clickedTextSpan = targetSpan && textLayer.contains(targetSpan) ? targetSpan : null;
@@ -577,6 +671,7 @@ function updateTextLayerDragFocus() {
   const textLayer = textLayerForDragPoint(state.lastClientX, state.lastClientY, state.textLayer);
   const focus = textLayer ? textLayerPositionAtPoint(textLayer, state.lastClientX, state.lastClientY) : null;
   setTextLayerDragSelection(state.anchor, focus);
+  updatePdfVisualDragSelection(state.anchor, focus, state.startX, state.startY, state.lastClientX, state.lastClientY);
 }
 
 function pdfDragAutoScrollVelocity() {
@@ -683,6 +778,15 @@ function selectedRectForSpanRange(range, span) {
 }
 
 function selectionVisualRectsForPage(pageElement) {
+  if (pdfVisualSelection?.items?.length) {
+    const canvas = pageElement.querySelector(".pdf-page-canvas");
+    if (!canvas) return [];
+    const pageBox = canvas.getBoundingClientRect();
+    return pdfVisualSelectionItemsForPage(pageElement)
+      .map((item) => item.rect)
+      .filter((rect) => rect && rectsIntersect(rect, pageBox))
+      .map((rect) => clampClientRectToPage(rect, pageBox));
+  }
   const selection = window.getSelection();
   const canvas = pageElement.querySelector(".pdf-page-canvas");
   const textLayer = pageElement.querySelector(".textLayer");
@@ -704,10 +808,39 @@ function selectionVisualRectsForPage(pageElement) {
 function clearPdfSelectionOverlays() {
   window.cancelAnimationFrame(pdfState.selectionRenderFrame);
   pdfState.selectionRenderFrame = 0;
+  clearPdfVisualSelection();
   elements.pdfViewer?.classList.remove("has-pdf-selection");
   elements.pdfViewer?.querySelectorAll(".pdf-selection-layer").forEach((layer) => {
     layer.innerHTML = "";
   });
+}
+
+function renderPdfSelectionOverlaysFromVisualSelection() {
+  if (!pdfVisualSelection?.items?.length || !elements.pdfViewer) return false;
+  let hasSelection = false;
+  elements.pdfViewer.querySelectorAll(".pdf-page").forEach((pageElement) => {
+    const layer = pageElement.querySelector(".pdf-selection-layer");
+    const canvas = pageElement.querySelector(".pdf-page-canvas");
+    if (!layer || !canvas) return;
+    const pageBox = canvas.getBoundingClientRect();
+    layer.innerHTML = "";
+    pdfVisualSelectionItemsForPage(pageElement).forEach((item) => {
+      const rect = item.rect;
+      if (!rect || !rectsIntersect(rect, pageBox)) return;
+      const boundedRect = clampClientRectToPage(rect, pageBox);
+      const marker = document.createElement("div");
+      marker.className = "pdf-selection-rect";
+      marker.style.left = `${boundedRect.left - pageBox.left}px`;
+      marker.style.top = `${boundedRect.top - pageBox.top}px`;
+      marker.style.width = `${boundedRect.width}px`;
+      marker.style.height = `${boundedRect.height}px`;
+      layer.appendChild(marker);
+      hasSelection = true;
+    });
+  });
+  elements.pdfViewer.classList.toggle("has-pdf-selection", hasSelection);
+  if (!hasSelection) clearPdfVisualSelection();
+  return hasSelection;
 }
 
 function renderPdfSelectionOverlaysFromRanges(ranges = readerState.selectedPdfRanges) {
@@ -752,6 +885,13 @@ function renderPdfSelectionOverlaysFromRanges(ranges = readerState.selectedPdfRa
 
 function renderPdfSelectionOverlays() {
   pdfState.selectionRenderFrame = 0;
+  if (pdfVisualSelection?.items?.length) {
+    const hasSelection = renderPdfSelectionOverlaysFromVisualSelection();
+    if (hasSelection && typeof refreshReaderSelectedPdfTextFromSelection === "function") {
+      refreshReaderSelectedPdfTextFromSelection();
+    }
+    return;
+  }
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !elements.pdfViewer) {
     if (readerState.selectedPdfPointerRegion === "ask" && readerState.selectedPdfRanges?.length) {
@@ -816,7 +956,188 @@ function textLayerLines(textLayer) {
   }).filter((line) => normalizeText(line.text));
 }
 
+function visualSegmentFromItems(items, textLayer) {
+  const bounds = lineBoundsFromItems(items);
+  return {
+    ...bounds,
+    textLayer,
+    items,
+    height: Math.max(1, bounds.bottom - bounds.top),
+    width: Math.max(1, bounds.right - bounds.left),
+    centerX: (bounds.left + bounds.right) / 2,
+    centerY: (bounds.top + bounds.bottom) / 2,
+    text: items.map((item) => item.text).join("")
+  };
+}
+
+function splitTextLayerLineIntoVisualSegments(items, textLayer) {
+  const sortedItems = items
+    .filter((item) => item.span)
+    .sort((a, b) => a.rect.left - b.rect.left);
+  const lineHeight = medianNumber(sortedItems.map((item) => item.rect.height), 12);
+  const gapThreshold = Math.max(24, lineHeight * 2.4);
+  const segments = [];
+  let current = [];
+  sortedItems.forEach((item) => {
+    const previous = current.at(-1);
+    const gap = previous ? item.rect.left - previous.rect.right : 0;
+    if (previous && gap > gapThreshold) {
+      segments.push(visualSegmentFromItems(current, textLayer));
+      current = [];
+    }
+    current.push(item);
+  });
+  if (current.length) segments.push(visualSegmentFromItems(current, textLayer));
+  return segments.filter((segment) => normalizeText(segment.text));
+}
+
+function textLayerVisualSegments(textLayer, options = {}) {
+  const referenceHeight = Number(options.referenceHeight) || 0;
+  const spans = Array.from(textLayer.querySelectorAll("span[role='presentation']"))
+    .map((span, sourceIndex) => ({ span, sourceIndex, text: span.textContent || "", rect: span.getBoundingClientRect() }))
+    .filter((entry) => {
+      if (!hasPdfSpanText(entry.text) || entry.rect.width <= 0 || entry.rect.height <= 0) return false;
+      if (!referenceHeight) return true;
+      const ratio = entry.rect.height / Math.max(1, referenceHeight);
+      return ratio >= 0.55 && ratio <= 1.45;
+    });
+
+  return groupTextItemsByLine(spans)
+    .flatMap((line) => splitTextLayerLineIntoVisualSegments(line.items, textLayer))
+    .sort((a, b) => a.top - b.top || a.left - b.left);
+}
+
+function visualSegmentForTextPosition(segments, position) {
+  if (!position?.span) return null;
+  const direct = segments.find((segment) => segment.items.some((item) => item.span === position.span));
+  if (direct) return direct;
+  let nearest = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  segments.forEach((segment) => {
+    const spanRect = position.span.getBoundingClientRect();
+    const xDistance = Math.max(0, segment.left - spanRect.right, spanRect.left - segment.right);
+    const yDistance = Math.max(0, segment.top - spanRect.bottom, spanRect.top - segment.bottom);
+    const distance = xDistance + yDistance;
+    if (distance < nearestDistance) {
+      nearest = segment;
+      nearestDistance = distance;
+    }
+  });
+  return nearest;
+}
+
+function segmentItemsInDomRange(segment, indexMin, indexMax, forward) {
+  const indexedItems = segment.items
+    .filter((item) => item.sourceIndex >= indexMin && item.sourceIndex <= indexMax)
+    .sort((a, b) => forward ? a.sourceIndex - b.sourceIndex : b.sourceIndex - a.sourceIndex);
+  const output = [];
+  const jumpTolerance = Math.max(8, segment.height * 0.9);
+  for (const item of indexedItems) {
+    const previous = output.at(-1);
+    if (previous) {
+      const jumpedBack = forward
+        ? item.rect.left + jumpTolerance < previous.rect.right
+        : item.rect.right - jumpTolerance > previous.rect.left;
+      if (jumpedBack) break;
+    }
+    output.push(item);
+  }
+  return output.sort((a, b) => a.rect.left - b.rect.left);
+}
+
+function sourceIndexNearSegmentPoint(segment, clientX, forward) {
+  const items = segment.items
+    .filter((item) => Number.isFinite(item.sourceIndex) && item.sourceIndex >= 0)
+    .sort((a, b) => a.rect.left - b.rect.left);
+  if (!items.length) return -1;
+  const containing = items.find((item) => clientX >= item.rect.left && clientX <= item.rect.right);
+  if (containing) return containing.sourceIndex;
+  if (forward) {
+    const before = items.filter((item) => item.rect.left <= clientX).at(-1);
+    return (before || items[0]).sourceIndex;
+  }
+  const after = items.find((item) => item.rect.right >= clientX);
+  return (after || items.at(-1)).sourceIndex;
+}
+
+function visualSelectionItemsForSegment(segment, left, right, indexMin, indexMax, forward) {
+  const selectedLeft = Math.min(left, right);
+  const selectedRight = Math.max(left, right);
+  return segmentItemsInDomRange(segment, indexMin, indexMax, forward)
+    .map((item) => spanSelectionItemFromClientRange(item.span, selectedLeft, selectedRight, item.sourceIndex))
+    .filter(Boolean);
+}
+
+function updatePdfVisualDragSelection(anchor, focus, startX, startY, endX, endY) {
+  if (!anchor || !focus || !anchor.textLayer || anchor.textLayer !== focus.textLayer) {
+    clearPdfVisualSelection();
+    return false;
+  }
+
+  const anchorHeight = anchor.span?.getBoundingClientRect?.().height || 0;
+  const segments = textLayerVisualSegments(anchor.textLayer, { referenceHeight: anchorHeight });
+  const anchorSegment = visualSegmentForTextPosition(segments, anchor);
+  const focusSegment = visualSegmentForTextPosition(segments, focus);
+  if (!anchorSegment || !focusSegment) {
+    clearPdfVisualSelection();
+    return false;
+  }
+
+  const forward = endY > startY + 2 || (Math.abs(endY - startY) <= 2 && endX >= startX);
+  const anchorSourceIndex = Number.isFinite(anchor.sourceIndex) ? anchor.sourceIndex : textLayerSpanIndex(anchor.span);
+  const focusSourceIndex = sourceIndexNearSegmentPoint(focusSegment, endX, forward);
+  const indexMin = Math.min(anchorSourceIndex, focusSourceIndex);
+  const indexMax = Math.max(anchorSourceIndex, focusSourceIndex);
+  const yMin = Math.min(startY, endY);
+  const yMax = Math.max(startY, endY);
+  const xMin = Math.min(startX, endX);
+  const xMax = Math.max(startX, endX);
+  const sameBand = Math.abs(anchorSegment.centerY - focusSegment.centerY)
+    <= Math.max(anchorSegment.height, focusSegment.height) * 0.75;
+  const columnOverlap = horizontalOverlap(anchorSegment, focusSegment);
+  const sameColumn = columnOverlap >= Math.min(anchorSegment.width, focusSegment.width) * 0.2
+    || Math.abs(anchorSegment.centerX - focusSegment.centerX) <= Math.max(anchorSegment.width, focusSegment.width) * 0.7;
+  const columnSlop = Math.max(anchorSegment.height, focusSegment.height) * 1.4;
+  const columnBounds = {
+    left: Math.min(anchorSegment.left, focusSegment.left) - columnSlop,
+    right: Math.max(anchorSegment.right, focusSegment.right) + columnSlop
+  };
+  const items = [];
+
+  segments.forEach((segment) => {
+    if (indexMax >= 0 && !segment.items.some((item) => item.sourceIndex >= indexMin && item.sourceIndex <= indexMax)) return;
+    const verticalHit = sameBand
+      ? Math.abs(segment.centerY - anchorSegment.centerY) <= Math.max(segment.height, anchorSegment.height) * 0.75
+      : segment.centerY >= yMin - Math.max(3, segment.height * 0.35)
+        && segment.centerY <= yMax + Math.max(3, segment.height * 0.35);
+    if (!verticalHit) return;
+    if (sameColumn && horizontalOverlap(segment, columnBounds) <= 1) return;
+
+    let left = segment.left;
+    let right = segment.right;
+    if (segment === anchorSegment && segment === focusSegment) {
+      left = xMin;
+      right = xMax;
+    } else if (segment === anchorSegment) {
+      left = forward ? startX : segment.left;
+      right = forward ? segment.right : startX;
+    } else if (segment === focusSegment) {
+      left = forward ? segment.left : endX;
+      right = forward ? endX : segment.right;
+    } else if (!sameColumn) {
+      if (horizontalOverlap(segment, { left: xMin, right: xMax }) <= 1) return;
+      left = Math.max(segment.left, xMin);
+      right = Math.min(segment.right, xMax);
+    }
+    items.push(...visualSelectionItemsForSegment(segment, left, right, indexMin, indexMax, forward));
+  });
+
+  pdfVisualSelection = items.length ? { textLayer: anchor.textLayer, items } : null;
+  return Boolean(pdfVisualSelection);
+}
+
 function selectSpanRange(firstSpan, lastSpan) {
+  clearPdfVisualSelection();
   const firstNode = firstSpan?.firstChild;
   const lastNode = lastSpan?.firstChild;
   if (!firstNode || !lastNode) return false;

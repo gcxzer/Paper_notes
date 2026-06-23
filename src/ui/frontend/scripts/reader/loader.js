@@ -1,4 +1,4 @@
-const READER_SCRIPT_VERSION = "ask-scroll-flicker-v1";
+const READER_SCRIPT_VERSION = "pdf-visual-selection-v2";
 
 const READER_CLASSIC_SCRIPTS = [
   "scripts/shared/floating-pad.js?v=scratchpad-api-v1",

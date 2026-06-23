@@ -622,6 +622,19 @@ async function installPdfTextFixture(page) {
       { text: "4 | Core architectures of HCA.", x: 175, y: 330, font: "28px Georgia, serif" },
     ]);
 
+    addPage(12, [
+      { text: "Left alpha ", x: 40, y: 60 },
+      { text: "continues", x: 170, y: 60 },
+      { text: "Left beta should stay out", x: 40, y: 95 },
+      { text: "Left gamma should stay out", x: 40, y: 130 },
+      { text: "Right heading", x: 430, y: 60 },
+      { text: "Clean paragraph start ", x: 40, y: 210 },
+      { text: "model checkpoints", x: 292, y: 210 },
+      { text: "are available at ", x: 40, y: 245 },
+      { text: "https://example.com", x: 240, y: 245 },
+      { text: "(Chart noise should stay out)", x: 40, y: 245 },
+    ]);
+
     window.updatePdfPageControl?.();
   });
 }
@@ -4364,6 +4377,96 @@ test("reader PDF drag selection can start from line whitespace", async ({ page }
   expect(selected).toContain("fold of doubly");
   expect(selected).toContain("stochastic");
   expect(selected).not.toContain("Figure");
+  await page.mouse.up();
+});
+
+test("reader PDF drag selection follows visual column bounds", async ({ page, context }) => {
+  await openFixtureReader(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+  const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
+  if ((await htmlToggle.getAttribute("aria-expanded")) === "true") {
+    await htmlToggle.click();
+  }
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) === "true") {
+    await askToggle.click();
+  }
+
+  await installPdfTextFixture(page);
+
+  const points = await page.evaluate(() => {
+    const pageElement = document.querySelector(".pdf-page[data-page='12']");
+    const firstSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("Left alpha"));
+    const rightSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("Right heading"));
+    firstSpan.scrollIntoView({ block: "center", inline: "center" });
+    const firstBox = firstSpan.getBoundingClientRect();
+    const rightBox = rightSpan.getBoundingClientRect();
+    return {
+      start: { x: firstBox.left + 2, y: firstBox.top + firstBox.height / 2 },
+      end: { x: rightBox.right - 2, y: rightBox.top + rightBox.height / 2 },
+    };
+  });
+
+  await page.mouse.move(points.start.x, points.start.y);
+  await page.mouse.down();
+  await page.mouse.move(points.end.x, points.end.y, { steps: 10 });
+  await page.waitForFunction(() => window.textFromPdfSelection?.().includes("Right heading"));
+
+  const selected = await page.evaluate(() => window.textFromPdfSelection());
+  expect(selected).toContain("Left alpha");
+  expect(selected).toContain("continues");
+  expect(selected).toContain("Right heading");
+  expect(selected).not.toContain("Left beta should stay out");
+  expect(selected).not.toContain("Left gamma should stay out");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+C" : "Control+C");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain("Right heading");
+  expect(copied).not.toContain("Left beta should stay out");
+  await expect(page.locator(".pdf-page[data-page='12'] .pdf-selection-rect")).toHaveCount(3);
+  await page.mouse.up();
+});
+
+test("reader PDF drag selection ignores overlapping figure text after a paragraph", async ({ page }) => {
+  await openFixtureReader(page);
+  const htmlToggle = page.getByRole("link", { name: "Toggle HTML note" });
+  if ((await htmlToggle.getAttribute("aria-expanded")) === "true") {
+    await htmlToggle.click();
+  }
+  const askToggle = page.getByRole("button", { name: "Toggle Ask panel" });
+  if ((await askToggle.getAttribute("aria-expanded")) === "true") {
+    await askToggle.click();
+  }
+
+  await installPdfTextFixture(page);
+
+  const points = await page.evaluate(() => {
+    const pageElement = document.querySelector(".pdf-page[data-page='12']");
+    const firstSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("Clean paragraph start"));
+    const urlSpan = Array.from(pageElement.querySelectorAll(".textLayer span[role='presentation']"))
+      .find((entry) => (entry.textContent || "").includes("https://example.com"));
+    firstSpan.scrollIntoView({ block: "center", inline: "center" });
+    const firstBox = firstSpan.getBoundingClientRect();
+    const urlBox = urlSpan.getBoundingClientRect();
+    return {
+      start: { x: firstBox.left + 2, y: firstBox.top + firstBox.height / 2 },
+      end: { x: urlBox.right - 2, y: urlBox.top + urlBox.height / 2 },
+    };
+  });
+
+  await page.mouse.move(points.start.x, points.start.y);
+  await page.mouse.down();
+  await page.mouse.move(points.end.x, points.end.y, { steps: 10 });
+  await page.waitForFunction(() => window.textFromPdfSelection?.().includes("https://example.com"));
+
+  const selected = await page.evaluate(() => window.textFromPdfSelection());
+  expect(selected).toContain("Clean paragraph start");
+  expect(selected).toContain("model checkpoints");
+  expect(selected).toContain("are available at");
+  expect(selected).toContain("https://example.com");
+  expect(selected).not.toContain("Chart noise should stay out");
   await page.mouse.up();
 });
 
