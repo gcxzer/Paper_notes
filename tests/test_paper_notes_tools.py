@@ -181,14 +181,13 @@ def test_get_paper_context_reads_one_note_context(tmp_path):
     assert "Why attention matters." in result["html"]["html"]
 
 
-def test_inspect_paper_visuals_schema_is_visual_only():
+def test_inspect_paper_visuals_schema_supports_render_extract_and_analysis():
     schema = inspect_paper_visuals_parameters()
 
-    assert schema["properties"]["action"]["enum"] == ["render_page", "extract_images"]
+    assert schema["properties"]["action"]["enum"] == ["render_page", "extract_images", "analyze_image"]
     assert "max_chars" not in schema["properties"]
-    assert "artifact_id" not in schema["properties"]
-    assert "path" not in schema["properties"]
-    assert "query" not in schema["properties"]
+    assert {"artifact_id", "path", "query", "question", "figure_label"} <= set(schema["properties"])
+    assert "not a Figure/Table number" in schema["properties"]["page"]["description"]
 
 
 def test_inspect_paper_visuals_rejects_removed_text_actions():
@@ -196,7 +195,224 @@ def test_inspect_paper_visuals_rejects_removed_text_actions():
 
     assert result["success"] is False
     assert result["code"] == "invalid_action"
-    assert "render_page or extract_images" in result["error"]
+    assert "render_page, extract_images, or analyze_image" in result["error"]
+
+
+def test_inspect_paper_visuals_analyzes_registered_artifact(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "Visual Paper"}]}),
+        encoding="utf-8",
+    )
+    analyzer_calls = []
+
+    def fake_analyzer(args):
+        analyzer_calls.append(args)
+        return {
+            "success": True,
+            "artifact": {"id": args["artifact_id"], "kind": "image"},
+            "analysis": "The chart visually compares model accuracy and efficiency.",
+        }
+
+    result = facade.inspect_paper_visuals(
+        {
+            "note_id": "note-1",
+            "action": "analyze_image",
+            "artifact_id": "img-test",
+            "query": "Explain Figure 1 from the visible chart.",
+        },
+        library_path=library_path,
+        paper_image_analyzer=fake_analyzer,
+    )
+
+    assert result["success"] is True
+    assert result["artifact_id"] == "img-test"
+    assert result["artifact"]["id"] == "img-test"
+    assert result["analysis"] == "The chart visually compares model accuracy and efficiency."
+    assert analyzer_calls == [{
+        "artifact_id": "img-test",
+        "path": None,
+        "question": "Explain Figure 1 from the visible chart.",
+    }]
+
+
+def test_inspect_paper_visuals_analyzes_rendered_page(monkeypatch, tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "Rendered Paper"}]}),
+        encoding="utf-8",
+    )
+    render_calls = []
+    analyzer_calls = []
+
+    def fake_render(args, **kwargs):
+        render_calls.append((args, kwargs))
+        return {
+            "success": True,
+            "artifact_id": "img-page-3",
+            "artifact": {"id": "img-page-3", "kind": "image"},
+            "width": 1200,
+            "height": 1600,
+            "relative_path": "resources/Paper-visuals/note-1/pages/page-0003-scale-2.png",
+            "preview_url": "/media/img-page-3",
+        }
+
+    def fake_analyzer(args):
+        analyzer_calls.append(args)
+        return {"success": True, "analysis": "The rendered page shows a full figure with labels."}
+
+    monkeypatch.setattr(paper_impl, "render_paper_page", fake_render)
+
+    result = facade.inspect_paper_visuals(
+        {
+            "note_id": "note-1",
+            "page": 3,
+            "query": "What is visible on this page?",
+        },
+        library_path=library_path,
+        paper_image_analyzer=fake_analyzer,
+    )
+
+    assert result["success"] is True
+    assert result["source"] == "pdf_page"
+    assert result["page"] == 3
+    assert result["artifact_id"] == "img-page-3"
+    assert result["analysis"] == "The rendered page shows a full figure with labels."
+    assert result["rendered"]["width"] == 1200
+    assert render_calls[0][0] == {"note_id": "note-1", "page": 3, "scale": 2.0}
+    assert analyzer_calls == [{
+        "artifact_id": "img-page-3",
+        "path": None,
+        "question": "What is visible on this page?",
+    }]
+
+
+def test_inspect_paper_visuals_corrects_figure_label_page_for_image_extraction(monkeypatch, tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "Visual Paper"}]}),
+        encoding="utf-8",
+    )
+    extraction_calls = []
+
+    monkeypatch.setattr(
+        paper_impl,
+        "_load_or_extract_paper_text",
+        lambda note, **kwargs: {
+            "success": True,
+            "source": "cache",
+            "pages": [
+                {"page": 2, "text": "Regular body text without the target figure."},
+                {"page": 6, "text": "Figure 2 | Overall architecture of the model."},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        paper_impl,
+        "_resolved_pdf_path_for_note",
+        lambda note, **kwargs: {"pdf_path": tmp_path / "paper.pdf"},
+    )
+
+    def fake_extract_pdf_images(**kwargs):
+        extraction_calls.append(kwargs)
+        return {
+            "success": True,
+            "note_id": kwargs["note_id"],
+            "page_start": kwargs["page_start"],
+            "page_end": kwargs["page_end"],
+            "count": 0,
+            "images": [],
+            "source_pdf": "paper.pdf",
+            "limit": kwargs["limit"],
+        }
+
+    monkeypatch.setattr(paper_impl, "_extract_pdf_images", fake_extract_pdf_images)
+
+    result = facade.inspect_paper_visuals(
+        {
+            "note_id": "note-1",
+            "action": "extract_images",
+            "query": "Figure 2 page 2",
+            "page_start": 2,
+            "page_end": 2,
+        },
+        library_path=library_path,
+    )
+
+    assert result["success"] is True
+    assert extraction_calls[0]["page_start"] == 6
+    assert extraction_calls[0]["page_end"] == 6
+    assert result["resolved_figure"] == {"label": "Figure 2", "page": 6, "source": "cache"}
+    assert result["page_correction"]["requested_page"] == 2
+    assert result["page_correction"]["resolved_page"] == 6
+    assert "No embedded raster images" in result["hint"]
+
+
+def test_inspect_paper_visuals_analyzes_chinese_figure_label_on_resolved_page(monkeypatch, tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "Visual Paper"}]}),
+        encoding="utf-8",
+    )
+    render_calls = []
+    analyzer_calls = []
+
+    monkeypatch.setattr(
+        paper_impl,
+        "_load_or_extract_paper_text",
+        lambda note, **kwargs: {
+            "success": True,
+            "source": "cache",
+            "pages": [{"page": 6, "text": "Figure 2 | Overall architecture of the model."}],
+        },
+    )
+    monkeypatch.setattr(
+        paper_impl,
+        "_resolved_pdf_path_for_note",
+        lambda note, **kwargs: {"pdf_path": tmp_path / "paper.pdf"},
+    )
+
+    def fake_render_pdf_page(**kwargs):
+        render_calls.append(kwargs)
+        return {
+            "success": True,
+            "note_id": kwargs["note_id"],
+            "page": kwargs["page_number"],
+            "artifact_id": "img-page-6",
+            "artifact": {"id": "img-page-6", "kind": "image"},
+            "image_path": str(tmp_path / "page-6.png"),
+            "width": 1200,
+            "height": 1600,
+            "relative_path": "page-6.png",
+            "preview_url": "/media/img-page-6",
+            "download_url": "/media/img-page-6/download",
+        }
+
+    def fake_analyzer(args):
+        analyzer_calls.append(args)
+        return {"success": True, "analysis": "The rendered page shows the model architecture diagram."}
+
+    monkeypatch.setattr(paper_impl, "_render_pdf_page", fake_render_pdf_page)
+
+    result = facade.inspect_paper_visuals(
+        {
+            "note_id": "note-1",
+            "action": "analyze_image",
+            "query": "图二说什么",
+            "page": 2,
+            "scale": 2,
+        },
+        library_path=library_path,
+        paper_image_analyzer=fake_analyzer,
+    )
+
+    assert result["success"] is True
+    assert render_calls[0]["page_number"] == 6
+    assert analyzer_calls[0]["artifact_id"] == "img-page-6"
+    assert result["resolved_figure"] == {"label": "Figure 2", "page": 6, "source": "cache"}
+    assert result["page_correction"]["requested_page"] == 2
+    assert result["page_correction"]["resolved_page"] == 6
+    assert result["analysis"] == "The rendered page shows the model architecture diagram."
 
 
 def test_paper_visual_cache_paths_share_one_root():

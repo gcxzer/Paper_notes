@@ -53,6 +53,9 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance(monkeypatch, tmp
     assert "user 'what does Figure 3 show?' -> query 'Figure 3'" in prompt
     assert "user 'what is picture 8 in the paper?' -> query 'Figure 8'" in prompt
     assert "not extracted image index N" in prompt
+    assert "Figure 2/图二 does not mean page 2" in prompt
+    assert "Do not call inspect_paper_visuals in parallel using the figure" in prompt
+    assert "extract_images only pulls embedded raster images" in prompt
     assert "Do not expand numbered figure/table/equation questions into broad" in prompt
     assert "# Paper library search queries" in prompt
     assert "# External web lookup" in prompt

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Generator, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -310,6 +310,7 @@ class AgentService:
             model_config=model_config,
             session=session,
             model_supports_tools=model_supports_tools(model),
+            active_model=model,
         )
         input_messages = [
             *messages_from_transcript(session.messages),
@@ -720,6 +721,7 @@ class AgentService:
         model_config: AppConfig | None = None,
         session: AgentSession | None = None,
         model_supports_tools: bool = True,
+        active_model: str | BaseChatModel | None = None,
     ) -> list[AgentTool]:
         """根据请求和模型能力创建可用工具列表。"""
         if not request.enable_tools:
@@ -731,6 +733,10 @@ class AgentService:
             session=session,
             model_supports_tools=model_supports_tools,
         )
+        context = replace(
+            context,
+            paper_image_analyzer=self._paper_image_analyzer(active_model, media_store=context.media_store),
+        )
         if not context.model_supports_tools:
             return []
         tools: list[AgentTool] = []
@@ -739,6 +745,60 @@ class AgentService:
         if self.extra_tools is not None:
             tools.extend(self.extra_tools)
         return filter_disabled_tools(tools, tuple(request.disabled_tools or ()))
+
+    def _paper_image_analyzer(self, model: str | BaseChatModel | None, *, media_store: Any | None = None) -> Any | None:
+        media_store = media_store or getattr(self._tool_context, "media_store", None)
+        if media_store is None or model is None or isinstance(model, str):
+            return None
+
+        def analyze(args: dict[str, Any]) -> dict[str, Any]:
+            artifact_id = str(args.get("artifact_id") or args.get("artifactId") or "").strip()
+            if not artifact_id and args.get("path"):
+                find_by_path = getattr(media_store, "find_by_path", None)
+                if callable(find_by_path):
+                    try:
+                        artifact = find_by_path(str(args.get("path") or ""))
+                    except Exception:
+                        artifact = None
+                    artifact_id = str(getattr(artifact, "id", "") or "").strip() if artifact is not None else ""
+            if not artifact_id:
+                return {"success": False, "error": "artifact_id is required.", "code": "artifact_id_required"}
+            try:
+                artifact = media_store.require_artifact(artifact_id)
+                image_url = media_store.data_url_for_artifact(artifact.id)
+            except Exception as error:
+                return {"success": False, "error": str(error), "code": "artifact_not_found"}
+
+            question = str(args.get("question") or "Analyze this paper image.").strip()
+            prompt = (
+                "Analyze this image for a local paper-note reading workflow. "
+                "Be precise about visible text, figures, axes, equations, and paper-specific interpretation. "
+                "If something cannot be determined visually, say so.\n\n"
+                f"Question: {question}"
+            )
+            try:
+                response = model.invoke([
+                    HumanMessage(content=[
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ])
+                ])
+            except Exception as error:
+                return {
+                    "success": False,
+                    "artifact": artifact.to_dict() if hasattr(artifact, "to_dict") else {},
+                    "question": question,
+                    "error": str(error),
+                    "code": "image_analysis_provider_error",
+                }
+            return {
+                "success": True,
+                "artifact": artifact.to_dict() if hasattr(artifact, "to_dict") else {},
+                "question": question,
+                "analysis": content_text(getattr(response, "content", response)),
+            }
+
+        return analyze
 
     def close(self) -> None:
         """关闭服务持有的 MCP 管理器资源。"""

@@ -45,14 +45,28 @@ def inspect_paper_visuals_parameters() -> dict[str, Any]:
     properties: dict[str, Any] = {
         "action": {
             "type": "string",
-            "enum": ["render_page", "extract_images"],
+            "enum": ["render_page", "extract_images", "analyze_image"],
         },
         "note_id": {"type": "string", "description": "The note id whose PDF visuals should be inspected."},
-        "page": {"type": "integer", "minimum": 1, "description": "Page number for render_page."},
-        "page_start": {"type": "integer", "minimum": 1},
-        "page_end": {"type": "integer", "minimum": 1},
+        "query": {
+            "type": "string",
+            "description": (
+                "Question to answer from the rendered or registered image. For a numbered paper figure, pass the "
+                "exact label such as Figure 2 or 图二; this is not a PDF page number."
+            ),
+        },
+        "question": {"type": "string", "description": "Alias for query when action=analyze_image."},
+        "page": {"type": "integer", "minimum": 1, "description": "PDF page number, not a Figure/Table number."},
+        "page_start": {"type": "integer", "minimum": 1, "description": "First PDF page, not a Figure/Table number."},
+        "page_end": {"type": "integer", "minimum": 1, "description": "Last PDF page, not a Figure/Table number."},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50},
         "scale": {"type": "number", "minimum": 0.5, "maximum": 4},
+        "artifact_id": {"type": "string", "description": "Registered image artifact id for analyze_image."},
+        "path": {"type": "string", "description": "Optional registered artifact path for analyze_image."},
+        "figure_label": {
+            "type": "string",
+            "description": "Exact numbered paper figure label, such as Figure 2 or 图二, for automatic PDF page lookup.",
+        },
     }
     return {
         "type": "object",

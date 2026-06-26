@@ -59,7 +59,11 @@ PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE = (
     "1, Appendix C, or Section 5.2, preserve that label in the query and add only paper keywords already "
     "supplied or known from context. In paper context, generic wording such as picture/image/visual plus a "
     "number usually means the numbered paper figure; query it as Figure N, not extracted image index N, unless "
-    "the user explicitly asks for an extracted image file/index. For broad, comparative, or multi-part "
+    "the user explicitly asks for an extracted image file/index. A numbered figure label is not a PDF page "
+    "number: Figure 2/图二 does not mean page 2. If you need visual inspection for a numbered figure and the "
+    "actual PDF page is not already known, first resolve it with the paper-reading tool, then call "
+    "inspect_paper_visuals on the returned page. Do not call inspect_paper_visuals in parallel using the figure "
+    "number as page/page_start/page_end. For broad, comparative, or multi-part "
     "requests, synthesize those needs into one compact keyword query. If query_paper_content reports "
     "index_not_ready, tell the user to build the paper index. Use "
     "inspect_paper_visuals, when it is available, only for page rendering, figure extraction, or paper image "
@@ -129,8 +133,12 @@ TOOL_GUIDANCE_BY_NAME = {
     ),
     "inspect_paper_visuals": (
         "Use inspect_paper_visuals only for the actions exposed in its current schema, such as PDF page rendering, "
-        "or figure extraction. Do not use it for "
-        "paper text/content retrieval; use the paper-reading tool for that."
+        "figure extraction, or image analysis. Use action=analyze_image when the user asks you to explain a "
+        "rendered page or figure visually. Prefer analyze_image/render_page over extract_images for paper "
+        "figures, because extract_images only pulls embedded raster images and can miss vector diagrams. "
+        "For Figure N/图N requests, do not treat N as a PDF page; resolve the actual page first with read_paper "
+        "or pass the exact figure_label/query so the tool can correct the page. Do not use this tool for paper "
+        "text/content retrieval; use the paper-reading tool for that."
     ),
     "manage_annotations": (
         "Use manage_annotations only for annotation create/update/delete. For create, provide quote/query "

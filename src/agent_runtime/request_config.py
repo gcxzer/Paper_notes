@@ -127,6 +127,7 @@ def tool_context_for_request(
         image_generation=generation_options(options, IMAGE_GENERATION_KEYS),
         attachments=attachments,
         model_supports_tools=model_supports_tools,
+        paper_image_analyzer=base_context.paper_image_analyzer,
     )
 
 

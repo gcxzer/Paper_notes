@@ -12,7 +12,7 @@ only re-exports the public API.
 
 - `get_paper_context`: search/list local paper metadata or build compact context
   for one paper from metadata, note HTML, annotations, and local paper index status.
-- `inspect_paper_visuals`: render PDF pages or extract figures/images.
+- `inspect_paper_visuals`: render PDF pages, extract figures/images, or analyze registered paper images.
 - `read_paper`: directly search or read extracted local PDF page text without RAG.
 - `query_paper_content`: semantic retrieval
   over a note's ready local paper index.
@@ -35,4 +35,4 @@ only re-exports the public API.
 - PDF import does not build indexes. Use `query_paper_content` for paper content
   only after Settings/RAG has created the index and RAG querying is enabled. Use
   `read_paper` for exact text/page fallback, and use `inspect_paper_visuals` only
-  for visual page/figure work.
+  for visual page/figure rendering, extraction, and image analysis.

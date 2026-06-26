@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import agent_runtime.service as service_module
 from langchain_core.language_models.fake_chat_models import FakeListChatModel, FakeMessagesListChatModel
@@ -35,6 +36,89 @@ def _config() -> AppConfig:
 class ToolCapableFakeMessagesListChatModel(FakeMessagesListChatModel):
     def bind_tools(self, tools, *, tool_choice=None, **kwargs):
         return self
+
+
+class _FakeVisionModel:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def invoke(self, messages):
+        self.calls.append(messages)
+        return AIMessage(content="The visible page contains Figure 1.")
+
+
+class _FakeImageMediaStore:
+    def require_artifact(self, artifact_id: str):
+        assert artifact_id == "img-1"
+        return SimpleNamespace(
+            id="img-1",
+            to_dict=lambda: {"id": "img-1", "kind": "image", "mimeType": "image/png"},
+        )
+
+    def data_url_for_artifact(self, artifact_id: str) -> str:
+        assert artifact_id == "img-1"
+        return "data:image/png;base64,aGVsbG8="
+
+
+def test_agent_service_paper_image_analyzer_sends_image_to_model(tmp_path):
+    model = _FakeVisionModel()
+    service = AgentService(
+        app_config=_config(),
+        session_store=AgentSessionStore(tmp_path / "sessions"),
+        chat_model=model,
+        media_store=_FakeImageMediaStore(),
+        use_default_tools=False,
+    )
+
+    analyzer = service._paper_image_analyzer(model)
+    assert callable(analyzer)
+    result = analyzer({"artifact_id": "img-1", "question": "Explain the chart visually."})
+
+    assert result["success"] is True
+    assert result["analysis"] == "The visible page contains Figure 1."
+    content = model.calls[0][0].content
+    assert content[0]["type"] == "text"
+    assert "Explain the chart visually." in content[0]["text"]
+    assert content[1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,aGVsbG8="},
+    }
+
+
+def test_agent_service_paper_image_analyzer_uses_request_media_store(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(json.dumps({"notes": [{"id": "note-1", "title": "Visual Paper"}]}), encoding="utf-8")
+    model = _FakeVisionModel()
+    media_store = _FakeImageMediaStore()
+    service = AgentService(
+        app_config=_config(),
+        session_store=AgentSessionStore(tmp_path / "sessions"),
+        chat_model=model,
+        library_path=library_path,
+        use_default_tools=True,
+    )
+    request = AgentServiceRequest(
+        message="look",
+        provider="openai",
+        model="gpt-5.5",
+        model_options={"_write_note_media_store": media_store},
+    )
+
+    tools = service._tools_for_request(request, model_config=_config(), active_model=model)
+    visual_tool = next(tool for tool in tools if getattr(tool, "name", "") == "inspect_paper_visuals")
+    result = visual_tool.func(
+        note_id="note-1",
+        action="analyze_image",
+        artifact_id="img-1",
+        query="Only describe the image.",
+    )
+
+    assert result["success"] is True
+    assert result["analysis"] == "The visible page contains Figure 1."
+    assert model.calls[0][0].content[1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,aGVsbG8="},
+    }
 
 
 def test_agent_service_creates_session_and_persists_transcript(tmp_path):

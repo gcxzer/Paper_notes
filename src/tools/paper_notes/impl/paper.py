@@ -15,7 +15,7 @@ from urllib.parse import unquote
 
 from app_infra.formatting import normalize_text
 from app_infra.files import PAPERS_DIR, PROJECT_ROOT, atomic_write_text, is_relative_to
-from tools.paper_notes.impl.artifacts import _attach_artifact
+from tools.paper_notes.impl.artifacts import _artifact_payload, _attach_artifact
 from tools.paper_notes.impl.common import (
     positive_float,
     positive_int,
@@ -31,6 +31,7 @@ __all__ = [
     "_paper_text_cache_path",
     "_paper_visual_images_dir",
     "_resolved_pdf_path_for_note",
+    "analyze_paper_image",
     "extract_paper_images",
     "read_paper_text",
     "render_paper_page",
@@ -138,7 +139,9 @@ def render_paper_page(
     if "error" in pdf_path:
         return pdf_path
 
-    page_number = positive_int(args.get("page"), default=1, maximum=100_000)
+    requested_page = positive_int(args.get("page"), default=1, maximum=100_000) if args.get("page") is not None else None
+    figure_page = _resolved_figure_page_hint(note, args, papers_dir=papers_dir)
+    page_number = int(figure_page["page"]) if figure_page else (requested_page or 1)
     scale = positive_float(args.get("scale"), default=2.0, minimum=0.5, maximum=4.0)
     result = _render_pdf_page(
         note_id=normalize_text(note.get("id")),
@@ -158,6 +161,7 @@ def render_paper_page(
             "scale": scale,
         },
     )
+    _attach_figure_page_resolution(result, figure_page, requested_page=requested_page)
     return result
 
 
@@ -177,12 +181,18 @@ def extract_paper_images(
     if "error" in pdf_path:
         return pdf_path
 
+    figure_page = _resolved_figure_page_hint(note, args, papers_dir=papers_dir)
+    page_start = args.get("page_start")
+    page_end = args.get("page_end")
+    requested_page = _single_requested_visual_page(args)
+    if figure_page:
+        page_start = page_end = int(figure_page["page"])
     limit = positive_int(args.get("limit"), default=20, maximum=50)
     result = _extract_pdf_images(
         note_id=normalize_text(note.get("id")),
         pdf_path=pdf_path["pdf_path"],
-        page_start=args.get("page_start"),
-        page_end=args.get("page_end"),
+        page_start=page_start,
+        page_end=page_end,
         limit=limit,
         paper_visual_cache_dir=paper_visual_cache_dir,
     )
@@ -199,7 +209,295 @@ def extract_paper_images(
                     "xref": image.get("xref"),
                 },
             )
+    _attach_figure_page_resolution(result, figure_page, requested_page=requested_page)
+    if figure_page and result.get("success") and int(result.get("count") or 0) == 0:
+        result["hint"] = (
+            "No embedded raster images were found on the resolved figure page. Use action=render_page or "
+            "action=analyze_image with this resolved page for vector diagrams or whole-page visual inspection."
+        )
     return result
+
+
+def analyze_paper_image(
+    args: dict[str, Any],
+    *,
+    library_path: Path | None = None,
+    papers_dir: Path | None = None,
+    paper_visual_cache_dir: Path | None = None,
+    media_store: Any | None = None,
+    paper_image_analyzer: Any | None = None,
+) -> dict[str, Any]:
+    if not callable(paper_image_analyzer):
+        return tool_error(
+            "image_analysis_unavailable",
+            "Image analysis is not available for the current model/provider.",
+            note_id=normalize_text(args.get("note_id")),
+        )
+
+    note_result = resolve_note(args, library_path=library_path)
+    if "error" in note_result:
+        return note_result
+    note = note_result["note"]
+    note_id = normalize_text(note.get("id"))
+
+    source = _resolve_image_analysis_source(
+        args,
+        note_id=note_id,
+        library_path=library_path,
+        papers_dir=papers_dir,
+        paper_visual_cache_dir=paper_visual_cache_dir,
+        media_store=media_store,
+        note=note,
+    )
+    if not source.get("success"):
+        return source
+
+    question = normalize_text(args.get("query") or args.get("question")) or "Analyze this paper image."
+    analysis = paper_image_analyzer({
+        "artifact_id": source.get("artifact_id"),
+        "path": args.get("path"),
+        "question": question,
+    })
+    if not isinstance(analysis, dict):
+        return tool_error("image_analysis_failed", "Image analysis returned an invalid result.", note_id=note_id)
+    if not analysis.get("success"):
+        return {**analysis, "note_id": analysis.get("note_id") or note_id}
+    return {
+        "success": True,
+        "note_id": note_id,
+        "source": source.get("source"),
+        "page": source.get("page"),
+        "scale": source.get("scale"),
+        "artifact_id": source.get("artifact_id"),
+        "artifact": source.get("artifact") or analysis.get("artifact") or {},
+        "rendered": source.get("rendered") or {},
+        "resolved_figure": source.get("resolved_figure") or {},
+        "page_correction": source.get("page_correction") or {},
+        "question": question,
+        "analysis": normalize_text(analysis.get("analysis") or analysis.get("content")),
+    }
+
+
+def _resolve_image_analysis_source(
+    args: dict[str, Any],
+    *,
+    note_id: str,
+    library_path: Path | None,
+    papers_dir: Path | None,
+    paper_visual_cache_dir: Path | None,
+    media_store: Any | None,
+    note: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_id = normalize_text(args.get("artifact_id") or args.get("artifactId"))
+    if artifact_id:
+        return {
+            "success": True,
+            "source": "artifact",
+            "artifact_id": artifact_id,
+            "artifact": _artifact_payload(media_store, artifact_id),
+        }
+
+    if args.get("path"):
+        find_by_path = getattr(media_store, "find_by_path", None)
+        if callable(find_by_path):
+            try:
+                artifact = find_by_path(str(args.get("path") or ""))
+            except Exception:
+                artifact = None
+            artifact_payload = artifact.to_dict() if hasattr(artifact, "to_dict") else {}
+            artifact_id = normalize_text(artifact_payload.get("id"))
+            if artifact_id:
+                return {
+                    "success": True,
+                    "source": "artifact",
+                    "artifact_id": artifact_id,
+                    "artifact": artifact_payload,
+                }
+        return tool_error("image_artifact_not_found", "Could not resolve image artifact from path.", note_id=note_id)
+
+    figure_page = _resolved_figure_page_hint(note, args, papers_dir=papers_dir)
+    if args.get("page") is None and not figure_page:
+        return tool_error(
+            "image_source_required",
+            "Provide artifact_id, path, page, or a resolvable figure_label/query for image analysis.",
+            note_id=note_id,
+        )
+
+    requested_page = positive_int(args.get("page"), default=1, maximum=100_000) if args.get("page") is not None else None
+    page = int(figure_page["page"]) if figure_page else (requested_page or 1)
+    scale = positive_float(args.get("scale"), default=2.0, minimum=0.5, maximum=4.0)
+    rendered = render_paper_page(
+        {"note_id": note_id, "page": page, "scale": scale},
+        library_path=library_path,
+        papers_dir=papers_dir,
+        paper_visual_cache_dir=paper_visual_cache_dir,
+        media_store=media_store,
+    )
+    if not rendered.get("success"):
+        return rendered
+    artifact_id = normalize_text(rendered.get("artifact_id"))
+    if not artifact_id:
+        return tool_error(
+            "image_artifact_missing",
+            "PDF page rendered, but no media artifact was registered for image analysis.",
+            note_id=note_id,
+            page=page,
+        )
+    return {
+        "success": True,
+        "source": "pdf_page",
+        "page": page,
+        "scale": scale,
+        "artifact_id": artifact_id,
+        "artifact": rendered.get("artifact") or _artifact_payload(media_store, artifact_id),
+        "resolved_figure": _figure_page_resolution_payload(figure_page),
+        "page_correction": _figure_page_correction_payload(figure_page, requested_page=requested_page),
+        "rendered": {
+            "width": rendered.get("width"),
+            "height": rendered.get("height"),
+            "relative_path": rendered.get("relative_path") or "",
+            "preview_url": rendered.get("preview_url") or "",
+            "download_url": rendered.get("download_url") or "",
+        },
+    }
+
+
+def _resolved_figure_page_hint(
+    note: dict[str, Any],
+    args: dict[str, Any],
+    *,
+    papers_dir: Path | None,
+) -> dict[str, Any] | None:
+    label = _figure_label_from_args(args)
+    if not label:
+        return None
+    pages_payload = _load_or_extract_paper_text(note, papers_dir=papers_dir)
+    if not pages_payload.get("success"):
+        return None
+    matches = _search_paper_pages(pages_payload.get("pages", []), query=label, limit=3)
+    if not matches:
+        return None
+    page = positive_int(matches[0].get("page"), default=0, maximum=100_000)
+    if page < 1:
+        return None
+    return {
+        "label": label,
+        "page": page,
+        "source": pages_payload.get("source", ""),
+    }
+
+
+def _figure_label_from_args(args: dict[str, Any]) -> str:
+    for key in ("figure_label", "figure", "label", "query", "question"):
+        label = _figure_label_from_text(normalize_text(args.get(key)))
+        if label:
+            return label
+    return ""
+
+
+def _figure_label_from_text(text: str) -> str:
+    if not text:
+        return ""
+    match = re.search(r"\b(?:fig(?:ure)?\.?)\s*([0-9]+(?:\.[0-9]+)?[A-Za-z]?)\b", text, flags=re.IGNORECASE)
+    if match:
+        return f"Figure {match.group(1)}"
+    match = re.search(r"[图圖]\s*([0-9]+|[零〇一二两三四五六七八九十百]+)([A-Za-z]?)", text)
+    if not match:
+        return ""
+    number = match.group(1)
+    if number.isdigit():
+        figure_number = number
+    else:
+        parsed = _chinese_int(number)
+        if parsed <= 0:
+            return ""
+        figure_number = str(parsed)
+    return f"Figure {figure_number}{match.group(2)}"
+
+
+def _chinese_int(text: str) -> int:
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if not text:
+        return 0
+    if text in digits:
+        return digits[text]
+    if "百" in text:
+        left, _, right = text.partition("百")
+        hundreds = digits.get(left, 1 if not left else 0)
+        return hundreds * 100 + _chinese_int(right)
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = digits.get(left, 1 if not left else 0)
+        ones = _chinese_int(right) if right else 0
+        return tens * 10 + ones
+    total = 0
+    for char in text:
+        if char not in digits:
+            return 0
+        total = total * 10 + digits[char]
+    return total
+
+
+def _single_requested_visual_page(args: dict[str, Any]) -> int | None:
+    if args.get("page") is not None:
+        return positive_int(args.get("page"), default=1, maximum=100_000)
+    if args.get("page_start") is None or args.get("page_end") is None:
+        return None
+    start = positive_int(args.get("page_start"), default=0, maximum=100_000)
+    end = positive_int(args.get("page_end"), default=0, maximum=100_000)
+    return start if start > 0 and start == end else None
+
+
+def _attach_figure_page_resolution(
+    result: dict[str, Any],
+    figure_page: dict[str, Any] | None,
+    *,
+    requested_page: int | None,
+) -> None:
+    if not isinstance(result, dict) or not figure_page:
+        return
+    result["resolved_figure"] = _figure_page_resolution_payload(figure_page)
+    correction = _figure_page_correction_payload(figure_page, requested_page=requested_page)
+    if correction:
+        result["page_correction"] = correction
+
+
+def _figure_page_resolution_payload(figure_page: dict[str, Any] | None) -> dict[str, Any]:
+    if not figure_page:
+        return {}
+    return {
+        "label": figure_page.get("label") or "",
+        "page": figure_page.get("page"),
+        "source": figure_page.get("source") or "",
+    }
+
+
+def _figure_page_correction_payload(
+    figure_page: dict[str, Any] | None,
+    *,
+    requested_page: int | None,
+) -> dict[str, Any]:
+    if not figure_page or requested_page is None or requested_page == int(figure_page.get("page") or 0):
+        return {}
+    return {
+        "label": figure_page.get("label") or "",
+        "requested_page": requested_page,
+        "resolved_page": figure_page.get("page"),
+        "reason": "Numbered paper figures are not PDF page numbers.",
+    }
 
 
 def _safe_cache_name(value: str) -> str:

@@ -36,12 +36,16 @@ def create_tools(
     paper_visual_cache_dir: Path | None = None,
     media_store: Any | None = None,
     visual_inspection_available: bool = True,
+    paper_image_analyzer: Any | None = None,
 ) -> list[StructuredTool]:
     can_inspect_visuals = bool(visual_inspection_available)
     rag_query_enabled = _rag_query_enabled()
-    visual_actions = "render_page for a page image or extract_images for figures"
+    visual_actions = (
+        "render_page for a PDF page image, extract_images only for embedded raster images, "
+        "or analyze_image for visual Q&A"
+    )
     query_visual_guidance = (
-        "Use inspect_paper_visuals only for page rendering or figure extraction. "
+        "Use inspect_paper_visuals only for page rendering, embedded image extraction, or visual image analysis. "
         if can_inspect_visuals
         else "This model cannot inspect paper images, so answer figure/table questions from retrieved text and captions. "
     )
@@ -155,7 +159,10 @@ def create_tools(
             StructuredTool(
                 name="inspect_paper_visuals",
                 description=(
-                    f"Inspect visual paper source material for a note. Use action={visual_actions}."
+                    f"Inspect visual paper source material for a note. Use action={visual_actions}. "
+                    "For a numbered paper figure, Figure N/图N is not PDF page N; first resolve the actual PDF "
+                    "page with read_paper, or pass figure_label/query so this tool can correct a guessed page. "
+                    "For explaining what a figure shows, prefer action=analyze_image over extract_images."
                 ),
                 args_schema=inspect_paper_visuals_parameters(),
                 func=lambda **kwargs: facade.inspect_paper_visuals(
@@ -164,6 +171,7 @@ def create_tools(
                     papers_dir=papers_dir,
                     paper_visual_cache_dir=paper_visual_cache_dir,
                     media_store=media_store,
+                    paper_image_analyzer=paper_image_analyzer,
                 ),
             ),
         )

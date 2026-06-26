@@ -45,6 +45,7 @@ class ToolContext:
     attachments: list[dict[str, Any]] | None = None
     model_supports_tools: bool = True
     prefer_native_web_search: bool = True
+    paper_image_analyzer: Any | None = None
 
 
 def create_tools(context: ToolContext) -> list[AgentTool]:
@@ -90,6 +91,7 @@ def _paper_notes_tools(context: ToolContext, capabilities: ModelCapabilities) ->
         paper_visual_cache_dir=context.paper_visual_cache_dir,
         media_store=context.media_store,
         visual_inspection_available=capabilities.supports_vision,
+        paper_image_analyzer=context.paper_image_analyzer,
     )
 
 

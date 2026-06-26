@@ -29,7 +29,13 @@ from tools.paper_notes.impl.notes import (
     validate_note_html,
     write_note_section,
 )
-from tools.paper_notes.impl.paper import extract_paper_images, read_paper_text, render_paper_page, search_paper_text
+from tools.paper_notes.impl.paper import (
+    analyze_paper_image,
+    extract_paper_images,
+    read_paper_text,
+    render_paper_page,
+    search_paper_text,
+)
 
 __all__ = [
     "get_paper_context",
@@ -86,10 +92,15 @@ def inspect_paper_visuals(
     papers_dir: Path | None = None,
     paper_visual_cache_dir: Path | None = None,
     media_store: Any | None = None,
+    paper_image_analyzer: Any | None = None,
 ) -> dict[str, Any]:
     action = normalize_text(args.get("action")).lower()
     if not action:
-        if args.get("page") is not None:
+        if normalize_text(args.get("artifact_id") or args.get("artifactId") or args.get("path")):
+            action = "analyze_image"
+        elif args.get("page") is not None and normalize_text(args.get("query") or args.get("question")):
+            action = "analyze_image"
+        elif args.get("page") is not None:
             action = "render_page"
         else:
             action = "extract_images"
@@ -116,7 +127,19 @@ def inspect_paper_visuals(
             ),
             correction,
         )
-    return tool_error("invalid_action", "action must be render_page or extract_images.", note_id=normalize_text(args.get("note_id")))
+    if action == "analyze_image":
+        return _with_note_id_correction(
+            analyze_paper_image(
+                args,
+                library_path=library_path,
+                papers_dir=papers_dir,
+                paper_visual_cache_dir=paper_visual_cache_dir,
+                media_store=media_store,
+                paper_image_analyzer=paper_image_analyzer,
+            ),
+            correction,
+        )
+    return tool_error("invalid_action", "action must be render_page, extract_images, or analyze_image.", note_id=normalize_text(args.get("note_id")))
 
 
 def query_paper_content(
@@ -221,7 +244,7 @@ def _inspect_paper_visuals_args_with_note_id_correction(
     action: str,
     library_path: Path | None,
 ) -> tuple[dict[str, Any], dict[str, str] | None]:
-    if action not in {"render_page", "extract_images"}:
+    if action not in {"render_page", "extract_images", "analyze_image"}:
         return args, None
     note_result = resolve_note(args, library_path=library_path, allow_similar_id=True)
     if "error" in note_result:
