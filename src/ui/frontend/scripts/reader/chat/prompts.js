@@ -1,5 +1,9 @@
 function initializeSavedPrompts() {
-  readerState.savedPrompts = readStoredSavedPrompts();
+  const storedPrompts = readStoredSavedPrompts();
+  applySavedPrompts(storedPrompts);
+  loadSavedPrompts({ legacyPrompts: storedPrompts }).catch((error) => {
+    console.warn("Failed to load saved prompts.", error);
+  });
 }
 
 const SAVED_PROMPT_EMOJI_OPTIONS = [
@@ -15,29 +19,80 @@ const SAVED_PROMPT_ICON_OPTIONS = [
 function readStoredSavedPrompts() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeSavedPrompt)
-      .filter((prompt) => prompt.id && prompt.content)
-      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+    return normalizeSavedPromptCollection(parsed);
   } catch (error) {
     console.warn("Failed to read saved prompts.", error);
     return [];
   }
 }
 
-function writeStoredSavedPrompts(prompts) {
-  const normalized = Array.isArray(prompts)
-    ? prompts.map(normalizeSavedPrompt).filter((prompt) => prompt.id && prompt.content)
-    : [];
-  readerState.savedPrompts = normalized.sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+function clearStoredSavedPrompts() {
   try {
-    localStorage.setItem(SAVED_PROMPTS_KEY, JSON.stringify(readerState.savedPrompts));
+    localStorage.removeItem(SAVED_PROMPTS_KEY);
   } catch (error) {
-    console.warn("Failed to save prompts.", error);
+    console.warn("Failed to clear legacy saved prompts.", error);
   }
+}
+
+function normalizeSavedPromptCollection(payload) {
+  const rawPrompts = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.prompts)
+      ? payload.prompts
+      : [];
+  return rawPrompts
+    .map(normalizeSavedPrompt)
+    .filter((prompt) => prompt.id && prompt.content)
+    .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+}
+
+function applySavedPrompts(prompts) {
+  readerState.savedPrompts = normalizeSavedPromptCollection(prompts);
   renderReaderToolControls();
   if (elements.savedPromptManageDialog?.open) renderSavedPromptManageList();
+  return readerState.savedPrompts;
+}
+
+function mergeSavedPromptCollections(primaryPrompts, secondaryPrompts) {
+  const byId = new Map();
+  [...normalizeSavedPromptCollection(primaryPrompts), ...normalizeSavedPromptCollection(secondaryPrompts)].forEach((prompt) => {
+    const existing = byId.get(prompt.id);
+    const existingTimestamp = String(existing?.updatedAt || existing?.createdAt || "");
+    const promptTimestamp = String(prompt.updatedAt || prompt.createdAt || "");
+    if (!existing || promptTimestamp >= existingTimestamp) {
+      byId.set(prompt.id, prompt);
+    }
+  });
+  return normalizeSavedPromptCollection(Array.from(byId.values()));
+}
+
+async function loadSavedPrompts({ legacyPrompts = [] } = {}) {
+  const payload = await fetchAgentJson("/api/saved-prompts");
+  const serverPrompts = normalizeSavedPromptCollection(payload);
+  const promptsToMigrate = normalizeSavedPromptCollection(legacyPrompts);
+  if (promptsToMigrate.length) {
+    const merged = mergeSavedPromptCollections(serverPrompts, promptsToMigrate);
+    applySavedPrompts(merged);
+    const saved = await saveSavedPromptsToBackend(merged);
+    applySavedPrompts(saved);
+    clearStoredSavedPrompts();
+    return;
+  }
+  applySavedPrompts(serverPrompts);
+}
+
+async function saveSavedPromptsToBackend(prompts) {
+  const payload = await fetchAgentJson("/api/saved-prompts", {
+    method: "POST",
+    body: { prompts: normalizeSavedPromptCollection(prompts) }
+  });
+  return normalizeSavedPromptCollection(payload);
+}
+
+async function writeStoredSavedPrompts(prompts) {
+  const savedPrompts = await saveSavedPromptsToBackend(prompts);
+  clearStoredSavedPrompts();
+  return applySavedPrompts(savedPrompts);
 }
 
 function normalizeSavedPrompt(value) {
@@ -356,7 +411,7 @@ function updateSavedPromptSubmitState() {
   elements.saveSavedPrompt.disabled = !content;
 }
 
-function handleSavedPromptSubmit(event) {
+async function handleSavedPromptSubmit(event) {
   event.preventDefault();
   const id = normalizeText(elements.savedPromptIdInput?.value);
   const content = normalizeText(elements.savedPromptContentInput?.value);
@@ -384,8 +439,16 @@ function handleSavedPromptSubmit(event) {
     nextPrompt,
     ...readerState.savedPrompts.filter((prompt) => prompt.id !== nextPrompt.id)
   ];
-  writeStoredSavedPrompts(prompts);
-  closeSavedPromptDialog();
+  setSavedPromptStatus("Saving...");
+  if (elements.saveSavedPrompt) elements.saveSavedPrompt.disabled = true;
+  try {
+    await writeStoredSavedPrompts(prompts);
+    closeSavedPromptDialog();
+  } catch (error) {
+    setSavedPromptStatus(sanitizeVisibleAgentError(error.message || "Could not save prompt."));
+  } finally {
+    updateSavedPromptSubmitState();
+  }
 }
 
 function openSavedPromptManageDialog() {
@@ -450,10 +513,22 @@ function applySavedPromptCapability(prompt) {
   }
 }
 
-function deleteSavedPrompt(promptId) {
+async function deleteSavedPrompt(promptId) {
   const id = normalizeText(promptId);
-  if (!id) return;
-  writeStoredSavedPrompts(readerState.savedPrompts.filter((prompt) => prompt.id !== id));
+  if (!id) return false;
+  try {
+    await writeStoredSavedPrompts(readerState.savedPrompts.filter((prompt) => prompt.id !== id));
+    return true;
+  } catch (error) {
+    const message = sanitizeVisibleAgentError(error.message || "Could not delete prompt.");
+    if (elements.savedPromptDeleteMessage && elements.savedPromptDeleteDialog?.open) {
+      elements.savedPromptDeleteMessage.textContent = message;
+    } else {
+      readerState.toolStatus = message;
+      renderReaderToolControls();
+    }
+    return false;
+  }
 }
 
 function openSavedPromptDeleteDialog(promptId) {
@@ -474,9 +549,9 @@ function closeSavedPromptDeleteDialog() {
   elements.savedPromptDeleteDialog?.close();
 }
 
-function confirmSavedPromptDelete() {
+async function confirmSavedPromptDelete() {
   const id = normalizeText(readerState.pendingDeleteSavedPromptId);
-  if (id) deleteSavedPrompt(id);
+  if (id && !(await deleteSavedPrompt(id))) return;
   closeSavedPromptDeleteDialog();
 }
 

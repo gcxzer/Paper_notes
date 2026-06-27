@@ -135,6 +135,19 @@ async function installReaderFixtures(page, options = {}) {
       body: JSON.stringify(options.annotations || []),
     });
   });
+  let savedPrompts = Array.isArray(options.savedPrompts)
+    ? JSON.parse(JSON.stringify(options.savedPrompts))
+    : [];
+  await page.route("**/api/saved-prompts", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      savedPrompts = Array.isArray(payload?.prompts) ? JSON.parse(JSON.stringify(payload.prompts)) : [];
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ prompts: savedPrompts }),
+    });
+  });
   const chatProjects = options.chatProjects || [];
   await page.route("**/api/chat/projects", async (route) => {
     if (route.request().method() === "POST") {
@@ -349,6 +362,79 @@ test("reader workbench toolbar toggles panes and keeps ask composer visible", as
   await expect(page.locator("#readerChatInput")).toBeVisible();
   await expect(page.locator("#sendReaderChat")).toBeVisible();
   await expect(page.getByRole("button", { name: "Close Ask panel" })).toBeVisible();
+});
+
+test("reader model menu status follows the saved DeepSeek model", async ({ page }) => {
+  await ignoreMissingFavicon(page);
+  await installReaderFixtures(page);
+  await page.addInitScript(() => {
+    localStorage.setItem("paper-notes-reader-model-selection-v1", JSON.stringify({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    }));
+  });
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) });
+  });
+  await page.route("**/api/model/providers", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        defaultProvider: "deepseek",
+        defaultModel: "deepseek-v4-flash",
+        modelConnectionConfigured: true,
+        providers: [{
+          name: "deepseek",
+          displayName: "DeepSeek",
+          configured: true,
+          ready: true,
+          model: "deepseek-v4-flash",
+          selectedModel: "deepseek-v4-flash",
+          defaultModel: "deepseek-v4-flash",
+          models: [
+            { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash", shortLabel: "V4 Flash" },
+            { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro", shortLabel: "V4 Pro" },
+          ],
+        }],
+      }),
+    });
+  });
+
+  await page.goto(`/reader.html?id=${E2E_NOTE_ID}`);
+  await expect(page).toHaveTitle("Paper Reader");
+  await showAskPane(page);
+  await expect(page.locator("#readerModelMenuButton")).toContainText("V4 Pro");
+
+  await page.locator("#readerModelMenuButton").click();
+  await page.locator(".ask-provider-option", { hasText: "DeepSeek" }).click();
+
+  await expect(page.locator("#readerModelTitle")).toHaveText("DeepSeek");
+  await expect(page.locator("#readerModelStatus")).toHaveText("DeepSeek V4 Pro is selected.");
+  await expect(page.locator(".ask-model-option", { hasText: "DeepSeek V4 Pro" })).toHaveClass(/is-active/);
+  await expect(page.locator(".ask-model-option", { hasText: "DeepSeek V4 Flash" })).not.toHaveClass(/is-active/);
+});
+
+test("reader saved prompts persist through backend storage", async ({ page }) => {
+  await openFixtureReader(page);
+  await showAskPane(page);
+  await page.waitForFunction(() => typeof window.openSavedPromptDialog === "function");
+  await page.evaluate(() => window.openSavedPromptDialog());
+  await expect(page.locator("#readerSavedPromptDialog")).toBeVisible();
+
+  await page.locator("#readerSavedPromptTitle").fill("Quick Summary");
+  await page.locator("#readerSavedPromptContent").fill("Summarize the contribution in three bullets.");
+  await page.locator("#readerSaveSavedPrompt").click();
+  await expect(page.locator("#readerSavedPromptDialog")).toBeHidden();
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "DeepSeek V4" })).toBeVisible();
+  await showAskPane(page);
+  await page.waitForFunction(() => typeof window.openSavedPromptManageDialog === "function");
+  await page.evaluate(() => window.openSavedPromptManageDialog());
+
+  await expect(page.locator("#readerSavedPromptManageDialog")).toBeVisible();
+  await expect(page.locator("#readerSavedPromptManageList")).toContainText("Quick Summary");
+  await expect(page.locator("#readerSavedPromptManageList")).toContainText("Summarize the contribution in three bullets.");
 });
 
 test("settings modal stays within the mobile viewport and keeps provider list scrollable", async ({ page }) => {

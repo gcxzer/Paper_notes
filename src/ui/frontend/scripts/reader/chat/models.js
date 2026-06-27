@@ -412,10 +412,7 @@ async function selectReaderProvider(provider) {
   if (!nextProvider || readerState.modelSaving) return;
   readerState.modelDraftProvider = nextProvider;
   readerState.modelMenuLevel = "models";
-  const profile = providerProfileFor(nextProvider);
-  readerState.modelStatus = profile?.configured
-    ? `${modelDisplayLabel(defaultModelForProvider(nextProvider), nextProvider, "label") || providerDisplayName(nextProvider)} is selected.`
-    : `${providerDisplayName(nextProvider)} not configured.`;
+  readerState.modelStatus = "";
   renderReaderModelControls();
 }
 
