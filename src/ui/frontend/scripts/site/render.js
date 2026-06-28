@@ -258,6 +258,11 @@ function renderApp() {
 function updateLibrary(mutator) {
   mutator(state.library);
   state.library = sanitizeLibrary(state.library);
+  if (!getCategoryById(state.activeCategoryId)) {
+    setActiveCategory(ALL_CATEGORY_ID, { clearSelection: false });
+  } else {
+    saveActiveCategoryState();
+  }
   saveLibraryToStorage();
   syncLibraryToServer(state.library);
   saveExpandedState();

@@ -150,7 +150,7 @@ def write_note_parameters() -> dict[str, Any]:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["write_section", "append_to_section", "delete_section", "update_metadata"],
+                "enum": ["write_section", "append_to_section", "delete_section"],
                 "description": (
                     "write_section replaces an existing section or creates it if missing. "
                     "append_to_section appends content to an existing section or creates it if missing."
@@ -168,17 +168,87 @@ def write_note_parameters() -> dict[str, Any]:
                     "and replace_heading only for explicit replacement."
                 ),
             },
-            "summary": {"type": "string", "description": "Metadata summary update."},
-            "tags": {"type": "array", "items": {"type": "string"}, "description": "Metadata tag update."},
-            "venue": {"type": "string", "description": "Metadata venue update."},
-            "date": {"type": "string", "description": "Metadata date update."},
-            "category_id": {"type": "string", "description": "Metadata category id update."},
-            "collection": {
-                "type": "string",
-                "description": "Metadata collection name or collection path. Resolved to category_id before saving.",
-            },
         },
         "required": ["action", "note_id"],
+        "additionalProperties": False,
+    }
+
+
+def update_note_metadata_parameters() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "description": (
+            "Partial note metadata patch. Include only fields that should change; omit "
+            "unchanged fields. Do not pass empty strings or empty arrays as placeholders "
+            "for unchanged values."
+        ),
+        "properties": {
+            "note_id": {"type": "string", "description": "The note id whose metadata should change."},
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Metadata summary update. Omit to keep the existing summary; pass an empty "
+                    "string only when explicitly clearing it."
+                ),
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Complete metadata tag replacement. Prefer add_tags or remove_tags for simple "
+                    "tag additions/removals. Omit to keep existing tags; pass an empty array only "
+                    "with clear_fields when explicitly clearing all tags."
+                ),
+            },
+            "add_tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags to add while preserving existing tags. Prefer this for requests like 'add tag X'.",
+            },
+            "remove_tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags to remove while preserving all other existing tags.",
+            },
+            "venue": {
+                "type": "string",
+                "description": (
+                    "Metadata venue update. Omit to keep the existing venue; pass an empty "
+                    "string only when explicitly clearing it."
+                ),
+            },
+            "date": {
+                "type": "string",
+                "description": (
+                    "Metadata date update. Omit to keep the existing date; pass an empty string "
+                    "only when explicitly clearing it."
+                ),
+            },
+            "category_id": {
+                "type": "string",
+                "description": (
+                    "Metadata category id update. Omit to keep the existing collection/category; "
+                    "do not pass an empty string unless explicitly moving to no category."
+                ),
+            },
+            "collection": {
+                "type": "string",
+                "description": (
+                    "Metadata collection name or collection path. Resolved to category_id before "
+                    "saving. Omit to keep the existing collection; do not pass an empty string "
+                    "as a placeholder."
+                ),
+            },
+            "clear_fields": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["summary", "tags", "venue", "date", "collection"]},
+                "description": (
+                    "Explicit metadata fields to clear. Only use when the user directly asks to "
+                    "clear/remove those values; otherwise omit."
+                ),
+            },
+        },
+        "required": ["note_id"],
         "additionalProperties": False,
     }
 

@@ -25,7 +25,7 @@ from tools.paper_notes.impl.notes import (
     read_note_html,
     replace_note_section,
     search_library,
-    update_note_metadata,
+    update_note_metadata as update_note_metadata_impl,
     validate_note_html,
     write_note_section,
 )
@@ -44,15 +44,10 @@ __all__ = [
     "query_paper_content",
     "read_paper",
     "review_note",
+    "update_note_metadata",
     "write_note",
     "write_note_media",
 ]
-
-def _write_note_resources(args: dict[str, Any]) -> list[str]:
-    note_id = normalize_text(args.get("note_id"))
-    if normalize_text(args.get("action")).lower() == "update_metadata":
-        return ["notes.json", f"note-metadata:{note_id}"]
-    return [f"note-html:{note_id}"]
 
 
 def get_paper_context(
@@ -325,13 +320,19 @@ def write_note(
     if action == "delete_section":
         result = delete_note_section(args, library_path=library_path, html_dir=html_dir)
         return _with_html_validation(result, library_path=library_path, html_dir=html_dir)
-    if action == "update_metadata":
-        return update_note_metadata(_without_action(args), library_path=library_path)
     return tool_error(
         "invalid_action",
-        "action must be write_section, append_to_section, delete_section, or update_metadata.",
+        "action must be write_section, append_to_section, or delete_section.",
         note_id=normalize_text(args.get("note_id")),
     )
+
+
+def update_note_metadata(
+    args: dict[str, Any],
+    *,
+    library_path: Path | None = None,
+) -> dict[str, Any]:
+    return update_note_metadata_impl(args, library_path=library_path)
 
 
 def manage_annotations(

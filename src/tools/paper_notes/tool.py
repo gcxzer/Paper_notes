@@ -19,6 +19,7 @@ from tools.paper_notes.schemas import (
     query_paper_content_parameters,
     read_paper_parameters,
     review_note_parameters,
+    update_note_metadata_parameters,
     write_note_media_parameters,
     write_note_parameters,
 )
@@ -26,6 +27,7 @@ from tools.paper_notes.schemas import (
 __all__ = [
     "create_tools",
 ]
+
 
 def create_tools(
     *,
@@ -117,8 +119,8 @@ def create_tools(
         StructuredTool(
             name="write_note",
             description=(
-                "Modify note HTML sections or note metadata. Use action=append_to_section for normal additions, "
-                "write_section for replacing or creating a section, delete_section, or update_metadata."
+                "Modify note HTML sections. Use action=append_to_section for normal additions, "
+                "write_section for replacing or creating a section, or delete_section."
             ),
             args_schema=write_note_parameters(),
             func=lambda **kwargs: facade.write_note(
@@ -126,6 +128,20 @@ def create_tools(
                 library_path=library_path,
                 html_dir=html_dir,
                 media_store=media_store,
+            ),
+        ),
+        StructuredTool(
+            name="update_note_metadata",
+            description=(
+                "Partially update note metadata such as summary, tags, venue, date, or collection. "
+                "Include only fields that should change; omit unchanged fields instead of passing "
+                "empty placeholders. Use this for metadata only; use write_note for note HTML "
+                "section changes."
+            ),
+            args_schema=update_note_metadata_parameters(),
+            func=lambda **kwargs: facade.update_note_metadata(
+                dict(kwargs),
+                library_path=library_path,
             ),
         ),
         StructuredTool(

@@ -31,7 +31,7 @@ function normalizeText(value) {
 function sanitizeVisibleAgentError(value) {
   const text = normalizeText(value);
   if (!text) return GENERIC_AGENT_ERROR;
-  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? GENERIC_AGENT_ERROR : text;
+  return text;
 }
 
 function normalizeTags(value) {
@@ -56,6 +56,34 @@ function readExpandedState() {
 
 function saveExpandedState() {
   localStorage.setItem(EXPANDED_KEY, JSON.stringify([...state.expandedCategoryIds]));
+}
+
+function readActiveCategoryState() {
+  try {
+    return normalizeText(localStorage.getItem(ACTIVE_CATEGORY_KEY));
+  } catch (error) {
+    console.warn("Failed to read active collection.", error);
+    return "";
+  }
+}
+
+function saveActiveCategoryState() {
+  try {
+    localStorage.setItem(ACTIVE_CATEGORY_KEY, state.activeCategoryId || ALL_CATEGORY_ID);
+  } catch (error) {
+    console.warn("Failed to save active collection.", error);
+  }
+}
+
+function setActiveCategory(categoryId, { clearSelection = true } = {}) {
+  const nextCategoryId = getCategoryById(categoryId) ? categoryId : ALL_CATEGORY_ID;
+  state.activeCategoryId = nextCategoryId;
+  if (clearSelection) state.selectedNoteId = null;
+  saveActiveCategoryState();
+}
+
+function restoreActiveCategoryState() {
+  setActiveCategory(readActiveCategoryState() || ALL_CATEGORY_ID, { clearSelection: false });
 }
 
 function readLayoutState() {

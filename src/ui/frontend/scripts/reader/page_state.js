@@ -33,7 +33,6 @@ const ANNOTATION_SIDEBAR_DEFAULT_WIDTH = 218;
 const ANNOTATION_SIDEBAR_MIN_WIDTH = 176;
 const ANNOTATION_SIDEBAR_MAX_WIDTH = 360;
 const GENERIC_AGENT_ERROR = "The assistant request failed. Check the selected model and try again.";
-const SENSITIVE_AGENT_ERROR_PATTERN = /(SSL validation failed|ValidationException|AccessDeniedException|runtimeClientError|\[Errno\s+\d+\]|No such file or directory|api[_ -]?key|secret|token)/i;
 const FILE_GENERATION_FORMATS = new Set(["markdown", "text", "json", "csv", "html"]);
 
 const elements = {

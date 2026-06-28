@@ -21,6 +21,7 @@ async function initialize() {
     }
   }
 
+  restoreActiveCategoryState();
   renderApp();
   applyScratchpadSettingControls();
   void loadAiSettings();
@@ -63,8 +64,7 @@ elements.categoryList.addEventListener("click", (event) => {
     else state.expandedCategoryIds.add(categoryId);
     saveExpandedState();
   }
-  state.activeCategoryId = categoryId;
-  state.selectedNoteId = null;
+  setActiveCategory(categoryId);
   renderApp();
 });
 

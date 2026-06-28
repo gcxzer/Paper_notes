@@ -47,7 +47,7 @@ function collapseIntermediateToolActivity(items) {
 }
 
 function intermediateToolActivityKey(item) {
-  if (!item || !["write_note", "manage_annotations", "write_note_media"].includes(item.name)) return "";
+  if (!item || !["write_note", "update_note_metadata", "manage_annotations", "write_note_media"].includes(item.name)) return "";
   const fileKey = toolActivityChangedFileKey(item);
   if (!fileKey) return "";
   return [

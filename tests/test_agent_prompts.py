@@ -22,6 +22,7 @@ CURRENT_PAPER_NOTES_TOOLS = {
     "web_fetch",
     "web_search",
     "write_note",
+    "update_note_metadata",
     "write_note_media",
 }
 
@@ -61,6 +62,10 @@ def test_prompt_includes_only_current_paper_notes_tool_guidance(monkeypatch, tmp
     assert "# External web lookup" in prompt
     assert "# Paper note-writing workflow" in prompt
     assert "Paper_Notes/.paper-notes/media" in prompt
+    assert "Use update_note_metadata" in prompt
+    assert "Metadata updates are partial patches" in prompt
+    assert "omit that field entirely" in prompt
+    assert "update_metadata for metadata" not in prompt
     assert "Use skills_list when the user asks for a specialized workflow" in prompt
     assert "Use skill_view after skills_list to load the relevant SKILL.md" in prompt
 

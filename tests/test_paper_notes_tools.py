@@ -5,11 +5,25 @@ import json
 from tools.paper_notes.tool import create_tools
 from tools.paper_notes.impl import facade
 from tools.paper_notes.impl import paper as paper_impl
-from tools.paper_notes.schemas import get_paper_context_parameters, inspect_paper_visuals_parameters, read_paper_parameters
+from tools.paper_notes.schemas import (
+    get_paper_context_parameters,
+    inspect_paper_visuals_parameters,
+    read_paper_parameters,
+    update_note_metadata_parameters,
+    write_note_parameters,
+)
 
 
-def test_paper_notes_tools_register_public_tool_set():
+def set_rag_config(monkeypatch, tmp_path, *, enabled: bool) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"rag": {"enabled": enabled}}), encoding="utf-8")
+    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+
+
+def test_paper_notes_tools_register_public_tool_set(monkeypatch, tmp_path):
+    set_rag_config(monkeypatch, tmp_path, enabled=True)
     tools = create_tools()
+    metadata_tool = next(tool for tool in tools if tool.name == "update_note_metadata")
 
     assert [tool.name for tool in tools] == [
         "get_paper_context",
@@ -17,12 +31,15 @@ def test_paper_notes_tools_register_public_tool_set():
         "query_paper_content",
         "manage_annotations",
         "write_note",
+        "update_note_metadata",
         "write_note_media",
         "review_note",
     ]
     assert all(callable(tool.func) for tool in tools)
     assert "search_notes" not in [tool.name for tool in tools]
     assert "get_note_context" not in [tool.name for tool in tools]
+    assert "Include only fields that should change" in metadata_tool.description
+    assert "omit unchanged fields" in metadata_tool.description
 
 
 def test_get_paper_context_schema_fuses_search_and_context():
@@ -32,7 +49,8 @@ def test_get_paper_context_schema_fuses_search_and_context():
     assert schema["required"] == []
 
 
-def test_query_paper_content_schema_accepts_single_query():
+def test_query_paper_content_schema_accepts_single_query(monkeypatch, tmp_path):
+    set_rag_config(monkeypatch, tmp_path, enabled=True)
     tool = next(tool for tool in create_tools() if tool.name == "query_paper_content")
     schema = tool.args_schema
 
@@ -66,6 +84,35 @@ def test_read_paper_schema_exposes_direct_text_actions():
     assert schema["properties"]["action"]["enum"] == ["search_text", "read_pages"]
     assert {"note_id", "query", "page_start", "page_end", "limit", "max_chars"} <= set(schema["properties"])
     assert "render_page" not in schema["properties"]["action"]["enum"]
+    assert schema["required"] == ["note_id"]
+
+
+def test_write_note_schema_excludes_metadata_updates():
+    schema = write_note_parameters()
+
+    assert schema["properties"]["action"]["enum"] == ["write_section", "append_to_section", "delete_section"]
+    assert "summary" not in schema["properties"]
+    assert "tags" not in schema["properties"]
+    assert "venue" not in schema["properties"]
+    assert "collection" not in schema["properties"]
+    assert schema["required"] == ["action", "note_id"]
+
+
+def test_update_note_metadata_schema_is_metadata_only():
+    schema = update_note_metadata_parameters()
+
+    assert {"summary", "tags", "add_tags", "remove_tags", "venue", "date", "category_id", "collection"} <= set(
+        schema["properties"]
+    )
+    assert "clear_fields" in schema["properties"]
+    assert "Partial note metadata patch" in schema["description"]
+    assert "omit unchanged fields" in schema["description"]
+    assert "Omit to keep the existing date" in schema["properties"]["date"]["description"]
+    assert "Omit to keep the existing collection" in schema["properties"]["collection"]["description"]
+    assert "heading" not in schema["properties"]
+    assert "html" not in schema["properties"]
+    assert "position" not in schema["properties"]
+    assert "action" not in schema["properties"]
     assert schema["required"] == ["note_id"]
 
 
@@ -106,7 +153,8 @@ def test_read_paper_uses_cached_text_for_search_and_pages(tmp_path):
     assert "Passive retrieval" in pages["text"]
 
 
-def test_paper_notes_tools_hide_visual_inspection_when_unavailable():
+def test_paper_notes_tools_hide_visual_inspection_when_unavailable(monkeypatch, tmp_path):
+    set_rag_config(monkeypatch, tmp_path, enabled=True)
     tools = create_tools(visual_inspection_available=False)
     names = [tool.name for tool in tools]
     query_tool = next(tool for tool in tools if tool.name == "query_paper_content")
@@ -117,9 +165,7 @@ def test_paper_notes_tools_hide_visual_inspection_when_unavailable():
 
 
 def test_paper_notes_tools_hide_query_when_rag_disabled(monkeypatch, tmp_path):
-    config_path = tmp_path / "config.json"
-    config_path.write_text(json.dumps({"rag": {"enabled": False}}), encoding="utf-8")
-    monkeypatch.setenv("PAPER_NOTES_CONFIG", str(config_path))
+    set_rag_config(monkeypatch, tmp_path, enabled=False)
 
     names = [tool.name for tool in create_tools()]
 
@@ -179,6 +225,180 @@ def test_get_paper_context_reads_one_note_context(tmp_path):
     assert result["note"]["title"] == "Attention Is All You Need"
     assert result["sections"][0]["heading"] == "Motivation"
     assert "Why attention matters." in result["html"]["html"]
+
+
+def test_update_note_metadata_updates_summary_and_tags(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({
+            "notes": [{
+                "id": "note-1",
+                "title": "DSpark",
+                "summary": "",
+                "tags": [],
+            }]
+        }),
+        encoding="utf-8",
+    )
+
+    result = facade.update_note_metadata(
+        {
+            "note_id": "note-1",
+            "summary": "Speculative decoding with confidence scheduling.",
+            "tags": ["deepseek", "speculative-decoding"],
+        },
+        library_path=library_path,
+    )
+
+    saved = json.loads(library_path.read_text(encoding="utf-8"))
+    note = saved["notes"][0]
+    assert result["success"] is True
+    assert note["summary"] == "Speculative decoding with confidence scheduling."
+    assert note["tags"] == ["deepseek", "speculative-decoding"]
+
+
+def test_update_note_metadata_ignores_blank_placeholder_fields(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({
+            "categories": [{"id": "collection-deepseek", "name": "DeepSeek"}],
+            "notes": [{
+                "id": "note-1",
+                "title": "DSpark",
+                "summary": "Keep this summary.",
+                "date": "2026-06-27",
+                "categoryId": "collection-deepseek",
+                "venue": "DeepSeek",
+                "tags": [],
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    result = facade.update_note_metadata(
+        {
+            "note_id": "note-1",
+            "summary": "",
+            "tags": ["deepseek"],
+            "venue": "",
+            "date": "",
+            "category_id": "",
+            "collection": "",
+        },
+        library_path=library_path,
+    )
+
+    saved = json.loads(library_path.read_text(encoding="utf-8"))
+    note = saved["notes"][0]
+    assert result["success"] is True
+    assert note["summary"] == "Keep this summary."
+    assert note["date"] == "2026-06-27"
+    assert note["categoryId"] == "collection-deepseek"
+    assert note["venue"] == "DeepSeek"
+    assert note["tags"] == ["deepseek"]
+
+
+def test_update_note_metadata_adds_tags_without_replacing_existing_tags(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "DSpark", "tags": ["speculative-decoding"]}]}),
+        encoding="utf-8",
+    )
+
+    result = facade.update_note_metadata(
+        {
+            "note_id": "note-1",
+            "add_tags": ["deepseek", "speculative-decoding"],
+        },
+        library_path=library_path,
+    )
+
+    saved = json.loads(library_path.read_text(encoding="utf-8"))
+    note = saved["notes"][0]
+    assert result["success"] is True
+    assert note["tags"] == ["speculative-decoding", "deepseek"]
+
+
+def test_update_note_metadata_clear_fields_explicitly_clears_values(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({
+            "notes": [{
+                "id": "note-1",
+                "title": "DSpark",
+                "summary": "Clear me.",
+                "date": "2026-06-27",
+                "categoryId": "collection-deepseek",
+                "venue": "DeepSeek",
+                "tags": ["deepseek"],
+            }]
+        }),
+        encoding="utf-8",
+    )
+
+    result = facade.update_note_metadata(
+        {
+            "note_id": "note-1",
+            "summary": "",
+            "tags": [],
+            "venue": "",
+            "date": "",
+            "collection": "",
+            "clear_fields": ["summary", "tags", "venue", "date", "collection"],
+        },
+        library_path=library_path,
+    )
+
+    saved = json.loads(library_path.read_text(encoding="utf-8"))
+    note = saved["notes"][0]
+    assert result["success"] is True
+    assert note["summary"] == ""
+    assert note["date"] == ""
+    assert note["categoryId"] == "uncategorized"
+    assert note["venue"] == ""
+    assert note["tags"] == []
+
+
+def test_update_note_metadata_rejects_unknown_fields(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "DSpark"}]}),
+        encoding="utf-8",
+    )
+
+    result = facade.update_note_metadata(
+        {
+            "note_id": "note-1",
+            "summary": "Speculative decoding.",
+            "unexpected": "nope",
+        },
+        library_path=library_path,
+    )
+
+    assert result["success"] is False
+    assert result["code"] == "unknown_metadata_fields"
+    assert "unexpected" in result["error"]
+
+
+def test_write_note_rejects_removed_update_metadata_action(tmp_path):
+    library_path = tmp_path / "notes.json"
+    library_path.write_text(
+        json.dumps({"notes": [{"id": "note-1", "title": "DSpark"}]}),
+        encoding="utf-8",
+    )
+
+    result = facade.write_note(
+        {
+            "action": "update_metadata",
+            "note_id": "note-1",
+            "summary": "Speculative decoding.",
+        },
+        library_path=library_path,
+    )
+
+    assert result["success"] is False
+    assert result["code"] == "invalid_action"
+    assert "write_section, append_to_section, or delete_section" in result["error"]
 
 
 def test_inspect_paper_visuals_schema_supports_render_extract_and_analysis():

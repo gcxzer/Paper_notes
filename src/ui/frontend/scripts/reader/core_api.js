@@ -5,13 +5,13 @@ function normalizeText(value) {
 function sanitizeVisibleAgentError(value) {
   const text = normalizeText(value);
   if (!text) return GENERIC_AGENT_ERROR;
-  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? GENERIC_AGENT_ERROR : text;
+  return text;
 }
 
 function sanitizeChatProgressDetail(value) {
   const text = normalizeText(value);
   if (!text) return "";
-  return SENSITIVE_AGENT_ERROR_PATTERN.test(text) ? "The assistant hit a connection issue." : text;
+  return text;
 }
 
 function normalizeResourceHref(value) {

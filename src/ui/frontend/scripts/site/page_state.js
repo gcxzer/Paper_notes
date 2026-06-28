@@ -1,5 +1,6 @@
 const STORAGE_KEY = "paper-notes-library-v14";
 const EXPANDED_KEY = "paper-notes-expanded-v1";
+const ACTIVE_CATEGORY_KEY = "paper-notes-active-category-v1";
 const LAYOUT_KEY = "paper-notes-layout-v1";
 const SORT_KEY = "paper-notes-sort-v1";
 const SCRATCHPAD_ENABLED_KEY = "paper-notes-floating-pad-enabled-v1";
@@ -19,7 +20,6 @@ const DEFAULT_LIBRARY = {
 };
 
 const GENERIC_AGENT_ERROR = "The assistant request failed. Check the selected model and try again.";
-const SENSITIVE_AGENT_ERROR_PATTERN = /(SSL validation failed|ValidationException|AccessDeniedException|runtimeClientError|\[Errno\s+\d+\]|No such file or directory|api[_ -]?key|secret|token)/i;
 
 const state = {
   library: null,

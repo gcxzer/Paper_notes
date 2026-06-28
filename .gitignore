@@ -39,6 +39,9 @@ pnpm-debug.log*
 # Local reference repositories
 hermes-agent/
 
+# Local documentation drafts
+docs/
+
 # Editor and tooling
 .vscode/
 .idea/

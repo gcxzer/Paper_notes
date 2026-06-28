@@ -48,8 +48,7 @@ function createCategory(name, parentId = null) {
       system: false
     });
     if (parentId) state.expandedCategoryIds.add(parentId);
-    state.activeCategoryId = id;
-    state.selectedNoteId = null;
+    setActiveCategory(id);
   });
 }
 
@@ -70,7 +69,7 @@ function deleteCategory(categoryId) {
     library.categories = library.categories.filter((category) => !movedIds.has(category.id));
     state.expandedCategoryIds.delete(categoryId);
     descendants.forEach((childId) => state.expandedCategoryIds.delete(childId));
-    if (movedIds.has(state.activeCategoryId)) state.activeCategoryId = UNCATEGORIZED_ID;
+    if (movedIds.has(state.activeCategoryId)) setActiveCategory(UNCATEGORIZED_ID);
     if (state.selectedNoteId && !getNoteById(state.selectedNoteId)) state.selectedNoteId = null;
   });
 }

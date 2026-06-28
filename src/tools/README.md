@@ -16,7 +16,8 @@ only re-exports the public API.
 - `read_paper`: directly search or read extracted local PDF page text without RAG.
 - `query_paper_content`: semantic retrieval
   over a note's ready local paper index.
-- `write_note`: update note HTML sections or note metadata.
+- `write_note`: update note HTML sections.
+- `update_note_metadata`: update note summary, tags, venue, date, or collection.
 - `manage_annotations`: create, update, or delete Paper Notes annotations.
 - `write_note_media`: insert existing image artifacts into notes.
 - `review_note`: validate note HTML or preview a section diff without saving.

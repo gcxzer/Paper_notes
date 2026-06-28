@@ -245,6 +245,7 @@ class AgentService:
         chunks: list[Any] = []
         yield self._record_stream_status_event(request, run, "Starting agent run.")
         final_messages = yield from self._stream_model_events_with_recovery(request, run, chunks)
+
         finished_at = now_utc()
         run_trace = yield from stream_final_trace_events_and_build_run_trace(
             request,
@@ -297,6 +298,7 @@ class AgentService:
                 metadata=request.metadata,
             )
             is_session_created = True
+
         model_config = model_config_for_request(
             self.app_config,
             request,

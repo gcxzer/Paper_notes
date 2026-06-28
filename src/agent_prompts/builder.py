@@ -77,13 +77,19 @@ def _build_tool_guidance(tool_names: set[str]) -> str:
         "Available local tools:",
     ]
     for tool_name in sorted(tool_names):
-        guidance = TOOL_GUIDANCE_BY_NAME.get(tool_name, f"Use {tool_name} only when it directly helps answer the user.")
-        lines.append(f"- {tool_name}: {guidance}")
+        default_guidance = f"Use {tool_name} only when it directly helps answer the user."
+        guidance = TOOL_GUIDANCE_BY_NAME.get(tool_name, default_guidance)
+        guidance_lines = str(guidance).strip().splitlines()
+        if len(guidance_lines) <= 1:
+            lines.append(f"- {tool_name}: {guidance_lines[0] if guidance_lines else ''}")
+        else:
+            lines.append(f"- {tool_name}:")
+            lines.extend(f"  {line}" if line else "" for line in guidance_lines)
 
     if "get_paper_context" in tool_names:
         lines.extend(["", PAPER_NOTES_SEARCH_QUERY_GUIDANCE])
 
-    if {"write_note", "manage_annotations", "write_note_media"} & tool_names:
+    if {"write_note", "update_note_metadata", "manage_annotations", "write_note_media"} & tool_names:
         lines.extend(["", PAPER_NOTES_WRITING_WORKFLOW_GUIDANCE])
 
     if {"create_file_artifact", "create_image_artifact"} & tool_names:

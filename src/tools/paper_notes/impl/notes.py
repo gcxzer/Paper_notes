@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app_infra.formatting import normalize_text
-from library.store import find_note, normalize_tags, read_library, write_library
+from library.store import UNCATEGORIZED_ID, find_note, normalize_tags, read_library, write_library
 from library.annotations import read_annotations as read_note_annotations
 from tools.paper_notes.impl.artifacts import _resolve_image_artifact_payload
 from tools.paper_notes.impl.common import (
@@ -69,6 +69,12 @@ _METADATA_INPUT_KEYS = {
     "collectionName",
     "collection_path",
     "collectionPath",
+    "add_tags",
+    "addTags",
+    "remove_tags",
+    "removeTags",
+    "clear_fields",
+    "clearFields",
 }
 _METADATA_COLLECTION_KEYS = (
     "collection",
@@ -644,6 +650,40 @@ def _unsupported_metadata_fields(args: dict[str, Any]) -> list[str]:
     return sorted(key for key in args if key not in _METADATA_INPUT_KEYS)
 
 
+def _metadata_tags(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [tag for tag in re.split(r"[,，]", value)]
+    return normalize_tags(value)
+
+
+def _dedupe_tags(tags: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        key = tag.casefold()
+        if key in seen:
+            continue
+        result.append(tag)
+        seen.add(key)
+    return result
+
+
+def _metadata_clear_fields(args: dict[str, Any]) -> set[str]:
+    raw_fields = args.get("clear_fields") if "clear_fields" in args else args.get("clearFields")
+    if isinstance(raw_fields, str):
+        raw_fields = [field for field in re.split(r"[,，]", raw_fields)]
+    if not isinstance(raw_fields, list):
+        return set()
+    fields: set[str] = set()
+    for raw_field in raw_fields:
+        field = normalize_text(raw_field).replace("-", "_").lower()
+        if field in {"summary", "tags", "venue", "date"}:
+            fields.add(field)
+        if field in {"category", "category_id", "categoryid", "collection", "collection_name", "collection_path"}:
+            fields.add("collection")
+    return fields
+
+
 def _metadata_collection_value(args: dict[str, Any]) -> str:
     return normalize_text(next((args.get(key) for key in _METADATA_COLLECTION_KEYS if args.get(key)), ""))
 
@@ -652,22 +692,43 @@ def _metadata_updates_from_args(
     args: dict[str, Any],
     *,
     library: dict[str, Any],
+    note: dict[str, Any],
     note_id: str,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     updates: dict[str, Any] = {}
+    clear_fields = _metadata_clear_fields(args)
     if "summary" in args:
-        updates["summary"] = normalize_text(args.get("summary"))
+        summary = normalize_text(args.get("summary"))
+        if summary or "summary" in clear_fields:
+            updates["summary"] = summary
     if "tags" in args:
-        raw_tags = args.get("tags")
-        if isinstance(raw_tags, str):
-            raw_tags = [tag for tag in re.split(r"[,，]", raw_tags)]
-        updates["tags"] = normalize_tags(raw_tags)
+        tags = _metadata_tags(args.get("tags"))
+        if tags or "tags" in clear_fields:
+            updates["tags"] = _dedupe_tags(tags)
+    if "add_tags" in args or "addTags" in args:
+        add_tags = _metadata_tags(args.get("add_tags") if "add_tags" in args else args.get("addTags"))
+        if add_tags:
+            updates["tags"] = _dedupe_tags([*(updates.get("tags") or _metadata_tags(note.get("tags"))), *add_tags])
+    if "remove_tags" in args or "removeTags" in args:
+        remove_tags = {tag.casefold() for tag in _metadata_tags(args.get("remove_tags") if "remove_tags" in args else args.get("removeTags"))}
+        if remove_tags:
+            updates["tags"] = [
+                tag for tag in (updates.get("tags") or _metadata_tags(note.get("tags"))) if tag.casefold() not in remove_tags
+            ]
     if "venue" in args:
-        updates["venue"] = normalize_text(args.get("venue"))
+        venue = normalize_text(args.get("venue"))
+        if venue or "venue" in clear_fields:
+            updates["venue"] = venue
     if "date" in args:
-        updates["date"] = normalize_text(args.get("date"))
+        date = normalize_text(args.get("date"))
+        if date or "date" in clear_fields:
+            updates["date"] = date
     if "category_id" in args or "categoryId" in args:
-        updates["categoryId"] = normalize_text(args.get("category_id") or args.get("categoryId"))
+        category_id = normalize_text(args.get("category_id") or args.get("categoryId"))
+        if category_id:
+            updates["categoryId"] = category_id
+        elif "collection" in clear_fields:
+            updates["categoryId"] = UNCATEGORIZED_ID
 
     collection_value = _metadata_collection_value(args)
     if collection_value:
@@ -675,6 +736,8 @@ def _metadata_updates_from_args(
         if not resolved_category_id:
             return {}, tool_error("collection_not_found", f"Collection not found: {collection_value}", note_id=note_id)
         updates["categoryId"] = resolved_category_id
+    elif "collection" in clear_fields:
+        updates["categoryId"] = UNCATEGORIZED_ID
 
     if not updates:
         return {}, tool_error("no_metadata_updates", "Provide at least one metadata field to update.", note_id=note_id)
@@ -697,7 +760,7 @@ def update_note_metadata(args: dict[str, Any], *, library_path: Path | None = No
         return tool_error("note_not_found", f"Note not found: {note_id}", note_id=note_id)
 
     before = _note_detail(note, library)
-    updates, update_error = _metadata_updates_from_args(args, library=library, note_id=note_id)
+    updates, update_error = _metadata_updates_from_args(args, library=library, note=note, note_id=note_id)
     if update_error:
         return update_error
 

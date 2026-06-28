@@ -351,6 +351,18 @@ test("library restores unsynced cached collections and saves them", async ({ pag
   expect(persistedLibrary.getStoredLibrary().notes?.find((note) => note.id === E2E_NOTE_ID)?.categoryId).toBe("cached-paper-rag");
 });
 
+test("library restores the active collection after reload", async ({ page }) => {
+  await openFixtureLibrary(page);
+
+  await page.locator("[data-category-id='deepseek']").click();
+  await expect(page.locator("#contentTitle")).toHaveText("DeepSeek");
+  await expect(page.locator("#libraryStatus")).toContainText("1 notes in DeepSeek");
+
+  await page.reload();
+  await expect(page.locator("#contentTitle")).toHaveText("DeepSeek");
+  await expect(page.locator("#libraryStatus")).toContainText("1 notes in DeepSeek");
+});
+
 test("reader workbench toolbar toggles panes and keeps ask composer visible", async ({ page }) => {
   await openFixtureReader(page);
 

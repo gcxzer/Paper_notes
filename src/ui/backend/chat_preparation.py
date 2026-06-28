@@ -253,10 +253,10 @@ def attachment_image_instructions(attachments: list[dict[str, Any]]) -> str:
         "- The user attached one or more images as visible chat content. For requests to translate, OCR/transcribe, "
         "describe, summarize, explain, or answer questions about those attached images, answer directly from the "
         "attached image content.\n"
-        "- Do not call write_note_media, write_note, manage_annotations, or inspect_paper_visuals for ordinary "
+        "- Do not call write_note_media, write_note, update_note_metadata, manage_annotations, or inspect_paper_visuals for ordinary "
         "attached-image Q&A. Use Paper Notes tools only if the user explicitly asks to write/update the note, "
-        "insert media into the note, change annotations, render/extract a PDF page, or inspect a paper image that "
-        "is not already attached.\n"
+        "update note metadata, insert media into the note, change annotations, render/extract a PDF page, or inspect "
+        "a paper image that is not already attached.\n"
         "- If you cannot read the attached image content, say so directly instead of trying a note-writing tool."
     )
 
